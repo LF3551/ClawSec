@@ -1221,7 +1221,7 @@ int main(int argc, char **argv)
     fflush (stderr);		/* I dont care if it's unbuffered or not! */
     insaved = read (0, cp, BIGSIZ);	/* we're gonna fake fgets() here */
     if (insaved <= 0)
-      bail ("wrong");
+      bail("wrong", NULL, NULL, NULL, NULL, NULL, NULL);
     x = findline (cp, insaved);
     if (x)
       insaved -= x;		/* remaining chunk size to be sent */
@@ -1258,7 +1258,7 @@ int main(int argc, char **argv)
 /* Debug (("in go: x now %c, optarg %x optind %d", x, optarg, optind)) */
     switch (x) {
       case 'a':
-	bail ("all-A-records NIY");
+	bail("all-A-records NIY", NULL, NULL, NULL, NULL, NULL, NULL);
 	o_alla++; break;
 #ifdef GAPING_SECURITY_HOLE
       case 'e':				/* prog to exec */
@@ -1277,11 +1277,11 @@ int main(int argc, char **argv)
 	if ((x) && (x == (x & 0x1c)))	/* mask off bits of fukt values */
 	  gatesptr = x;
 	else
-	  bail ("invalid hop pointer %d, must be multiple of 4 <= 28", x);
+	  bail("invalid hop pointer %d, must be multiple of 4 <= 28", (char *)(intptr_t)x, NULL, NULL, NULL, NULL, NULL);
 	break;
       case 'g':				/* srcroute hop[s] */
 	if (gatesidx > 8)
-	  bail ("too many -g hops");
+	  bail("too many -g hops", NULL, NULL, NULL, NULL, NULL, NULL);
 	if (gates == NULL)		/* eat this, Billy-boy */
 	  gates = (HINF **) Hmalloc (sizeof (HINF *) * 10);
 	gp = gethostpoop (optarg, o_nflag);
@@ -1294,12 +1294,12 @@ int main(int argc, char **argv)
 #ifdef HAVE_HELP
 	helpme();			/* exits by itself */
 #else
-	bail ("no help available, dork -- RTFS");
+	bail("no help available, dork -- RTFS", NULL, NULL, NULL, NULL, NULL, NULL);
 #endif
       case 'i':				/* line-interval time */
 	o_interval = atoi (optarg) & 0xffff;
 	if (! o_interval)
-	  bail ("invalid interval time %s", optarg);
+	  bail("invalid interval time %s", optarg, NULL, NULL, NULL, NULL, NULL);
 	break;
       case 'l':				/* listen mode */
 	o_listen++; break;
@@ -1311,7 +1311,7 @@ int main(int argc, char **argv)
       case 'p':				/* local source port */
 	o_lport = getportpoop (optarg, 0);
 	if (o_lport == 0)
-	  bail ("invalid local port %s", optarg);
+	  bail("invalid local port %s", optarg, NULL, NULL, NULL, NULL, NULL);
 	break;
       case 'r':				/* randomize various things */
 	o_random++; break;
@@ -1368,7 +1368,7 @@ Debug (("fd_set size %d", sizeof (*ding1)))	/* how big *is* it? */
   if (o_wfile) {
     ofd = open (stage, O_WRONLY | O_CREAT | O_TRUNC, 0664);
     if (ofd <= 0)			/* must be > extant 0/1/2 */
-      bail ("can't open %s", stage);
+      bail("can't open %s", stage, NULL, NULL, NULL, NULL, NULL);
     stage = (unsigned char *) Hmalloc (100);
   }
 
@@ -1396,7 +1396,7 @@ Debug (("after go: x now %c, optarg %x optind %d", x, optarg, optind))
     if (argv[optind]) {			/* any rem-port-arg? */
       curport = getportpoop (argv[optind], 0);
       if (curport == 0)			/* if given, demand correctness */
-	bail ("invalid port %s", argv[optind]);
+	bail("invalid port %s", argv[optind], NULL, NULL, NULL, NULL, NULL);
     } /* if port-arg */
     netfd = dolisten (themaddr, curport, ouraddr, o_lport);
 /* dolisten does its own connect reporting, so we don't holler anything here */
@@ -1422,10 +1422,6 @@ Debug (("after go: x now %c, optarg %x optind %d", x, optarg, optind))
     Single = 0;				/* multi-mode, case A */
   ourport = o_lport;			/* which can be 0 */
 
-/* everything from here down is treated as as ports and/or ranges thereof, so
-   it's all enclosed in this big ol' argv-parsin' loop.  Any randomization is
-   done within each given *range*, but in separate chunks per each succeeding
-   argument, so we can control the pattern somewhat. */
   while (argv[optind]) {
     hiport = loport = 0;
     cp = strchr (argv[optind], '-');	/* nn-mm range? */
@@ -1538,7 +1534,8 @@ options:");
 	-v			verbose [use twice to be more verbose]\n\
 	-w secs			timeout for connects and final net reads\n\
 	-z			zero-I/O mode [used for scanning]");
-  bail ("port numbers can be individual or ranges: lo-hi [inclusive]");
+  bail("port numbers can be individual or ranges: lo-hi [inclusive]", NULL, NULL, NULL, NULL, NULL, NULL);
+
 } /* helpme */
 #endif /* HAVE_HELP */
 
