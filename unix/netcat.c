@@ -559,11 +559,7 @@ Debug (("gonna exec %s as %s...", pr00gie, p))
    with appropriate socket options set up if we wanted source-routing, or
 	an unconnected TCP or UDP socket to listen on.
    Examines various global o_blah flags to figure out what-all to do. */
-int doconnect (rad, rp, lad, lp)
-  IA * rad;
-  USHORT rp;
-  IA * lad;
-  USHORT lp;
+int doconnect(IA *rad, USHORT rp, IA *lad, USHORT lp)
 {
   register int nnetfd;
   register int rr;
@@ -577,17 +573,17 @@ newskt:
   else
     nnetfd = socket (AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (nnetfd < 0)
-    bail ("Can't get socket");
+    bail("Can't get socket", NULL, NULL, NULL, NULL, NULL, NULL);
   if (nnetfd == 0)		/* if stdin was closed this might *be* 0, */
     goto newskt;		/* so grab another.  See text for why... */
   x = 1;
   rr = setsockopt (nnetfd, SOL_SOCKET, SO_REUSEADDR, &x, sizeof (x));
   if (rr == -1)
-    holler ("nnetfd reuseaddr failed");		/* ??? */
+    holler("nnetfd reuseaddr failed", NULL, NULL, NULL, NULL, NULL, NULL);
 #ifdef SO_REUSEPORT	/* doesnt exist everywhere... */
   rr = setsockopt (nnetfd, SOL_SOCKET, SO_REUSEPORT, &x, sizeof (x));
   if (rr == -1)
-    holler ("nnetfd reuseport failed");		/* ??? */
+    holler("nnetfd reuseport failed", NULL, NULL, NULL, NULL, NULL, NULL);
 #endif
 #if 0
 /* If you want to screw with RCVBUF/SNDBUF, do it here.  Liudvikas Bukys at
@@ -621,15 +617,15 @@ newskt:
       if (errno != EADDRINUSE)
 	break;
       else {
-	holler ("retrying local %s:%d", inet_ntoa (lclend->sin_addr), lp);
+	holler("retrying local %s:%d", inet_ntoa(lclend->sin_addr), (char *)(intptr_t)lp, NULL, NULL, NULL, NULL);
 	sleep (2);
 	errno = 0;			/* clear from sleep */
       } /* if EADDRINUSE */
     } /* for y counter */
   } /* if lad or lp */
   if (rr)
-    bail ("Can't grab %s:%d with bind",
-	inet_ntoa(lclend->sin_addr), lp);
+    bail("Can't grab %s:%d with bind", inet_ntoa(lclend->sin_addr), (char *)(intptr_t)lp, NULL, NULL, NULL, NULL);
+
 
   if (o_listen)
     return (nnetfd);			/* thanks, that's all for today */
@@ -700,7 +696,7 @@ Linux is also still a loss at 1.3.x it looks like; the lsrr code is { }...
     x = ((gatesidx + 1) * sizeof (IA)) + 4;
     rr = setsockopt (nnetfd, IPPROTO_IP, IP_OPTIONS, optbuf, x);
     if (rr == -1)
-      bail ("srcrt setsockopt fuxored");
+      bail("srcrt setsockopt fuxored", NULL, NULL, NULL, NULL, NULL, NULL);
 #else /* IP_OPTIONS */
     holler ("Warning: source routing unavailable on this machine, ignoring");
 #endif /* IP_OPTIONS*/
@@ -726,11 +722,7 @@ Linux is also still a loss at 1.3.x it looks like; the lsrr code is { }...
    incoming and returns an open connection *from* someplace.  If we were
    given host/port args, any connections from elsewhere are rejected.  This
    in conjunction with local-address binding should limit things nicely... */
-int dolisten (rad, rp, lad, lp)
-  IA * rad;
-  USHORT rp;
-  IA * lad;
-  USHORT lp;
+int dolisten(IA *rad, USHORT rp, IA *lad, USHORT lp)
 {
   register int nnetfd;
   register int rr;
@@ -746,11 +738,11 @@ int dolisten (rad, rp, lad, lp)
     return (-1);
   if (o_udpmode) {			/* apparently UDP can listen ON */
     if (! lp)				/* "port 0",  but that's not useful */
-      bail ("UDP listen needs -p arg");
+      bail("UDP listen needs -p arg", NULL, NULL, NULL, NULL, NULL, NULL);
   } else {
     rr = listen (nnetfd, 1);		/* gotta listen() before we can get */
     if (rr < 0)				/* our local random port.  sheesh. */
-      bail ("local listen fuxored");
+      bail("local listen fuxored", NULL, NULL, NULL, NULL, NULL, NULL);
   }
 
 /* Various things that follow temporarily trash bigbuf_net, which might contain
@@ -766,7 +758,7 @@ int dolisten (rad, rp, lad, lp)
     x = sizeof (SA);		/* how 'bout getsockNUM instead, pinheads?! */
     rr = getsockname (nnetfd, (SA *) lclend, &x);
     if (rr < 0)
-      holler ("local getsockname failed");
+      holler("local getsockname failed", NULL, NULL, NULL, NULL, NULL, NULL);
     strcpy (bigbuf_net, "listening on [");	/* buffer reuse... */
     if (lclend->sin_addr.s_addr)
       strcat (bigbuf_net, inet_ntoa (lclend->sin_addr));
@@ -774,7 +766,7 @@ int dolisten (rad, rp, lad, lp)
       strcat (bigbuf_net, "any");
     strcat (bigbuf_net, "] %d ...");
     z = ntohs (lclend->sin_port);
-    holler (bigbuf_net, z);
+    holler(bigbuf_net, (char *)(intptr_t)z, NULL, NULL, NULL, NULL, NULL);
   } /* verbose -- whew!! */
 
 /* UDP is a speeeeecial case -- we have to do I/O *and* get the calling
@@ -834,7 +826,7 @@ whoisit:
   x = 40;
   rr = getsockopt (nnetfd, IPPROTO_IP, IP_OPTIONS, optbuf, &x);
   if (rr < 0)
-    holler ("getsockopt failed");
+    holler("getsockopt failed", NULL, NULL, NULL, NULL, NULL, NULL);
 Debug (("ipoptions ret len %d", x))
   if (x) {				/* we've got options, lessee em... */
     unsigned char * q = (unsigned char *) optbuf;
@@ -847,7 +839,8 @@ Debug (("ipoptions ret len %d", x))
 	q++; p++;
 	x--;
     }
-    holler ("IP options: %s", bigbuf_net);
+    holler("IP options: %s", bigbuf_net, NULL, NULL, NULL, NULL, NULL);
+
   } /* if x, i.e. any options */
 dol_noop:
 #endif /* IP_OPTIONS */
@@ -861,7 +854,7 @@ dol_noop:
   x = sizeof (SA);
   rr = getsockname (nnetfd, (SA *) lclend, &x);
   if (rr < 0)
-    holler ("post-rcv getsockname failed");
+    holler("post-rcv getsockname failed", NULL, NULL, NULL, NULL, NULL, NULL);
   strcpy (cp, inet_ntoa (lclend->sin_addr));
 
 /* now check out who it is.  We don't care about mismatched DNS names here,
