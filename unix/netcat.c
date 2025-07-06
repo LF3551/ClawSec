@@ -33,6 +33,11 @@
 	backend progs to grab a pty and look like a real telnetd?!
 	backend progs to do various encryption modes??!?!
 */
+#include <unistd.h>    // close, sleep, dup2, execl, read, write
+#include <stdlib.h>    // exit, malloc, free, alarm
+#include <string.h>    // strcpy, strncpy, memset, memcpy, strcmp, strcasecmp
+#include <stdio.h>     // printf, fprintf, perror, sprintf
+#include <stdarg.h>    // если будут новые объявления varargs
 
 #include "generic.h"		/* same as with L5, skey, etc */
 
@@ -193,9 +198,7 @@ USHORT o_zero = 0;
    fake varargs -- need to do this way because we wind up calling through
    more levels of indirection than vanilla varargs can handle, and not all
    machines have vfprintf/vsyslog/whatever!  6 params oughta be enough. */
-void holler (str, p1, p2, p3, p4, p5, p6)
-  char * str;
-  char * p1, * p2, * p3, * p4, * p5, * p6;
+void holler(char *str, char *p1, char *p2, char *p3, char *p4, char *p5, char *p6)
 {
   if (o_verbose) {
     fprintf (stderr, str, p1, p2, p3, p4, p5, p6);
@@ -1428,8 +1431,12 @@ main (argc, argv)
 	break;
 #endif
       case 'k':
-	farm9crypt_init(memcpy(keystr, optarg, MAXKEYSIZE));
-	break;	
+    strncpy(keystr, optarg, MAXKEYSIZE - 1);
+    keystr[MAXKEYSIZE - 1] = '\0';
+    crypt_key_f9 = keystr;
+    farm9crypt_init(crypt_key_f9);
+    break;
+
       case 'G':				/* srcrt gateways pointer val */
 	x = atoi (optarg);
 	if ((x) && (x == (x & 0x1c)))	/* mask off bits of fukt values */

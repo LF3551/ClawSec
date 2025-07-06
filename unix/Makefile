@@ -11,8 +11,9 @@
 # DFLAGS = -DTEST -DDEBUG
 DFLAGS = -DGAPING_SECURITY_HOLE
 CFLAGS = -O
-XFLAGS = 	# xtra cflags, set by systype targets
-XLIBS =		# xtra libs if necessary?
+XFLAGS = -I/opt/homebrew/opt/openssl@3/include
+XLIBS = -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto
+
 # -Bstatic for sunos,  -static for gcc, etc.  You want this, trust me.
 STATIC =
 CC = cc $(CFLAGS)
@@ -28,8 +29,9 @@ bogus:
 
 ### HARD TARGETS
 
-cryptcat:	netcat.c farm9crypt.o twofish2.o
-	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o cryptcat netcat.c farm9crypt.o twofish2.o $(XLIBS)
+cryptcat:	netcat.c farm9crypt.o aesgcm.o
+	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o cryptcat netcat.c farm9crypt.o aesgcm.o $(XLIBS)
+
 
 nc-dos:
 	@echo "DOS?!  Maybe someday, but not now"
@@ -68,8 +70,9 @@ aix:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DAIX'
 
 linux:
-	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX' STATIC=-static \
-	XLIBS='-lstdc++' 
+	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX -I/opt/homebrew/opt/openssl@3/include' \
+	XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++' STATIC=
+
 
 # irix 5.2, dunno 'bout earlier versions.  If STATIC='-non_shared' doesn't
 # work for you, null it out and yell at SGI for their STUPID default
@@ -115,10 +118,11 @@ next:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DNEXT' STATIC=-Bstatic
 
 farm9crypt.o: farm9crypt.cc farm9crypt.h
-		${CC} -c farm9crypt.cc
+		${CC} $(XFLAGS) -c farm9crypt.cc
 
-twofish2.o: twofish2.cc twofish2.h
-		${CC} -c twofish2.cc
+aesgcm.o: aesgcm.cc aesgcm.h
+		${CC} $(XFLAGS) -c aesgcm.cc
+
 
 # start with this for a new architecture, and see what breaks.
 generic:
