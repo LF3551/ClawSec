@@ -43,10 +43,11 @@
 
 /* conditional includes -- a very messy section which you may have to dink
    for your own architecture [and please send diffs...]: */
-/* #undef _POSIX_SOURCE		/* might need this for something? */
-#define HAVE_BIND		/* ASSUMPTION -- seems to work everywhere! */
-#define HAVE_HELP		/* undefine if you dont want the help text */
-/* #define ANAL			/* if you want case-sensitive DNS matching */
+/* #undef _POSIX_SOURCE */    /* might need this for something? */
+#define HAVE_BIND             /* ASSUMPTION -- seems to work everywhere! */
+#define HAVE_HELP             /* undefine if you dont want the help text */
+/* #define ANAL */            /* if you want case-sensitive DNS matching */
+
 
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
