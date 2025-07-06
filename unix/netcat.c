@@ -208,7 +208,7 @@ void holler(char *str, char *p1, char *p2, char *p3, char *p4, char *p5, char *p
       if (h_errno > 4)		/* oh no you don't, either */
 	fprintf (stderr, "preposterous h_errno: %d", h_errno);
       else
-	fprintf (stderr, h_errs[h_errno]);	/* handle it here */
+	fprintf (stderr, "%s", h_errs[h_errno]);
       h_errno = 0;				/* and reset for next call */
     }
 #endif
@@ -222,16 +222,15 @@ void holler(char *str, char *p1, char *p2, char *p3, char *p4, char *p5, char *p
 
 /* bail :
    error-exit handler, callable from anywhere */
-void bail (str, p1, p2, p3, p4, p5, p6)
-  char * str;
-  char * p1, * p2, * p3, * p4, * p5, * p6;
+void bail(char *str, char *p1, char *p2, char *p3, char *p4, char *p5, char *p6)
 {
   o_verbose = 1;
-  holler (str, p1, p2, p3, p4, p5, p6);
-  close (netfd);
-  sleep (1);
-  exit (1);
-} /* bail */
+  holler(str, p1, p2, p3, p4, p5, p6);
+  close(netfd);
+  sleep(1);
+  exit(1);
+}
+
 
 /* catch :
    no-brainer interrupt handler */
@@ -239,8 +238,8 @@ void catch ()
 {
   errno = 0;
   if (o_verbose > 1)		/* normally we don't care */
-    bail (wrote_txt, wrote_net, wrote_out);
-  bail (" punt!");
+    bail(wrote_txt, (char *) (intptr_t) wrote_net, (char *) (intptr_t) wrote_out, NULL, NULL, NULL, NULL);
+  bail(" punt!", NULL, NULL, NULL, NULL, NULL, NULL);
 }
 
 /* timeout and other signal handling cruft */
@@ -249,26 +248,25 @@ void tmtravel ()
   signal (SIGALRM, SIG_IGN);
   alarm (0);
   if (jval == 0)
-    bail ("spurious timer interrupt!");
+    bail("spurious timer interrupt!", NULL, NULL, NULL, NULL, NULL, NULL);
   longjmp (jbuf, jval);
 }
 
 /* arm :
    set the timer.  Zero secs arg means unarm */
-void arm (num, secs)
-  unsigned int num;
-  unsigned int secs;
+void arm(unsigned int num, unsigned int secs)
 {
-  if (secs == 0) {			/* reset */
+  if (secs == 0) { /* reset */
     signal (SIGALRM, SIG_IGN);
     alarm (0);
     jval = 0;
-  } else {				/* set */
+  } else { /* set */
     signal (SIGALRM, tmtravel);
     alarm (secs);
     jval = num;
-  } /* if secs */
-} /* arm */
+  }
+}
+
 
 /* Hmalloc :
    malloc up what I want, rounded up to *4, and pre-zeroed.  Either succeeds
@@ -281,7 +279,7 @@ char * Hmalloc (size)
   if (p != NULL)
     memset (p, 0, s);
   else
-    bail ("Hmalloc %d failed", s);
+    bail("Hmalloc %d failed", (char *)(intptr_t)s, NULL, NULL, NULL, NULL, NULL);
   return (p);
 } /* Hmalloc */
 
@@ -331,7 +329,7 @@ int comparehosts (poop, hp)
 #else
   if (strcasecmp (poop->name, hp->h_name) != 0) {	/* normal */
 #endif
-    holler ("DNS fwd/rev mismatch: %s != %s", poop->name, hp->h_name);
+    holler("DNS fwd/rev mismatch: %s != %s", poop->name, hp->h_name, NULL, NULL, NULL, NULL);
     return (1);
   }
   return (0);
