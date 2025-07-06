@@ -1,53 +1,14 @@
-/* 
-   Shared secret TwoFish Encryption added 9/20/00  -JoJo
-   Extra -k Option added to set Shared secret key 9/25/00 -Xram_LraK
-   wrap user-supplied string to farm9crypt_init with memcpy() and ...
-   #ifdef resolv.h for broken linux distros 2/9/2001 -Jeff Nathan
-   
-*/
 
-/* Netcat 1.10 RELEASE 960320
-
-   A damn useful little "backend" utility begun 950915 or thereabouts,
-   as *Hobbit*'s first real stab at some sockets programming.  Something that
-   should have and indeed may have existed ten years ago, but never became a
-   standard Unix utility.  IMHO, "nc" could take its place right next to cat,
-   cp, rm, mv, dd, ls, and all those other cryptic and Unix-like things.
-
-   Read the README for the whole story, doc, applications, etc.
-
-   Layout:
-	conditional includes:
-	includes:
-	handy defines:
-	globals:
-	malloced globals:
-	cmd-flag globals:
-	support routines:
-	readwrite select loop:
-	main:
-
-  bluesky:
-	parse ranges of IP address as well as ports, perhaps
-	RAW mode!
-	backend progs to grab a pty and look like a real telnetd?!
-	backend progs to do various encryption modes??!?!
-*/
 #include <unistd.h>    // close, sleep, dup2, execl, read, write
 #include <stdlib.h>    // exit, malloc, free, alarm
 #include <string.h>    // strcpy, strncpy, memset, memcpy, strcmp, strcasecmp
 #include <stdio.h>     // printf, fprintf, perror, sprintf
 #include <stdarg.h>    // если будут новые объявления varargs
-
 #include "generic.h"		/* same as with L5, skey, etc */
-
-/* conditional includes -- a very messy section which you may have to dink
-   for your own architecture [and please send diffs...]: */
-/* #undef _POSIX_SOURCE */    /* might need this for something? */
+#include "farm9crypt.h"
 #define HAVE_BIND             /* ASSUMPTION -- seems to work everywhere! */
 #define HAVE_HELP             /* undefine if you dont want the help text */
 /* #define ANAL */            /* if you want case-sensitive DNS matching */
-
 
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
@@ -64,7 +25,6 @@
 #endif				/* fd's, something is horribly wrong! */
 #define FD_SETSIZE 16		/* <-- this'll give us a long anyways, wtf */
 #include <sys/types.h>		/* *now* do it.  Sigh, this is broken */
-
 #ifdef HAVE_RANDOM		/* aficionados of ?rand48() should realize */
 #define SRAND srandom		/* that this doesn't need *strong* random */
 #define RAND random		/* numbers just to mix up port numbers!! */
@@ -100,7 +60,6 @@
 #define SLEAZE_PORT 31337	/* for UDP-scan RTT trick, change if ya want */
 #define USHORT unsigned short	/* use these for options an' stuff */
 #define BIGSIZ 8192		/* big buffers */
-
 #ifndef INADDR_NONE
 #define INADDR_NONE 0xffffffff
 #endif
@@ -108,7 +67,6 @@
 #undef MAXHOSTNAMELEN		/* might be too small on aix, so fix it */
 #endif
 #define MAXHOSTNAMELEN 256
-
 #define MAXKEYSIZE 32
 
 struct host_poop {
@@ -192,13 +150,6 @@ USHORT o_zero = 0;
 #endif
 
 
-/* support routines -- the bulk of this thing.  Placed in such an order that
-   we don't have to forward-declare anything: */
-
-/* holler :
-   fake varargs -- need to do this way because we wind up calling through
-   more levels of indirection than vanilla varargs can handle, and not all
-   machines have vfprintf/vsyslog/whatever!  6 params oughta be enough. */
 void holler(char *str, char *p1, char *p2, char *p3, char *p4, char *p5, char *p6)
 {
   if (o_verbose) {
@@ -382,13 +333,7 @@ HINF *gethostpoop(char *name, USHORT numeric)
 }
 
 
-/* getportpoop :
-   Same general idea as gethostpoop -- look up a port in /etc/services, fill
-   in global port_poop, but return the actual port *number*.  Pass ONE of:
-	pstring to resolve stuff like "23" or "exec";
-	pnum to reverse-resolve something that's already a number.
-   If o_nflag is on, fill in what we can but skip the getservby??? stuff.
-   Might as well have consistent behavior here, and it *is* faster. */
+
 USHORT getportpoop(char *pstring, unsigned int pnum)
 {
 
@@ -420,10 +365,7 @@ USHORT getportpoop(char *pstring, unsigned int pnum)
     goto gp_finish;
   } /* if pnum */
 
-/* case 2: resolve a string, but we still give preference to numbers instead
-   of trying to resolve conflicts.  None of the entries in *my* extensive
-   /etc/services begins with a digit, so this should "always work" unless
-   you're at 3com and have some company-internal services defined... */
+
   if (pstring) {
     if (pnum)				/* one or the other, pleeze */
       return (0);
@@ -633,43 +575,7 @@ newskt:
   memcpy (&remend->sin_addr.s_addr, rad, sizeof (IA));
   remend->sin_port = htons (rp);
 
-/* rough format of LSRR option and explanation of weirdness.
-Option comes after IP-hdr dest addr in packet, padded to *4, and ihl > 5.
-IHL is multiples of 4, i.e. real len = ip_hl << 2.
-	type 131	1	; 0x83: copied, option class 0, number 3
-	len		1	; of *whole* option!
-	pointer		1	; nxt-hop-addr; 1-relative, not 0-relative
-	addrlist...	var	; 4 bytes per hop-addr
-	pad-to-32	var	; ones, i.e. "NOP"
 
-If we want to route A -> B via hops C and D, we must add C, D, *and* B to the
-options list.  Why?  Because when we hand the kernel A -> B with list C, D, B
-the "send shuffle" inside the kernel changes it into A -> C with list D, B and
-the outbound packet gets sent to C.  If B wasn't also in the hops list, the
-final destination would have been lost at this point.
-
-When C gets the packet, it changes it to A -> D with list C', B where C' is
-the interface address that C used to forward the packet.  This "records" the
-route hop from B's point of view, i.e. which address points "toward" B.  This
-is to make B better able to return the packets.  The pointer gets bumped by 4,
-so that D does the right thing instead of trying to forward back to C.
-
-When B finally gets the packet, it sees that the pointer is at the end of the
-LSRR list and is thus "completed".  B will then try to use the packet instead
-of forwarding it, i.e. deliver it up to some application.
-
-Note that by moving the pointer yourself, you could send the traffic directly
-to B but have it return via your preconstructed source-route.  Playing with
-this and watching "tcpdump -v" is the best way to understand what's going on.
-
-Only works for TCP in BSD-flavor kernels.  UDP is a loss; udp_input calls
-stripoptions() early on, and the code to save the srcrt is notdef'ed.
-Linux is also still a loss at 1.3.x it looks like; the lsrr code is { }...
-*/
-
-/* if any -g arguments were given, set up source-routing.  We hit this after
-   the gates are all looked up and ready to rock, any -G pointer is set,
-   and gatesidx is now the *number* of hops */
   if (gatesidx) {		/* if we wanted any srcrt hops ... */
 /* don't even bother compiling if we can't do IP options here! */
 #ifdef IP_OPTIONS
@@ -677,7 +583,8 @@ Linux is also still a loss at 1.3.x it looks like; the lsrr code is { }...
       char * opp;		/* then do all this setup hair */
       optbuf = Hmalloc (48);
       opp = optbuf;
-      *opp++ = IPOPT_LSRR;					/* option */
+      *opp++ = (unsigned char)IPOPT_LSRR;
+
       *opp++ = (char)
 	(((gatesidx + 1) * sizeof (IA)) + 3) & 0xff;		/* length */
       *opp++ = gatesptr;					/* pointer */
@@ -717,17 +624,12 @@ Linux is also still a loss at 1.3.x it looks like; the lsrr code is { }...
   return (-1);
 } /* doconnect */
 
-/* dolisten :
-   just like doconnect, and in fact calls a hunk of doconnect, but listens for
-   incoming and returns an open connection *from* someplace.  If we were
-   given host/port args, any connections from elsewhere are rejected.  This
-   in conjunction with local-address binding should limit things nicely... */
+
 int dolisten(IA *rad, USHORT rp, IA *lad, USHORT lp)
 {
   register int nnetfd;
   register int rr;
   HINF * whozis = NULL;
-  int x;
   char * cp;
   USHORT z;
   errno = 0;
@@ -745,18 +647,12 @@ int dolisten(IA *rad, USHORT rp, IA *lad, USHORT lp)
       bail("local listen fuxored", NULL, NULL, NULL, NULL, NULL, NULL);
   }
 
-/* Various things that follow temporarily trash bigbuf_net, which might contain
-   a copy of any recvfrom()ed packet, but we'll read() another copy later. */
 
-/* I can't believe I have to do all this to get my own goddamn bound address
-   and port number.  It should just get filled in during bind() or something.
-   All this is only useful if we didn't say -p for listening, since if we
-   said -p we *know* what port we're listening on.  At any rate we won't bother
-   with it all unless we wanted to see it, although listening quietly on a
-   random unknown port is probably not very useful without "netstat". */
   if (o_verbose) {
-    x = sizeof (SA);		/* how 'bout getsockNUM instead, pinheads?! */
-    rr = getsockname (nnetfd, (SA *) lclend, &x);
+    socklen_t slen;
+    slen = sizeof(SA);
+    rr = getsockname(nnetfd, (SA *)lclend, &slen);
+
     if (rr < 0)
       holler("local getsockname failed", NULL, NULL, NULL, NULL, NULL, NULL);
     strcpy (bigbuf_net, "listening on [");	/* buffer reuse... */
@@ -775,6 +671,7 @@ int dolisten(IA *rad, USHORT rp, IA *lad, USHORT lp)
    us something came in, and we can set things up so straight read/write
    actually does work after all.  Yow.  YMMV on strange platforms!  */
   if (o_udpmode) {
+    socklen_t x;
     x = sizeof (SA);		/* retval for recvfrom */
     arm (2, o_wait);		/* might as well timeout this, too */
     if (setjmp (jbuf) == 0) {	/* do timeout for initial connect */
@@ -800,6 +697,7 @@ Debug (("dolisten/recvfrom ding, rr = %d, netbuf %s ", rr, bigbuf_net))
   } /* o_udpmode */
 
 /* fall here for TCP */
+socklen_t x;
   x = sizeof (SA);		/* retval for accept */
   arm (2, o_wait);		/* wrap this in a timer, too; 0 = forever */
   if (setjmp (jbuf) == 0) {
@@ -878,10 +776,14 @@ dol_noop:
     if (z != rp)
       x = 1;
   if (x)					/* guilty! */
-    bail ("invalid connection to [%s] from %s [%s] %d",
-	cp, whozis->name, whozis->addrs[0], z);
-  holler ("connect to [%s] from %s [%s] %d",		/* oh, you're okay.. */
-	cp, whozis->name, whozis->addrs[0], z);
+    bail("invalid connection to [%s] from %s [%s] %d",
+    cp, whozis->name, whozis->addrs[0], (char *)(intptr_t)z, NULL, NULL);
+
+
+  holler("connect to [%s] from %s [%s] %d",
+    cp, whozis->name, whozis->addrs[0], (char *)(intptr_t)z, NULL, NULL);
+
+
   return (nnetfd);				/* open! */
 
 dol_tmo:
@@ -901,15 +803,14 @@ dol_err:
    Use the time delay between writes if given, otherwise use the "tcp ping"
    trick for getting the RTT.  [I got that idea from pluvius, and warped it.]
    Return either the original fd, or clean up and return -1. */
-udptest (fd, where)
-  int fd;
-  IA * where;
+int udptest(int fd, IA *where)
 {
   register int rr;
 
   rr = write (fd, bigbuf_in, 1);
   if (rr != 1)
-    holler ("udptest first write failed?! errno %d", errno);
+    holler("udptest first write failed?! errno %d", (char *)(intptr_t)errno, NULL, NULL, NULL, NULL, NULL);
+
   if (o_wait)
     sleep (o_wait);
   else {
@@ -934,20 +835,8 @@ udptest (fd, where)
   return (-1);
 } /* udptest */
 
-/* oprint :
-   Hexdump bytes shoveled either way to a running logfile, in the format:
-D offset       -  - - - --- 16 bytes --- - - -  -     # .... ascii .....
-   where "which" sets the direction indicator, D:
-	0 -- sent to network, or ">"
-	1 -- rcvd and printed to stdout, or "<"
-   and "buf" and "n" are data-block and length.  If the current block generates
-   a partial line, so be it; we *want* that lockstep indication of who sent
-   what when.  Adapted from dgaudet's original example -- but must be ripping
-   *fast*, since we don't want to be too disk-bound... */
-void oprint (which, buf, n)
-  int which;
-  char * buf;
-  int n;
+
+void oprint(int which, char *buf, int n)
 {
   int bc;			/* in buffer count */
   int obc;			/* current "global" offset */
@@ -959,7 +848,8 @@ void oprint (which, buf, n)
   register unsigned int y;
 
   if (! ofd)
-    bail ("oprint called with no open fd?!");
+    bail("oprint called with no open fd?!", NULL, NULL, NULL, NULL, NULL, NULL);
+
   if (n == 0)
     return;
 
@@ -996,7 +886,8 @@ void oprint (which, buf, n)
     } /* if bc < x */
 
     bc -= x;			/* fix wrt current line size */
-    sprintf (&stage[2], "%8.8x ", obc);		/* xxx: still slow? */
+    sprintf((char *)&stage[2], "%8.8x ", obc);
+
     obc += x;			/* fix current offset */
     op = &stage[11];		/* where hex starts */
     a = &stage[61];		/* where ascii starts */
@@ -1021,7 +912,7 @@ void oprint (which, buf, n)
     *a = '\n';			/* finish the line */
     x = write (ofd, stage, soc);
     if (x < 0)
-      bail ("ofd write err");
+      bail("ofd write err", NULL, NULL, NULL, NULL, NULL, NULL);
   } /* while bc */
 } /* oprint */
 
@@ -1071,9 +962,9 @@ notiac:
 /* readwrite :
    handle stdin/stdout/network I/O.  Bwahaha!! -- the select loop from hell.
    In this instance, return what might become our exit status. */
-int readwrite (fd)
-  int fd;
+int readwrite(int fd)
 {
+
   register int rr;
   register char * zp;		/* stdin buf ptr */
   register char * np;		/* net-in buf ptr */
@@ -1086,7 +977,8 @@ int readwrite (fd)
 /* if you don't have all this FD_* macro hair in sys/types.h, you'll have to
    either find it or do your own bit-bashing: *ding1 |= (1 << fd), etc... */
   if (fd > FD_SETSIZE) {
-    holler ("Preposterous fd value %d", fd);
+    holler("Preposterous fd value %d", (char *)(intptr_t)fd, NULL, NULL, NULL, NULL, NULL);
+
     return (1);
   }
   FD_SET (fd, ding1);		/* global: the net is open */
@@ -1123,7 +1015,8 @@ int readwrite (fd)
     rr = select (16, ding2, 0, 0, timer2);	/* here it is, kiddies */
     if (rr < 0) {
 	if (errno != EINTR) {		/* might have gotten ^Zed, etc ?*/
-	  holler ("select fuxored");
+	  holler("select fuxored", NULL, NULL, NULL, NULL, NULL, NULL);
+
 	  close (fd);
 	  return (1);
 	}
@@ -1135,7 +1028,8 @@ int readwrite (fd)
 	  netretry--;			/* we actually try a coupla times. */
 	if (! netretry) {
 	  if (o_verbose > 1)		/* normally we don't care */
-	    holler ("net timeout");
+	    holler("net timeout", NULL, NULL, NULL, NULL, NULL, NULL);
+
 	  close (fd);
 	  return (0);			/* not an error! */
 	}
@@ -1194,12 +1088,14 @@ shovel:
 
 /* sanity check.  Works because they're both unsigned... */
     if ((rzleft > 8200) || (rnleft > 8200)) {
-	holler ("Bogus buffers: %d, %d", rzleft, rnleft);
+	holler("Bogus buffers: %d, %d", (char *)(intptr_t)rzleft, (char *)(intptr_t)rnleft, NULL, NULL, NULL, NULL);
+
 	rzleft = rnleft = 0;
     }
 /* net write retries sometimes happen on UDP connections */
     if (! wretry) {			/* is something hung? */
-	holler ("too many output retries");
+	holler("too many output retries", NULL, NULL, NULL, NULL, NULL, NULL);
+
 	return (1);
     }
     if (rnleft) {
@@ -1252,10 +1148,9 @@ Debug (("wrote %d to net, errno %d", rr, errno))
 
 /* main :
    now we pull it all together... */
-main (argc, argv)
-  int argc;
-  char ** argv;
+int main(int argc, char **argv)
 {
+
 #ifndef HAVE_GETOPT
   extern char * optarg;
   extern int optind, optopt;
