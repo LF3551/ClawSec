@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  clawsec-server:
+    build: .
+    container_name: clawsec-server
+    ports:
+      - "8888:8888"
+    environment:
+      - CLAW_PASSWORD=TestPassword123
+    command: ["-l", "-p", "8888", "-k", "TestPassword123", "-v"]
+    networks:
+      - clawsec-net
+
+  clawsec-client:
+    build: .
+    container_name: clawsec-client
+    depends_on:
+      - clawsec-server
+    environment:
+      - CLAW_PASSWORD=TestPassword123
+    command: ["-k", "TestPassword123", "clawsec-server", "8888"]
+    stdin_open: true
+    tty: true
+    networks:
+      - clawsec-net
+
+networks:
+  clawsec-net:
+    driver: bridge

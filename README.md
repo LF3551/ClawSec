@@ -12,11 +12,36 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 
 ## Quick Start
 
-### Build
+### Automatic Installation
+
+```bash
+# Clone repository
+git clone https://github.com/LF3551/ClawSec.git
+cd ClawSec
+
+# Run installer
+chmod +x install.sh
+./install.sh
+```
+
+### Manual Build
 
 ```bash
 cd unix
 make linux    # or: make freebsd, make netbsd, make solaris
+```
+
+### Docker
+
+```bash
+# Build image
+docker build -t clawsec .
+
+# Run server
+docker run -p 8888:8888 clawsec -l -p 8888 -k "YourPassword"
+
+# Or use docker-compose
+docker-compose up
 ```
 
 ### Basic Usage

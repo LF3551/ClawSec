@@ -1,0 +1,26 @@
+[Unit]
+Description=ClawSec Encrypted Network Tool
+After=network.target
+
+[Service]
+Type=simple
+User=clawsec
+Group=clawsec
+WorkingDirectory=/opt/clawsec
+ExecStart=/opt/clawsec/clawsec -l -p 8888 -k ${CLAW_PASSWORD}
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/clawsec
+
+# Environment
+Environment="CLAW_PASSWORD=ChangeThisPassword"
+EnvironmentFile=-/etc/clawsec/clawsec.env
+
+[Install]
+WantedBy=multi-user.target

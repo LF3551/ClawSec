@@ -1,0 +1,76 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev build-essential
+    
+    - name: Build
+      run: |
+        cd unix
+        make clean
+        make linux
+    
+    - name: Test binary
+      run: |
+        cd unix
+        ./clawsec -h || true
+        test -f clawsec
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: clawsec-linux
+        path: unix/clawsec
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: |
+        brew install openssl@3
+    
+    - name: Build
+      run: |
+        cd unix
+        make clean
+        make linux
+    
+    - name: Test binary
+      run: |
+        cd unix
+        ./clawsec -h || true
+        test -f clawsec
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: clawsec-macos
+        path: unix/clawsec
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Build Docker image
+      run: |
+        docker build -t clawsec:test .
+    
+    - name: Test Docker image
+      run: |
+        docker run --rm clawsec:test -h || true
