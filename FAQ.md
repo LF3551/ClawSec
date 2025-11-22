@@ -120,7 +120,6 @@ cd unix && make clean && make linux
 ```
 
 ## Docker
-
 ### How do I run ClawSec in Docker?
 ```bash
 docker build -t clawsec .
