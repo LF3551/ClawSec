@@ -15,7 +15,8 @@ COPY README.md SECURITY.md /app/
 
 # Build
 WORKDIR /app/unix
-RUN make clean && make generic
+RUN make clean && \
+    XFLAGS="-I/usr/include" XLIBS="-lssl -lcrypto -lstdc++" make generic
 
 # Create non-root user
 RUN adduser -D -u 1000 clawsec
