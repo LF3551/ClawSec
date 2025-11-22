@@ -3,8 +3,23 @@
 [![Build Status](https://github.com/LF3551/ClawSec/actions/workflows/build.yml/badge.svg)](https://github.com/LF3551/ClawSec/actions)
 [![License](https://img.shields.io/badge/License-BSD-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20BSD-lightgrey.svg)](https://github.com/LF3551/ClawSec)
+[![GitHub release](https://img.shields.io/github/v/release/LF3551/ClawSec)](https://github.com/LF3551/ClawSec/releases)
+[![GitHub stars](https://img.shields.io/github/stars/LF3551/ClawSec?style=social)](https://github.com/LF3551/ClawSec)
+[![Docker Pulls](https://img.shields.io/docker/pulls/lf3551/clawsec)](https://ghcr.io/lf3551/clawsec)
 
 Modern encrypted network tool evolved from Cryptcat with state-of-the-art cryptography.
+
+## Why ClawSec?
+
+| Feature | ClawSec | Cryptcat | Ncat (--ssl) | socat (openssl) |
+|---------|---------|----------|--------------|-----------------|
+| **Encryption** | AES-256-GCM | Twofish (deprecated) | TLS 1.3 | TLS 1.3 |
+| **Authentication** | AEAD + PBKDF2 | None | Certificate | Certificate |
+| **Setup** | Single password | Hardcoded key | Certificate required | Certificate required |
+| **Lightweight** | ✅ 72KB | ✅ Small | ❌ Large | ❌ Large |
+| **Drop-in Netcat** | ✅ Yes | ✅ Yes | ⚠️ Partial | ❌ No |
+
+Perfect for: Secure file transfers, reverse shells, encrypted tunnels without certificate management.
 
 ## Security Features
 
