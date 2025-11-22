@@ -3,6 +3,7 @@ FROM alpine:latest
 # Install dependencies
 RUN apk add --no-cache \
     openssl-dev \
+    openssl-libs-static \
     gcc \
     g++ \
     make \
@@ -10,19 +11,15 @@ RUN apk add --no-cache \
 
 # Copy source
 WORKDIR /app
-COPY unix/ /app/unix/
-COPY README.md SECURITY.md /app/
+COPY unix/ ./unix/
 
 # Build
 WORKDIR /app/unix
-RUN make clean && \
-    XFLAGS="-I/usr/include" XLIBS="-lssl -lcrypto -lstdc++" make generic
+RUN make clean && make alpine
 
 # Create non-root user
-RUN adduser -D -u 1000 clawsec
-
-# Set permissions
-RUN chown -R clawsec:clawsec /app
+RUN adduser -D -u 1000 clawsec && \
+    chown -R clawsec:clawsec /app
 
 USER clawsec
 WORKDIR /app/unix

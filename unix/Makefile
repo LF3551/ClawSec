@@ -126,7 +126,12 @@ aesgcm.o: aesgcm.cc aesgcm.h
 
 # start with this for a new architecture, and see what breaks.
 generic:
-	make -e $(ALL) $(MFLAGS) XFLAGS='-DGENERIC' STATIC=
+	make -e $(ALL) $(MFLAGS) XFLAGS='$(XFLAGS) -DGENERIC' XLIBS='$(XLIBS) -lstdc++' STATIC=
+
+# Alpine Linux / musl libc
+alpine:
+	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX -DGENERIC' \
+	XLIBS='-lssl -lcrypto -lstdc++' STATIC=
 
 # Still at large: dgux dynix ???
 
