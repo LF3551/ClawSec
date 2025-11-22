@@ -2,6 +2,7 @@
 
 ## General
 
+
 ### What is ClawSec?
 ClawSec is a modern encrypted network tool that provides AES-256-GCM encryption for secure data transfer. It evolved from Cryptcat with completely rewritten cryptography using current best practices.
 
