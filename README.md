@@ -5,7 +5,6 @@
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20BSD-lightgrey.svg)](https://github.com/LF3551/ClawSec)
 [![GitHub release](https://img.shields.io/github/v/release/LF3551/ClawSec)](https://github.com/LF3551/ClawSec/releases)
 [![GitHub stars](https://img.shields.io/github/stars/LF3551/ClawSec?style=social)](https://github.com/LF3551/ClawSec)
-[![Docker Pulls](https://img.shields.io/docker/pulls/lf3551/clawsec)](https://ghcr.io/lf3551/clawsec)
 
 Modern encrypted network tool evolved from Cryptcat with state-of-the-art cryptography.
 
