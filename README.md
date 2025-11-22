@@ -8,6 +8,7 @@
 
 Modern encrypted network tool evolved from Cryptcat with state-of-the-art cryptography.
 
+
 ## Why ClawSec?
 
 | Feature | ClawSec | Cryptcat | Ncat (--ssl) | socat (openssl) |
