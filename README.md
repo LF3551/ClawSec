@@ -1,16 +1,29 @@
 <p align="center">
-  <img src="ClawSec-small.png" alt="ClawSec Logo" width="180" />
+  <img src="ClawSec-small.png" alt="ClawSec logo" width="150" />
 </p>
 
-# ClawSec
+<h1 align="center">ClawSec</h1>
 
-[![Build Status](https://github.com/LF3551/ClawSec/actions/workflows/build.yml/badge.svg)](https://github.com/LF3551/ClawSec/actions)
-[![License](https://img.shields.io/badge/License-BSD-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20BSD-lightgrey.svg)](https://github.com/LF3551/ClawSec)
-[![GitHub release](https://img.shields.io/github/v/release/LF3551/ClawSec)](https://github.com/LF3551/ClawSec/releases)
-[![GitHub stars](https://img.shields.io/github/stars/LF3551/ClawSec?style=social)](https://github.com/LF3551/ClawSec)
+<p align="center">
+  <a href="https://github.com/LF3551/ClawSec/actions">
+    <img src="https://github.com/LF3551/ClawSec/actions/workflows/build.yml/badge.svg" alt="Build Status" />
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-BSD-blue.svg" alt="License: BSD" />
+  </a>
+  <a href="https://github.com/LF3551/ClawSec">
+    <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20BSD-lightgrey.svg" alt="Platforms" />
+  </a>
+  <a href="https://github.com/LF3551/ClawSec/releases">
+    <img src="https://img.shields.io/github/v/release/LF3551/ClawSec" alt="GitHub release" />
+  </a>
+  <a href="https://github.com/LF3551/ClawSec/stargazers">
+    <img src="https://img.shields.io/github/stars/LF3551/ClawSec?style=social" alt="GitHub stars" />
+  </a>
+</p>
 
 Modern encrypted network tool evolved from Cryptcat with state-of-the-art cryptography.
+
 
 
 ## Why ClawSec?
