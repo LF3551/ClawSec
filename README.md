@@ -1,59 +1,56 @@
 # ClawSec
 
-**Modern, secure, and minimalist encrypted network tool** — evolved from Cryptcat with state-of-the-art cryptography.
+Modern encrypted network tool evolved from Cryptcat with state-of-the-art cryptography.
 
-## 🔐 Security Features
+## Security Features
 
 - **AES-256-GCM**: Authenticated encryption with integrity verification
-- **PBKDF2**: Password-based key derivation (100,000 iterations)
+- **PBKDF2**: Password-based key derivation with 100,000 iterations
 - **Secure Random IV**: Cryptographically strong per-message randomization
-- **Protocol Versioning**: Future-proof message format
+- **Protocol Versioning**: Future-proof binary message format
 - **Memory Safety**: Secure key wiping and resource cleanup
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Build
 
 ```bash
 cd unix
-make linux    # or: make freebsd, make netbsd, make solaris, etc.
+make linux    # or: make freebsd, make netbsd, make solaris
 ```
 
 ### Basic Usage
 
 ```bash
 # Listen mode (server)
-./cryptcat -l -p 1234 -k "YourStrongPassword123!"
+./clawsec -l -p 1234 -k "YourStrongPassword123"
 
 # Connect mode (client)
-./cryptcat <server-ip> 1234 -k "YourStrongPassword123!"
+./clawsec <server-ip> 1234 -k "YourStrongPassword123"
 ```
 
 ### File Transfer
 
 ```bash
 # Receiver
-./cryptcat -l -p 9999 -k "SecureTransfer2025" > received_file.txt
+./clawsec -l -p 9999 -k "SecureTransfer2025" > received_file.txt
 
 # Sender
-./cryptcat <receiver-ip> 9999 -k "SecureTransfer2025" < file_to_send.txt
+./clawsec <receiver-ip> 9999 -k "SecureTransfer2025" < file_to_send.txt
 ```
 
-## 📋 Requirements
+## Requirements
 
 - **OpenSSL 3.x**: For AES-GCM encryption
 - **GCC/G++**: C++11 or later
-- **POSIX System**: Linux, *BSD, macOS, Solaris, etc.
+- **POSIX System**: Linux, BSD, macOS, Solaris
 
-### Install OpenSSL on macOS
+### Install OpenSSL
 
 ```bash
+# macOS
 brew install openssl@3
-```
 
-### Install OpenSSL on Linux
-
-```bash
 # Debian/Ubuntu
 sudo apt-get install libssl-dev
 
@@ -61,81 +58,81 @@ sudo apt-get install libssl-dev
 sudo yum install openssl-devel
 ```
 
-## 🔧 Usage Options
+## Usage
 
 ```
-Usage: cryptcat [options] hostname port
-       cryptcat -l -p port [options]
+Usage: clawsec [options] hostname port
+       clawsec -l -p port [options]
 
 Required:
-  -k password       Encryption password (REQUIRED, min 8 chars recommended)
+  -k password       Encryption password (REQUIRED)
 
 Connection:
   -l                Listen mode for inbound connections
   -p port           Local port number
   -s addr           Local source address
 
-Security:
-  -v                Verbose mode (shows encryption details)
+Options:
+  -v                Verbose mode
+  -w secs           Timeout for connects and reads
   -n                Numeric-only IP addresses (no DNS)
-
-Advanced:
-  -i secs           Delay interval for lines/ports
-  -w secs           Timeout for connects and final reads
   -z                Zero-I/O mode (port scanning)
-  -o file           Hex dump of traffic to file
   -u                UDP mode
-  -e prog           Execute program (DANGEROUS - compile with -DGAPING_SECURITY_HOLE)
-
-Examples:
-  # Simple encrypted chat
-  cryptcat -l -p 4444 -k "MyPassword"              # Server
-  cryptcat 192.168.1.100 4444 -k "MyPassword"      # Client
-
-  # Verbose mode with timeout
-  cryptcat -l -p 8080 -k "Secret123" -v -w 30
-
-  # File transfer
-  cryptcat -l -p 9999 -k "FilePass" > backup.tar.gz
-  cryptcat server.com 9999 -k "FilePass" < backup.tar.gz
+  -i secs           Delay interval for lines/ports
+  -o file           Hex dump of traffic to file
+  -e prog           Execute program after connect (requires DGAPING_SECURITY_HOLE)
 ```
 
-## 🔒 Security Best Practices
+## Examples
+
+```bash
+# Simple encrypted communication
+clawsec -l -p 4444 -k "MyPassword"              # Server
+clawsec 192.168.1.100 4444 -k "MyPassword"      # Client
+
+# File transfer
+clawsec -l -p 9999 -k "FilePass" > backup.tar.gz
+clawsec server.com 9999 -k "FilePass" < backup.tar.gz
+
+# Verbose mode with timeout
+clawsec -l -p 8080 -k "Secret123" -v -w 30
+```
+
+## Security Guidelines
 
 ### Password Requirements
 
-✅ **Good Passwords:**
-- Minimum 12 characters
+**Strong passwords:**
+- Minimum 12 characters recommended
 - Mix of uppercase, lowercase, numbers, symbols
-- Example: `MyS3cur3!Tr@nsf3r#2025`
+- Example: `MyS3cur3Tr@nsf3r2025`
 
-❌ **Bad Passwords:**
-- Default passwords (like "metallica")
-- Dictionary words ("password123")
-- Too short (< 8 characters)
+**Avoid:**
+- Default passwords
+- Dictionary words
+- Short passwords (less than 8 characters)
 
 ### Operational Security
 
-1. **Never hardcode passwords** in scripts
-2. **Use environment variables** for automation:
-   ```bash
-   export CLAW_KEY="YourSecurePassword"
-   cryptcat -l -p 1234 -k "$CLAW_KEY"
-   ```
-3. **Clear command history** after use:
-   ```bash
-   history -c
-   ```
-4. **Share passwords securely** (encrypted email, Signal, etc.)
+1. Never hardcode passwords in scripts
+2. Use environment variables for automation
+3. Clear command history after use
+4. Share passwords through secure channels only
 
-## 🛡️ Cryptographic Details
+```bash
+# Using environment variables
+export CLAW_KEY="YourSecurePassword"
+clawsec -l -p 1234 -k "$CLAW_KEY"
+```
+
+## Cryptographic Specifications
 
 | Component | Algorithm | Parameters |
 |-----------|-----------|------------|
 | Cipher | AES-256 | 256-bit key |
 | Mode | GCM | AEAD with authentication |
 | Key Derivation | PBKDF2-HMAC-SHA256 | 100,000 iterations |
-| IV | Random | 96 bits (12 bytes) |
+| IV | CSPRNG | 96 bits (12 bytes) |
 | Auth Tag | GMAC | 128 bits (16 bytes) |
 
 ### Protocol Format
@@ -144,116 +141,106 @@ Examples:
 [MAGIC:4][VERSION:2][FLAGS:2][LENGTH:4][IV:12][TAG:16][CIPHERTEXT]
 ```
 
-- **Magic**: `0x434C4157` ("CLAW")
-- **Version**: `0x0001` (protocol v1)
-- **Automatic authentication** and integrity verification
+- Magic number: `0x434C4157` ("CLAW")
+- Version: `0x0001` (protocol v1)
+- Automatic authentication and integrity verification
 
-See [SECURITY.md](SECURITY.md) for detailed security documentation.
+See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 
-## 📊 Comparison
+## Comparison
 
 | Feature | ClawSec | Original Cryptcat | Netcat |
 |---------|---------|-------------------|--------|
-| Encryption | AES-256-GCM ✅ | Twofish (deprecated) | None ❌ |
-| Authentication | HMAC-based ✅ | None ❌ | None ❌ |
-| Key Derivation | PBKDF2 ✅ | Direct key ❌ | N/A |
-| Memory Safety | Secure wiping ✅ | No ⚠️ | N/A |
-| Protocol Version | Yes ✅ | No ❌ | N/A |
+| Encryption | AES-256-GCM | Twofish (deprecated) | None |
+| Authentication | GCM Tag | None | None |
+| Key Derivation | PBKDF2 | Direct key | N/A |
+| Memory Safety | Secure wiping | No | N/A |
+| Protocol Version | Yes | No | N/A |
 
-## 🧪 Testing
+## Testing
 
 ```bash
-# Compile test suite
+# Compile and run encryption tests
 cd unix
 make test_aes
-
-# Run encryption tests
 ./test_aes
 
 # Test connection (two terminals)
 # Terminal 1:
-./cryptcat -l -p 12345 -k "TestPassword" -v
+./clawsec -l -p 12345 -k "TestPassword" -v
 
 # Terminal 2:
-echo "Hello, encrypted world!" | ./cryptcat localhost 12345 -k "TestPassword"
+echo "Test message" | ./clawsec localhost 12345 -k "TestPassword"
 ```
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### "Encryption not initialized"
-**Cause**: Missing `-k` password option  
-**Solution**: Always provide `-k "YourPassword"`
+Missing `-k` password option. Always provide password parameter.
 
 ### "Decryption/authentication failed"
-**Cause**: Password mismatch or corrupted data  
-**Solution**: Ensure both sides use identical password
+Password mismatch or corrupted data. Verify both endpoints use identical password.
 
 ### "Connection closed by peer"
-**Cause**: Protocol version mismatch or network issue  
-**Solution**: Update both endpoints to same ClawSec version
+Protocol version mismatch or network error. Update both endpoints to same version.
 
-### OpenSSL errors
-**Cause**: OpenSSL library not found  
-**Solution**: 
+### OpenSSL library errors
 ```bash
-# macOS
+# macOS: Set OpenSSL paths
 export CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
 export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
 make clean && make linux
 ```
 
-## 📝 Changelog
+## Changelog
 
 ### Version 2.0 (November 2025)
-- ✨ **NEW**: AES-256-GCM authenticated encryption
-- ✨ **NEW**: PBKDF2 password-based key derivation
-- ✨ **NEW**: Protocol versioning and magic number
-- 🔒 **SECURITY**: Removed hardcoded default key
-- 🔒 **SECURITY**: Secure random IV generation
-- 🔒 **SECURITY**: Memory wiping for sensitive data
-- 🐛 **FIX**: Improved error handling
-- 📚 **DOCS**: Comprehensive security documentation
+- Added AES-256-GCM authenticated encryption
+- Added PBKDF2 password-based key derivation
+- Added protocol versioning with magic number
+- Removed hardcoded default password
+- Implemented secure random IV generation
+- Added memory wiping for sensitive data
+- Improved error handling
+- Comprehensive security documentation
 
 ### Version 1.x (Legacy Cryptcat)
 - Twofish encryption (deprecated)
 - Direct key usage (insecure)
 
-## 🤝 Contributing
+## Contributing
 
-Contributions welcome! Please:
+Contributions are welcome. Please:
 
-1. Review [SECURITY.md](SECURITY.md) for security guidelines
-2. Test thoroughly before submitting
-3. Document all security-relevant changes
+1. Review [SECURITY.md](SECURITY.md) before submitting security-related changes
+2. Test thoroughly
+3. Document all changes
 4. Follow existing code style
 
-## ⚖️ License
+## License
 
 Based on Netcat and Cryptcat. See [LICENSE](LICENSE) for details.
 
-## ⚠️ Legal Notice
+## Legal Notice
 
-**This tool is for authorized testing and legitimate use only.**
+This tool is for authorized testing and legitimate use only.
 
-- Ensure you have permission before testing networks
+- Obtain permission before testing networks
 - Comply with all applicable laws and regulations
-- Not responsible for misuse or unauthorized access
+- Authors not responsible for misuse or unauthorized access
 - Use at your own risk
 
-## 🙏 Credits
+## Credits
 
-- **Original Netcat**: Hobbit
-- **Original Cryptcat**: Farm9 team
-- **ClawSec Modernization**: 2025 security enhancements
-- **OpenSSL Project**: Cryptographic library
+- Original Netcat: Hobbit
+- Original Cryptcat: Farm9 team
+- ClawSec Modernization: 2025 security enhancements
+- OpenSSL Project: Cryptographic library
 
-## 📚 Further Reading
+## Documentation
 
 - [SECURITY.md](SECURITY.md) - Detailed security documentation
+- [EXAMPLE_USAGE.md](EXAMPLE_USAGE.md) - Usage examples
 - [OpenSSL GCM Documentation](https://wiki.openssl.org/index.php/EVP_Authenticated_Encryption_and_Decryption)
 - [NIST SP 800-38D](https://csrc.nist.gov/publications/detail/sp/800-38d/final) - GCM Specification
 - [PBKDF2 RFC 8018](https://tools.ietf.org/html/rfc8018)
-
----
-
-**⚡ Stay Secure. Stay Private. Stay ClawSec.**

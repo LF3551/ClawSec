@@ -1,4 +1,5 @@
 # Compiled binaries
+unix/clawsec
 unix/cryptcat
 unix/*.o
 unix/*.obj

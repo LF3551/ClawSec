@@ -1173,13 +1173,8 @@ int main(int argc, char **argv)
   USHORT hiport = 0;
   USHORT curport = 0;
   char * randports = NULL;
-  char * crypt_key_f9 = "metallica";
+  char * crypt_key_f9 = NULL;
   char keystr[32];
-
-/*  if(farm9crypt_initialized() == 0) {
-    farm9crypt_init(crypt_key_f9);
-  }
-*/
   
 #ifdef HAVE_BIND
 /* can *you* say "cc -yaddayadda netcat.c -lresolv -l44bsd" on SunLOSs? */

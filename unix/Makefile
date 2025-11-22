@@ -20,7 +20,7 @@ CC = cc $(CFLAGS)
 LD = $(CC) -s	# linker; defaults to stripped executables
 o = o		# object extension
 
-ALL = cryptcat
+ALL = clawsec
 
 ### BOGON-CATCHERS
 
@@ -29,8 +29,8 @@ bogus:
 
 ### HARD TARGETS
 
-cryptcat:	netcat.c farm9crypt.o aesgcm.o
-	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o cryptcat netcat.c farm9crypt.o aesgcm.o $(XLIBS)
+clawsec:	netcat.c farm9crypt.o aesgcm.o
+	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec netcat.c farm9crypt.o aesgcm.o $(XLIBS)
 
 
 nc-dos:
@@ -133,5 +133,5 @@ generic:
 ### RANDOM
 
 clean:
-	rm -f $(ALL) *.o *.obj
+	rm -f clawsec cryptcat *.o *.obj
 

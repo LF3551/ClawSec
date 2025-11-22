@@ -1,94 +1,92 @@
 # ClawSec Usage Examples
 
-## Quick Test
+## Basic Connection Test
 
-### Terminal 1 (Server):
+### Terminal 1 (Server)
 ```bash
 cd unix
-./cryptcat -l -p 9999 -k "TestPassword123!" -v
+./clawsec -l -p 9999 -k "TestPassword123" -v
 ```
 
-### Terminal 2 (Client):
+### Terminal 2 (Client)
 ```bash
 cd unix
-echo "Hello encrypted world!" | ./cryptcat localhost 9999 -k "TestPassword123!" -v
+echo "Hello encrypted world" | ./clawsec localhost 9999 -k "TestPassword123" -v
 ```
 
 ## File Transfer
 
-### Send a file:
+### Send a file
 ```bash
 # Receiver
-./cryptcat -l -p 8080 -k "SecureFile2025" > received.tar.gz
+./clawsec -l -p 8080 -k "SecureFile2025" > received.tar.gz
 
 # Sender  
-./cryptcat 192.168.1.100 8080 -k "SecureFile2025" < backup.tar.gz
+./clawsec 192.168.1.100 8080 -k "SecureFile2025" < backup.tar.gz
 ```
 
-## Chat Mode
+## Interactive Chat
 
 Both sides can type interactively:
 
 ```bash
 # Server
-./cryptcat -l -p 4444 -k "ChatPassword"
+./clawsec -l -p 4444 -k "ChatPassword"
 
 # Client
-./cryptcat server.example.com 4444 -k "ChatPassword"
+./clawsec server.example.com 4444 -k "ChatPassword"
 ```
 
-## Common Mistakes
+## Common Errors
 
-❌ **Wrong**: Missing -k option
+### Missing password option
 ```bash
-./cryptcat -l -p 1234
-# ERROR: Encryption password required!
+# Wrong
+./clawsec -l -p 1234
+# Error: Encryption password required
+
+# Correct
+./clawsec -l -p 1234 -k "YourPassword"
 ```
 
-❌ **Wrong**: Password mismatch
+### Password mismatch
 ```bash
 # Server
-./cryptcat -l -p 1234 -k "Password1"
+./clawsec -l -p 1234 -k "Password1"
 
 # Client  
-./cryptcat localhost 1234 -k "Password2"
-# ERROR: Decryption/authentication failed
-```
+./clawsec localhost 1234 -k "Password2"
+# Error: Decryption/authentication failed
 
-✅ **Correct**: Same password on both sides
-```bash
-# Server
-./cryptcat -l -p 1234 -k "SamePassword123!"
-
-# Client
-./cryptcat localhost 1234 -k "SamePassword123!"
+# Both must use same password
 ```
 
 ## Advanced Options
 
-### With timeout:
+### Connection timeout
 ```bash
-./cryptcat -l -p 5555 -k "Pass" -w 30  # 30 second timeout
+./clawsec -l -p 5555 -k "Pass" -w 30
 ```
 
-### UDP mode:
+### UDP mode
 ```bash
-./cryptcat -l -p 6666 -k "Pass" -u  # UDP instead of TCP
+./clawsec -l -p 6666 -k "Pass" -u
 ```
 
-### Verbose debugging:
+### Verbose debugging
 ```bash
-./cryptcat -l -p 7777 -k "Pass" -vv  # Double verbose
+./clawsec -l -p 7777 -k "Pass" -vv
 ```
 
-## Security Notes
+## Security Best Practices
 
-1. **Never use default passwords** like "metallica"
-2. **Always use strong passwords**: minimum 12 characters
-3. **Share passwords securely** (Signal, encrypted email, etc.)
-4. **Clear history** after use: `history -c`
-5. **Use environment variables** for automation:
-   ```bash
-   export CLAW_PASS="YourSecurePassword"
-   ./cryptcat -l -p 1234 -k "$CLAW_PASS"
-   ```
+1. Never use default or weak passwords
+2. Minimum 12 characters recommended
+3. Share passwords through secure channels only
+4. Clear command history after use: `history -c`
+5. Use environment variables for automation:
+
+```bash
+export CLAW_PASS="YourSecurePassword"
+./clawsec -l -p 1234 -k "$CLAW_PASS"
+```
