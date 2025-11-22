@@ -2,8 +2,6 @@
   <img src="ClawSec-small.png" alt="ClawSec logo" width="150" />
 </p>
 
-<h1 align="center">ClawSec</h1>
-
 <p align="center">
   <a href="https://github.com/LF3551/ClawSec/actions">
     <img src="https://github.com/LF3551/ClawSec/actions/workflows/build.yml/badge.svg" alt="Build Status" />
