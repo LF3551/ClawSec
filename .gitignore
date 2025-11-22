@@ -1,6 +1,5 @@
 # Compiled binaries
 unix/clawsec
-unix/cryptcat
 unix/*.o
 unix/*.obj
 
@@ -15,6 +14,7 @@ unix/test_aes
 *.tar
 *.tar.gz
 *.zip
+release-*/
 
 # Editor files
 *.swp
