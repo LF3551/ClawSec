@@ -1419,8 +1419,88 @@ Debug (("after go: x now %c, optarg %x optind %d", x, optarg, optind))
 /* dolisten does its own connect reporting, so we don't holler anything here */
     if (netfd > 0) {
 #ifdef GAPING_SECURITY_HOLE
-      if (pr00gie)			/* -e given? */
-	doexec (netfd);
+      if (pr00gie) {			/* -e given? */
+	/* Create pipes for encrypted communication with child process */
+	int pipe_to_child[2], pipe_from_child[2];
+	pid_t child_pid;
+	
+	if (pipe(pipe_to_child) < 0 || pipe(pipe_from_child) < 0)
+	  bail("pipe creation failed", NULL, NULL, NULL, NULL, NULL, NULL);
+	
+	child_pid = fork();
+	if (child_pid < 0)
+	  bail("fork failed", NULL, NULL, NULL, NULL, NULL, NULL);
+	
+	if (child_pid == 0) {
+	  /* Child process: redirect pipes to stdin/stdout and exec */
+	  close(pipe_to_child[1]);    /* close write end of input pipe */
+	  close(pipe_from_child[0]);  /* close read end of output pipe */
+	  close(netfd);               /* child doesn't need the socket */
+	  
+	  dup2(pipe_to_child[0], 0);  /* stdin from parent */
+	  dup2(pipe_from_child[1], 1); /* stdout to parent */
+	  dup2(pipe_from_child[1], 2); /* stderr to parent */
+	  
+	  close(pipe_to_child[0]);
+	  close(pipe_from_child[1]);
+	  
+	  /* Now exec the program */
+	  {
+	    register char * p;
+	    p = strrchr(pr00gie, '/');
+	    if (p)
+	      p++;
+	    else
+	      p = pr00gie;
+	    execl(pr00gie, p, NULL);
+	    bail("exec %s failed", pr00gie, NULL, NULL, NULL, NULL, NULL);
+	  }
+	}
+	
+	/* Parent process: close unused pipe ends and relay data */
+	close(pipe_to_child[0]);   /* close read end of input pipe */
+	close(pipe_from_child[1]); /* close write end of output pipe */
+	
+	/* Now relay between network (encrypted) and child (plain) */
+	{
+	  fd_set readfds;
+	  int maxfd = (netfd > pipe_from_child[0]) ? netfd : pipe_from_child[0];
+	  int rr;
+	  char buf[BIGSIZ];
+	  
+	  maxfd++;
+	  while (1) {
+	    FD_ZERO(&readfds);
+	    FD_SET(netfd, &readfds);
+	    FD_SET(pipe_from_child[0], &readfds);
+	    
+	    rr = select(maxfd, &readfds, NULL, NULL, NULL);
+	    if (rr < 0) {
+	      if (errno == EINTR) continue;
+	      break;
+	    }
+	    
+	    /* Data from network (encrypted) -> decrypt and send to child */
+	    if (FD_ISSET(netfd, &readfds)) {
+	      rr = farm9crypt_read(netfd, buf, BIGSIZ);
+	      if (rr <= 0) break;
+	      if (write(pipe_to_child[1], buf, rr) != rr) break;
+	    }
+	    
+	    /* Data from child (plain) -> encrypt and send to network */
+	    if (FD_ISSET(pipe_from_child[0], &readfds)) {
+	      rr = read(pipe_from_child[0], buf, BIGSIZ);
+	      if (rr <= 0) break;
+	      if (farm9crypt_write(netfd, buf, rr) != rr) break;
+	    }
+	  }
+	  
+	  close(pipe_to_child[1]);
+	  close(pipe_from_child[0]);
+	  close(netfd);
+	  exit(0);
+	}
+      }
 #endif /* GAPING_SECURITY_HOLE */
       x = readwrite (netfd);		/* it even works with UDP! */
       if (o_verbose > 1)		/* normally we don't care */
