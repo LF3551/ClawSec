@@ -1,5 +1,9 @@
 # ClawSec
 
+[![Build Status](https://github.com/LF3551/ClawSec/actions/workflows/build.yml/badge.svg)](https://github.com/LF3551/ClawSec/actions)
+[![License](https://img.shields.io/badge/License-BSD-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20BSD-lightgrey.svg)](https://github.com/LF3551/ClawSec)
+
 Modern encrypted network tool evolved from Cryptcat with state-of-the-art cryptography.
 
 ## Security Features
@@ -266,6 +270,9 @@ This tool is for authorized testing and legitimate use only.
 
 - [SECURITY.md](SECURITY.md) - Detailed security documentation
 - [EXAMPLE_USAGE.md](EXAMPLE_USAGE.md) - Usage examples
+- [FAQ.md](FAQ.md) - Frequently asked questions
+- [CHANGELOG.md](CHANGELOG.md) - Version history
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Development guide
 - [OpenSSL GCM Documentation](https://wiki.openssl.org/index.php/EVP_Authenticated_Encryption_and_Decryption)
 - [NIST SP 800-38D](https://csrc.nist.gov/publications/detail/sp/800-38d/final) - GCM Specification
 - [PBKDF2 RFC 8018](https://tools.ietf.org/html/rfc8018)
