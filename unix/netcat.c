@@ -35,6 +35,7 @@
 
 /* includes: */
 #include <sys/time.h>		/* timeval, time_t */
+#include <time.h>		/* time() */
 #include <setjmp.h>		/* jmp_buf et al */
 #include <sys/socket.h>		/* basics, SO_ and AF_ defs, sockaddr, ... */
 #include <netinet/in.h>		/* sockaddr_in, htons, in_addr */
