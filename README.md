@@ -80,22 +80,48 @@ docker-compose up
 
 ### Basic Usage
 
-```bash
-# Listen mode (server)
-./clawsec -l -p 1234 -k "YourStrongPassword123"
+ClawSec supports two main modes: **Chat Mode** and **Reverse Shell Mode**.
 
-# Connect mode (client)
-./clawsec <server-ip> 1234 -k "YourStrongPassword123"
+#### Chat Mode (Encrypted Communication)
+
+Simple encrypted chat between two machines:
+
+```bash
+# Machine 1: Listen for connections
+./clawsec -l -p 4444 -k "MySecurePassword"
+
+# Machine 2: Connect to Machine 1
+./clawsec 192.168.1.100 4444 -k "MySecurePassword"
 ```
 
-### File Transfer
+Now you can type messages on either side - everything is encrypted with AES-256-GCM.
+
+#### Reverse Shell Mode (Encrypted Remote Access)
+
+Get encrypted shell access to a remote machine:
 
 ```bash
-# Receiver
+# Target machine: Provide shell access
+./clawsec -l -p 4444 -k "MySecurePassword" -e /bin/bash
+
+# Your machine: Connect and control target
+./clawsec 192.168.1.100 4444 -k "MySecurePassword"
+```
+
+You now have full shell access to the target machine. Run any command: `ls`, `cd`, `cat`, `ps`, etc. All traffic is encrypted.
+
+**Note**: Interactive programs like `nano` or `vim` don't work. Use simple commands instead.
+
+#### File Transfer
+
+Send files securely between machines:
+
+```bash
+# Receiving machine
 ./clawsec -l -p 9999 -k "SecureTransfer2025" > received_file.txt
 
-# Sender
-./clawsec <receiver-ip> 9999 -k "SecureTransfer2025" < file_to_send.txt
+# Sending machine
+./clawsec 192.168.1.200 9999 -k "SecureTransfer2025" < file_to_send.txt
 ```
 
 ## Requirements
@@ -144,17 +170,40 @@ Options:
 
 ## Examples
 
+### Chat Mode
 ```bash
-# Simple encrypted communication
-clawsec -l -p 4444 -k "MyPassword"              # Server
-clawsec 192.168.1.100 4444 -k "MyPassword"      # Client
+# Server: Listen for encrypted chat
+./clawsec -l -p 4444 -k "MyPassword"
 
-# File transfer
-clawsec -l -p 9999 -k "FilePass" > backup.tar.gz
-clawsec server.com 9999 -k "FilePass" < backup.tar.gz
+# Client: Connect to server
+./clawsec 192.168.1.100 4444 -k "MyPassword"
+```
 
+### Reverse Shell Mode
+```bash
+# Server: Provide encrypted shell access
+./clawsec -vv -l -p 8888 -k "Secret123" -e /bin/bash
+
+# Client: Connect and control server
+./clawsec 192.168.1.100 8888 -k "Secret123"
+```
+
+### File Transfer
+```bash
+# Receiver
+./clawsec -l -p 9999 -k "FilePass" > backup.tar.gz
+
+# Sender
+./clawsec server.com 9999 -k "FilePass" < backup.tar.gz
+```
+
+### Advanced Options
+```bash
 # Verbose mode with timeout
-clawsec -l -p 8080 -k "Secret123" -v -w 30
+./clawsec -l -p 8080 -k "Secret123" -v -w 30
+
+# UDP mode
+./clawsec -l -u -p 5353 -k "DNSTunnel"
 ```
 
 ## Security Guidelines
