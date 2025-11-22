@@ -1,0 +1,27 @@
+# Compiled binaries
+unix/cryptcat
+unix/*.o
+unix/*.obj
+
+# Test executables
+unix/test_aes
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.bak

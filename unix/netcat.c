@@ -140,6 +140,11 @@ unsigned int o_wait = 0;
 USHORT o_zero = 0;
 /* o_tn in optional section */
 
+/* Function prototypes */
+#ifdef HAVE_HELP
+void helpme(void);
+#endif
+
 /* Debug macro: squirt whatever message and sleep a bit so we can see it go
    by.  need to call like Debug ((stuff)) [with no ; ] so macro args match!
    Beware: writes to stdOUT... */
@@ -1178,7 +1183,7 @@ int main(int argc, char **argv)
   
 #ifdef HAVE_BIND
 /* can *you* say "cc -yaddayadda netcat.c -lresolv -l44bsd" on SunLOSs? */
-  res_init();
+/* res_init(); */  /* Not needed on modern systems, causes link errors on macOS */
 #endif
 /* I was in this barbershop quartet in Skokie IL ... */
 /* round up the usual suspects, i.e. malloc up all the stuff we need */
@@ -1214,9 +1219,6 @@ int main(int argc, char **argv)
     argv[0] = cp;			/* leave old prog name intact */
     cp = Hmalloc (BIGSIZ);
     argv[1] = cp;			/* head of new arg block */
-    if (farm9crypt_initialized() == 0) {    
-      farm9crypt_init(crypt_key_f9);
-    }
     fprintf (stderr, "Cmd line: ");
     fflush (stderr);		/* I dont care if it's unbuffered or not! */
     insaved = read (0, cp, BIGSIZ);	/* we're gonna fake fgets() here */
@@ -1266,11 +1268,20 @@ int main(int argc, char **argv)
 	break;
 #endif
       case 'k':
-    strncpy(keystr, optarg, MAXKEYSIZE - 1);
-    keystr[MAXKEYSIZE - 1] = '\0';
-    crypt_key_f9 = keystr;
-    farm9crypt_init(crypt_key_f9);
-    break;
+	if (!optarg || strlen(optarg) == 0) {
+	  bail("Error: -k requires a non-empty password", NULL, NULL, NULL, NULL, NULL, NULL);
+	}
+	if (strlen(optarg) < 8) {
+	  holler("Warning: Password should be at least 8 characters for security", NULL, NULL, NULL, NULL, NULL, NULL);
+	}
+	strncpy(keystr, optarg, sizeof(keystr) - 1);
+	keystr[sizeof(keystr) - 1] = '\0';
+	crypt_key_f9 = keystr;
+	/* Initialize with PBKDF2 key derivation */
+	if (farm9crypt_init_password(crypt_key_f9, strlen(crypt_key_f9)) != 0) {
+	  bail("Encryption initialization failed", NULL, NULL, NULL, NULL, NULL, NULL);
+	}
+	break;
 
       case 'G':				/* srcrt gateways pointer val */
 	x = atoi (optarg);
@@ -1333,7 +1344,7 @@ int main(int argc, char **argv)
       case 'w':				/* wait time */
 	o_wait = atoi (optarg);
 	if (o_wait <= 0)
-	  bail ("invalid wait-time %s", optarg);
+	  bail ("invalid wait-time %s", optarg, NULL, NULL, NULL, NULL, NULL);
 	timer1 = (struct timeval *) Hmalloc (sizeof (struct timeval));
 	timer2 = (struct timeval *) Hmalloc (sizeof (struct timeval));
 	timer1->tv_sec = o_wait;	/* we need two.  see readwrite()... */
@@ -1343,13 +1354,23 @@ int main(int argc, char **argv)
 	break;
       default:
 	errno = 0;
-	bail ("nc -h for help");
+	bail ("nc -h for help", NULL, NULL, NULL, NULL, NULL, NULL);
     } /* switch x */
   } /* while getopt */
 
 /* other misc initialization */
-if (farm9crypt_initialized() == 0) {
-	farm9crypt_init(crypt_key_f9);
+
+/* CRITICAL: Encryption key MUST be provided via -k option */
+if (!crypt_key_f9 || farm9crypt_initialized() == 0) {
+	fprintf(stderr, "\n");
+	fprintf(stderr, "ERROR: Encryption password required!\n");
+	fprintf(stderr, "Usage: %s -k <password> [other options]\n\n", argv[0]);
+	fprintf(stderr, "Security recommendations:\n");
+	fprintf(stderr, "  - Use a strong password (at least 12 characters)\n");
+	fprintf(stderr, "  - Mix uppercase, lowercase, numbers, and symbols\n");
+	fprintf(stderr, "  - Both endpoints must use the SAME password\n");
+	fprintf(stderr, "  - Consider using a password manager\n\n");
+	bail("Encryption not initialized - use -k option", NULL, NULL, NULL, NULL, NULL, NULL);
 }
   
 Debug (("fd_set size %d", sizeof (*ding1)))	/* how big *is* it? */
@@ -1407,17 +1428,17 @@ Debug (("after go: x now %c, optarg %x optind %d", x, optarg, optind))
 #endif /* GAPING_SECURITY_HOLE */
       x = readwrite (netfd);		/* it even works with UDP! */
       if (o_verbose > 1)		/* normally we don't care */
-	holler (wrote_txt, wrote_net, wrote_out);
+	holler (wrote_txt, (char *)(intptr_t)wrote_net, (char *)(intptr_t)wrote_out, NULL, NULL, NULL, NULL);
       exit (x);				/* "pack out yer trash" */
     } else /* if no netfd */
-      bail ("no connection");
+      bail ("no connection", NULL, NULL, NULL, NULL, NULL, NULL);
   } /* o_listen */
 
 /* fall thru to outbound connects.  Now we're more picky about args... */
   if (! themaddr)
-    bail ("no destination");
+    bail ("no destination", NULL, NULL, NULL, NULL, NULL, NULL);
   if (argv[optind] == NULL)
-    bail ("no port[s] to connect to");
+    bail ("no port[s] to connect to", NULL, NULL, NULL, NULL, NULL, NULL);
   if (argv[optind + 1])		/* look ahead: any more port args given? */
     Single = 0;				/* multi-mode, case A */
   ourport = o_lport;			/* which can be 0 */
@@ -1430,11 +1451,11 @@ Debug (("after go: x now %c, optarg %x optind %d", x, optarg, optind))
       cp++;
       hiport = getportpoop (cp, 0);
       if (hiport == 0)
-	bail ("invalid port %s", cp);
+	bail ("invalid port %s", cp, NULL, NULL, NULL, NULL, NULL);
     } /* if found a dash */
     loport = getportpoop (argv[optind], 0);
     if (loport == 0)
-      bail ("invalid port %s", argv[optind]);
+      bail ("invalid port %s", argv[optind], NULL, NULL, NULL, NULL, NULL);
     if (hiport > loport) {		/* was it genuinely a range? */
       Single = 0;			/* multi-mode, case B */
       curport = hiport;			/* start high by default */
@@ -1462,7 +1483,7 @@ Debug (("netfd %d from port %d to port %d", netfd, ourport, curport))
       if (netfd > 0) {			/* Yow, are we OPEN YET?! */
 	x = 0;				/* pre-exit status */
 	holler ("%s [%s] %d (%s) open",
-	  whereto->name, whereto->addrs[0], curport, portpoop->name);
+	  whereto->name, whereto->addrs[0], (char *)(intptr_t)curport, portpoop->name, NULL, NULL);
 #ifdef GAPING_SECURITY_HOLE
 	if (pr00gie)			/* exec is valid for outbound, too */
 	  doexec (netfd);
@@ -1475,7 +1496,7 @@ Debug (("netfd %d from port %d to port %d", netfd, ourport, curport))
    Give it another -v if you want to see everything. */
 	if ((Single || (o_verbose > 1)) || (errno != ECONNREFUSED))
 	  holler ("%s [%s] %d (%s)",
-	    whereto->name, whereto->addrs[0], curport, portpoop->name);
+	    whereto->name, whereto->addrs[0], (char *)(intptr_t)curport, portpoop->name, NULL, NULL);
       } /* if netfd */
       close (netfd);			/* just in case we didn't already */
       if (o_interval)
@@ -1490,7 +1511,11 @@ Debug (("netfd %d from port %d to port %d", netfd, ourport, curport))
 
   errno = 0;
   if (o_verbose > 1)		/* normally we don't care */
-    holler (wrote_txt, wrote_net, wrote_out);
+    holler (wrote_txt, (char *)(intptr_t)wrote_net, (char *)(intptr_t)wrote_out, NULL, NULL, NULL, NULL);
+  
+  /* Clean up encryption resources */
+  farm9crypt_cleanup();
+  
   if (Single)
     exit (x);			/* give us status on one connection */
   exit (0);			/* otherwise, we're just done */
@@ -1499,41 +1524,38 @@ Debug (("netfd %d from port %d to port %d", netfd, ourport, curport))
 #ifdef HAVE_HELP		/* unless we wanna be *really* cryptic */
 /* helpme :
    the obvious */
-helpme()
+void helpme(void)
 {
   o_verbose = 1;
-  holler ("[v1.10]\n\
-connect to somewhere:	nc [-options] hostname port[s] [ports] ... \n\
-listen for inbound:	nc -l -p port [-options] [hostname] [port]\n\
-options:");
+  holler ("[v1.10]\\n\\\nconnect to somewhere:\tnc [-options] hostname port[s] [ports] ... \\n\\\nlisten for inbound:\tnc -l -p port [-options] [hostname] [port]\\n\\\noptions:", NULL, NULL, NULL, NULL, NULL, NULL);
 /* sigh, this necessarily gets messy.  And the trailing \ characters may be
    interpreted oddly by some compilers, generating or not generating extra
    newlines as they bloody please.  u-fix... */
 #ifdef GAPING_SECURITY_HOLE	/* needs to be separate holler() */
   holler ("\
-	-e prog			program to exec after connect [dangerous!!]");
+	-e prog			program to exec after connect [dangerous!!]", NULL, NULL, NULL, NULL, NULL, NULL);
 #endif
   holler ("\
 	-g gateway		source-routing hop point[s], up to 8\n\
 	-G num			source-routing pointer: 4, 8, 12, ...\n\
 	-h			this cruft\n\
-	-k secret		set the shared secret\n\
+	-k password		[REQUIRED] encryption password (min 8 chars)\n\
 	-i secs			delay interval for lines sent, ports scanned\n\
 	-l			listen mode, for inbound connects\n\
 	-n			numeric-only IP addresses, no DNS\n\
 	-o file			hex dump of traffic\n\
 	-p port			local port number\n\
 	-r			randomize local and remote ports\n\
-	-s addr			local source address");
+	-s addr			local source address", NULL, NULL, NULL, NULL, NULL, NULL);
 #ifdef TELNET
   holler ("\
-	-t			answer TELNET negotiation");
+	-t			answer TELNET negotiation", NULL, NULL, NULL, NULL, NULL, NULL);
 #endif
   holler ("\
 	-u			UDP mode\n\
 	-v			verbose [use twice to be more verbose]\n\
 	-w secs			timeout for connects and final net reads\n\
-	-z			zero-I/O mode [used for scanning]");
+	-z			zero-I/O mode [used for scanning]", NULL, NULL, NULL, NULL, NULL, NULL);
   bail("port numbers can be individual or ranges: lo-hi [inclusive]", NULL, NULL, NULL, NULL, NULL, NULL);
 
 } /* helpme */
