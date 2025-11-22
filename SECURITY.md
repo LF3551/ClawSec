@@ -55,10 +55,10 @@ TAG      = GCM authentication tag
 
 ```bash
 # REQUIRED: Always use -k option with a strong password
-cryptcat -l -p 1234 -k "MyStr0ng!P@ssw0rd#2025"
+clawsec -l -p 1234 -k "MyStr0ng!P@ssw0rd#2025"
 
 # Connect with same password
-cryptcat <host> 1234 -k "MyStr0ng!P@ssw0rd#2025"
+clawsec <host> 1234 -k "MyStr0ng!P@ssw0rd#2025"
 ```
 
 ### Password Recommendations
@@ -101,7 +101,7 @@ admin                # Too short and common
    - Use environment variables for automation:
      ```bash
      export CLAW_PASSWORD="YourStrongPassword"
-     cryptcat -l -p 1234 -k "$CLAW_PASSWORD"
+     clawsec -l -p 1234 -k "$CLAW_PASSWORD"
      ```
 
 ## Attack Scenarios & Mitigations
