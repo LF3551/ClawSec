@@ -1383,9 +1383,9 @@ Debug (("fd_set size %d", sizeof (*ding1)))	/* how big *is* it? */
   }
 #endif /* G_S_H */
   if (o_wfile) {
-    ofd = open (stage, O_WRONLY | O_CREAT | O_TRUNC, 0664);
+    ofd = open ((const char *)stage, O_WRONLY | O_CREAT | O_TRUNC, 0664);
     if (ofd <= 0)			/* must be > extant 0/1/2 */
-      bail("can't open %s", stage, NULL, NULL, NULL, NULL, NULL);
+      bail("can't open %s", (char *)stage, NULL, NULL, NULL, NULL, NULL);
     stage = (unsigned char *) Hmalloc (100);
   }
 
@@ -1397,7 +1397,7 @@ Debug (("after go: x now %c, optarg %x optind %d", x, optarg, optind))
    unless we finally implement -a, that is. */
   if (argv[optind])
     whereto = gethostpoop (argv[optind], o_nflag);
-  if (whereto && whereto->iaddrs)
+  if (whereto)
     themaddr = &whereto->iaddrs[0];
   if (themaddr)
     optind++;				/* skip past valid host lookup */
