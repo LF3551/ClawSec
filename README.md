@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="ClawSec-small.png" alt="ClawSec Logo" width="180" />
+</p>
+
 # ClawSec
 
 [![Build Status](https://github.com/LF3551/ClawSec/actions/workflows/build.yml/badge.svg)](https://github.com/LF3551/ClawSec/actions)
