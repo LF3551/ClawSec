@@ -102,21 +102,27 @@ static int connect_with_timeout(const char *host,
     struct addrinfo *res = NULL, *rp;
     int sock = -1;
     int ret;
+
     memset(&hints, 0, sizeof(hints));
     hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
+
     ret = getaddrinfo(host, port, &hints, &res);
     if (ret != 0) fatal("getaddrinfo(%s,%s): %s", host, port, gai_strerror(ret));
+
     for (rp = res; rp != NULL; rp = rp->ai_next) {
         sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
         if (sock < 0) continue;
+
         int yes = 1;
         setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
         if (timeout_sec > 0) {
             int flags = fcntl(sock, F_GETFL, 0);
             if (flags < 0) flags = 0;
             fcntl(sock, F_SETFL, flags | O_NONBLOCK);
         }
+
         ret = connect(sock, rp->ai_addr, rp->ai_addrlen);
         if (ret == 0) {
             if (timeout_sec > 0) {
@@ -125,6 +131,7 @@ static int connect_with_timeout(const char *host,
             }
             break;
         }
+
         if (timeout_sec > 0 && errno == EINPROGRESS) {
             fd_set wfds;
             struct timeval tv;
@@ -146,9 +153,11 @@ static int connect_with_timeout(const char *host,
                 errno = ETIMEDOUT;
             }
         }
+
         close(sock);
         sock = -1;
     }
+
     freeaddrinfo(res);
     if (sock < 0) fatal("connect to %s:%s failed", host, port);
     return sock;
@@ -159,17 +168,22 @@ static int listen_on(const char *port) {
     struct addrinfo *res = NULL, *rp;
     int listen_fd = -1;
     int ret;
+
     memset(&hints, 0, sizeof(hints));
     hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags    = AI_PASSIVE;
+
     ret = getaddrinfo(NULL, port, &hints, &res);
     if (ret != 0) fatal("getaddrinfo(*,%s): %s", port, gai_strerror(ret));
+
     for (rp = res; rp != NULL; rp = rp->ai_next) {
         listen_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
         if (listen_fd < 0) continue;
+
         int yes = 1;
         setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
         if (bind(listen_fd, rp->ai_addr, rp->ai_addrlen) < 0) {
             close(listen_fd);
             listen_fd = -1;
@@ -182,6 +196,7 @@ static int listen_on(const char *port) {
         }
         break;
     }
+
     freeaddrinfo(res);
     if (listen_fd < 0) fatal("listen on *:%s failed", port);
     return listen_fd;
@@ -192,6 +207,7 @@ static int accept_one(int listen_fd) {
     socklen_t slen = sizeof(ss);
     int fd = accept(listen_fd, (struct sockaddr *)&ss, &slen);
     if (fd < 0) fatal("accept failed");
+
     char host[128];
     char serv[32];
     if (getnameinfo((struct sockaddr *)&ss, slen,
@@ -208,34 +224,48 @@ static int relay_socket_stdio(int sockfd, int is_server) {
     char netbuf[BUFSIZE];
     ssize_t n;
     size_t sent = 0, received = 0;
-    int chat_mode = is_server && isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
+    const char *local_label = is_server ? "Server" : "Client";
+    const char *remote_label = is_server ? "Client" : "Server";
+    int chat_mode = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
     int stdin_closed = 0;
+
+    if (chat_mode) {
+        fprintf(stdout,
+                "%s[Secure chat established] local=%s remote=%s%s\n",
+                COLOR_CYAN, local_label, remote_label, COLOR_RESET);
+        fflush(stdout);
+    }
+
     for (;;) {
         fd_set rfds;
         int nfds = sockfd;
+
         FD_ZERO(&rfds);
         FD_SET(sockfd, &rfds);
         if (!stdin_closed) {
             FD_SET(STDIN_FILENO, &rfds);
             if (STDIN_FILENO > nfds) nfds = STDIN_FILENO;
         }
+
         int ret = select(nfds + 1, &rfds, NULL, NULL, NULL);
         if (ret < 0) {
             if (errno == EINTR) continue;
             fatal("select failed");
         }
+
         if (FD_ISSET(sockfd, &rfds)) {
             n = farm9crypt_read(sockfd, netbuf, sizeof(netbuf));
             if (n < 0) fatal("read from network failed");
             if (n == 0) break;
             received += (size_t)n;
             if (chat_mode) {
-                print_chat_message("Remote", COLOR_CYAN, netbuf, (size_t)n);
+                print_chat_message(remote_label, COLOR_CYAN, netbuf, (size_t)n);
             } else {
                 if (write_all(STDOUT_FILENO, netbuf, (size_t)n) < 0)
                     fatal("write to stdout failed");
             }
         }
+
         if (!stdin_closed && FD_ISSET(STDIN_FILENO, &rfds)) {
             n = read(STDIN_FILENO, inbuf, sizeof(inbuf));
             if (n < 0) fatal("read from stdin failed");
@@ -245,13 +275,14 @@ static int relay_socket_stdio(int sockfd, int is_server) {
             } else {
                 sent += (size_t)n;
                 if (chat_mode) {
-                    print_chat_message("You", COLOR_GREEN, inbuf, (size_t)n);
+                    print_chat_message(local_label, COLOR_GREEN, inbuf, (size_t)n);
                 }
                 ssize_t wn = farm9crypt_write(sockfd, inbuf, (size_t)n);
                 if (wn != n) fatal("write to network failed");
             }
         }
     }
+
     if (!chat_mode && g_verbose) {
         fprintf(stderr,
                 "\n[Transfer complete] Sent %zu bytes, received %zu bytes\n",
@@ -264,44 +295,58 @@ static int relay_socket_stdio(int sockfd, int is_server) {
 static void run_encrypted_exec(int sockfd, const char *prog) {
     int to_child[2];
     int from_child[2];
+
     if (pipe(to_child) < 0 || pipe(from_child) < 0) fatal("pipe failed");
+
     pid_t pid = fork();
     if (pid < 0) fatal("fork failed");
+
     if (pid == 0) {
         char *argv0;
         const char *slash = strrchr(prog, '/');
         if (slash) argv0 = (char *)(slash + 1);
         else argv0 = (char *)prog;
+
         close(to_child[1]);
         close(from_child[0]);
+
         dup2(to_child[0], STDIN_FILENO);
         dup2(from_child[1], STDOUT_FILENO);
         dup2(from_child[1], STDERR_FILENO);
+
         close(to_child[0]);
         close(from_child[1]);
+
         execl(prog, argv0, (char *)NULL);
         _exit(127);
     }
+
     close(to_child[0]);
     close(from_child[1]);
+
     char buf[BUFSIZE];
+
     for (;;) {
         fd_set rfds;
         int nfds = sockfd;
+
         FD_ZERO(&rfds);
         FD_SET(sockfd, &rfds);
         FD_SET(from_child[0], &rfds);
         if (from_child[0] > nfds) nfds = from_child[0];
+
         int ret = select(nfds + 1, &rfds, NULL, NULL, NULL);
         if (ret < 0) {
             if (errno == EINTR) continue;
             break;
         }
+
         if (FD_ISSET(sockfd, &rfds)) {
             ssize_t n = farm9crypt_read(sockfd, buf, sizeof(buf));
             if (n <= 0) break;
             if (write_all(to_child[1], buf, (size_t)n) < 0) break;
         }
+
         if (FD_ISSET(from_child[0], &rfds)) {
             ssize_t n = read(from_child[0], buf, sizeof(buf));
             if (n <= 0) break;
@@ -309,9 +354,11 @@ static void run_encrypted_exec(int sockfd, const char *prog) {
             if (wn != n) break;
         }
     }
+
     close(to_child[1]);
     close(from_child[0]);
     close(sockfd);
+
     int status;
     (void)waitpid(pid, &status, 0);
 }
@@ -349,11 +396,13 @@ int main(int argc, char **argv) {
     const char *exec_prog = NULL;
 #endif
     int opt;
+
 #ifdef GAPING_SECURITY_HOLE
     const char *optstring = "hle:k:p:w:v";
 #else
     const char *optstring = "hlk:p:w:v";
 #endif
+
     while ((opt = getopt(argc, argv, optstring)) != -1) {
         switch (opt) {
         case 'h':
@@ -385,34 +434,42 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
+
     if (!password || *password == '\0') {
         fprintf(stderr,
                 "ERROR: Encryption password required (use -k <password>).\n");
         usage(argv[0]);
         return 1;
     }
+
     if (strlen(password) < 8) {
         log_msg(1,
                 "Warning: password should be at least 8 characters for security");
     }
+
     if (farm9crypt_init_password(password, strlen(password)) != 0) {
         fatal("Encryption initialization failed");
     }
     if (!farm9crypt_initialized()) {
         fatal("Encryption not initialized");
     }
+
     ignore_sigpipe();
+
     int sockfd = -1;
+
     if (listen_mode) {
         if (!bind_port) {
             fprintf(stderr, "ERROR: -p <port> is required in listen mode.\n");
             farm9crypt_cleanup();
             return 1;
         }
+
         int listen_fd = listen_on(bind_port);
         log_msg(1, "listening on *:%s", bind_port);
         sockfd = accept_one(listen_fd);
         close(listen_fd);
+
 #ifdef GAPING_SECURITY_HOLE
         if (exec_prog) {
             run_encrypted_exec(sockfd, exec_prog);
@@ -427,12 +484,15 @@ int main(int argc, char **argv) {
             farm9crypt_cleanup();
             return 1;
         }
+
         const char *host = argv[optind];
         const char *port = argv[optind + 1];
+
         sockfd = connect_with_timeout(host, port, timeout_sec);
         log_msg(1, "connected to %s:%s", host, port);
         relay_socket_stdio(sockfd, 0);
     }
+
     close(sockfd);
     farm9crypt_cleanup();
     return 0;
