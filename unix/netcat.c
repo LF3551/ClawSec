@@ -1163,14 +1163,14 @@ shovel:
     }
     if (rnleft) {
 	/* Received from network - print with timestamp only in interactive chat mode */
-	/* Chat mode = no -e flag AND both stdin/stdout are terminals */
-	if (!pr00gie && isatty(0) && isatty(1)) {
+	/* Chat mode = listen mode (-l) AND no -e flag AND both stdin/stdout are terminals */
+	if (o_listen && !pr00gie && isatty(0) && isatty(1)) {
 	  print_chat_message("Remote", COLOR_CYAN, np, rnleft);
 	  np += rnleft;
 	  wrote_out += rnleft;
 	  rnleft = 0;
 	} else {
-	  /* In execute mode or file transfer, write raw output */
+	  /* In execute mode, file transfer, or client mode - write raw output */
 	  rr = write (1, np, rnleft);
 	  if (rr > 0) {
 	    if (o_wfile)
@@ -1189,7 +1189,7 @@ Debug (("wrote %d to stdout, errno %d", rr, errno))
 	  rr = rzleft;
 	
 	/* Print local message with timestamp only in interactive chat mode */
-	if (!pr00gie && isatty(0) && isatty(1)) {
+	if (o_listen && !pr00gie && isatty(0) && isatty(1)) {
 	  print_chat_message("You", COLOR_GREEN, zp, rr);
 	}
 	
