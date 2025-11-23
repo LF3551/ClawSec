@@ -2,6 +2,36 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [2.3.0] - 2025-11-23
+
+### Changed
+- **Complete code rewrite**: Modernized from legacy K&R C to C99/POSIX standards
+- Reduced codebase from 1714 to 439 lines (75% reduction)
+- Binary size reduced from 72KB to 37KB (48% smaller)
+- Removed obsolete `generic.h` compatibility layer (1996 legacy code)
+- Improved code architecture with clean function separation
+- Enhanced error handling on all system calls
+- Thread-safe functions: `localtime_r`, `strerror_r`
+- Proper resource cleanup and memory management
+
+### Added
+- Chat mode with timestamps and colored output (server-side only)
+- File transfer mode with auto-close and statistics
+- Robust `write_all()` with EINTR handling
+- Non-blocking `connect_with_timeout()` with select
+- Signal handling (SIGPIPE ignored)
+
+### Fixed
+- Chat mode formatting isolated to server in listen mode
+- Reverse shell mode works cleanly without formatting artifacts
+- File transfer completes gracefully with `shutdown(SHUT_WR)`
+
+### Removed
+- Legacy K&R C code and goto statements
+- Global variables and setjmp/longjmp
+- Platform-specific compatibility hacks for obsolete systems
+- Unused files: `generic.h`, old documentation
+
 ## [2.0.0] - 2025-11-22
 
 ### Added

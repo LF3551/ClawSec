@@ -27,11 +27,11 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 ## Why ClawSec?
 
 | Feature | ClawSec | Cryptcat | Ncat (--ssl) | socat (openssl) |
-|---------|---------|----------|--------------|-----------------|
+|---------|---------|----------|--------------|---------------|
 | **Encryption** | AES-256-GCM | Twofish (deprecated) | TLS 1.3 | TLS 1.3 |
 | **Authentication** | AEAD + PBKDF2 | None | Certificate | Certificate |
 | **Setup** | Single password | Hardcoded key | Certificate required | Certificate required |
-| **Lightweight** | ✅ 72KB | ✅ Small | ❌ Large | ❌ Large |
+| **Lightweight** | ✅ 37KB | ✅ Small | ❌ Large | ❌ Large |
 | **Drop-in Netcat** | ✅ Yes | ✅ Yes | ⚠️ Partial | ❌ No |
 
 Perfect for: Secure file transfers, reverse shells, encrypted tunnels without certificate management.
@@ -358,7 +358,16 @@ make clean && make linux
 
 ## Changelog
 
-### Version 2.0 (November 2025)
+### Version 2.3.0 (November 2025) - Complete Rewrite
+- **Code Modernization**: Rewritten from 1714 lines to 439 lines (75% reduction)
+- **Binary Size**: Reduced from 72KB to 37KB (48% smaller)
+- **Standards**: Modern C99/POSIX replacing legacy K&R C
+- **Architecture**: Clean function separation, local scope, proper error handling
+- **Chat Mode**: Added timestamps and colored output (server-side)
+- **File Transfer**: Auto-close with statistics
+- **Removed**: Legacy `generic.h`, obsolete compatibility code
+
+### Version 2.0 (November 2025) - Security Overhaul
 - Added AES-256-GCM authenticated encryption
 - Added PBKDF2 password-based key derivation
 - Added protocol versioning with magic number
