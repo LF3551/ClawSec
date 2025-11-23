@@ -8,7 +8,7 @@ ClawSec is a modern encrypted network tool that provides AES-256-GCM encryption 
 
 ### Why ClawSec instead of SSH/SCP?
 - No SSH keys or certificates needed
-- Single static binary (72KB)
+- Single static binary (37KB)
 - Works on embedded systems
 - Quick temporary file transfers
 - Simpler for one-off connections
@@ -40,14 +40,38 @@ Not currently. ClawSec requires a POSIX system. Consider using WSL (Windows Subs
 
 ## Usage
 
+### How do I use chat mode?
+```bash
+# Server
+./clawsec -l -p 4444 -k "ChatPass" -c
+
+# Client
+./clawsec -k "ChatPass" -c server-ip 4444
+```
+
+Both sides will see timestamped messages with colored output.
+
+### How do I get a reverse shell?
+```bash
+# Server (target machine)
+./clawsec -l -p 8888 -k "ShellPass" -e /bin/bash
+
+# Client (your machine)
+./clawsec -k "ShellPass" server-ip 8888
+```
+
+Interactive programs (vim, nano, top) work with PTY support.
+
 ### How do I transfer a file?
 ```bash
 # Receiver
-./clawsec -l -p 9999 -k "Password" > file.txt
+./clawsec -v -l -p 9999 -k "Password" > file.txt
 
 # Sender
-./clawsec -k "Password" receiver-ip 9999 < file.txt
+./clawsec -v -k "Password" receiver-ip 9999 < file.txt
 ```
+
+Use `-v` flag to see transfer statistics.
 
 ### Do both sides need the same password?
 Yes. Both endpoints must use the exact same password for encryption/decryption.
@@ -106,6 +130,22 @@ Add the `-k` option with a password:
 ### "Authentication failed"
 Passwords don't match between client and server. Verify both use identical passwords.
 
+### Interactive programs (vim, nano) not working?
+Use `-e` flag for reverse shell mode which provides PTY support:
+```bash
+./clawsec -l -p 8888 -k "Pass" -e /bin/bash
+```
+
+### Chat mode not showing colors?
+Make sure both sides use `-c` flag:
+```bash
+# Server
+./clawsec -l -p 4444 -k "Pass" -c
+
+# Client  
+./clawsec -k "Pass" -c server-ip 4444
+```
+
 ### "Connection refused"
 - Check server is running
 - Verify correct port number
@@ -124,7 +164,12 @@ cd unix && make clean && make linux
 ### How do I run ClawSec in Docker?
 ```bash
 docker build -t clawsec .
-docker run -p 8888:8888 clawsec -l -p 8888 -k "Password"
+
+# For chat mode
+docker run -p 8888:8888 clawsec -l -p 8888 -k "Password" -c
+
+# For reverse shell
+docker run -p 8888:8888 clawsec -l -p 8888 -k "Password" -e /bin/sh
 ```
 
 ### How do I use docker-compose?
