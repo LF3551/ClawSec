@@ -401,10 +401,11 @@ int main(int argc, char **argv) {
     int opt;
 
 #ifdef GAPING_SECURITY_HOLE
-    const char *optstring = "hlck:p:w:v";
+    const char *optstring = "hlck:p:w:ve:";
 #else
     const char *optstring = "hlck:p:w:v";
 #endif
+
 
     while ((opt = getopt(argc, argv, optstring)) != -1) {
         switch (opt) {
