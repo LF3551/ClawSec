@@ -80,48 +80,82 @@ docker-compose up
 
 ### Basic Usage
 
-ClawSec supports two main modes: **Chat Mode** and **Reverse Shell Mode**.
+ClawSec supports three main modes: **Chat Mode**, **Reverse Shell Mode**, and **File Transfer Mode**.
 
-#### Chat Mode (Encrypted Communication)
+#### 1. Chat Mode (Encrypted Communication)
 
-Simple encrypted chat between two machines:
+Secure encrypted chat between two machines with timestamps and colored output (server side only).
 
+**Server:**
 ```bash
-# Machine 1: Listen for connections
-./clawsec -l -p 4444 -k "MySecurePassword"
-
-# Machine 2: Connect to Machine 1
-./clawsec 192.168.1.100 4444 -k "MySecurePassword"
+cd ~/ClawSec/unix
+./clawsec -l -p 8888 -k "TestPass123"
 ```
 
-Now you can type messages on either side - everything is encrypted with AES-256-GCM.
-
-#### Reverse Shell Mode (Encrypted Remote Access)
-
-Get encrypted shell access to a remote machine:
-
+**Client:**
 ```bash
-# Target machine: Provide shell access
-./clawsec -l -p 4444 -k "MySecurePassword" -e /bin/bash
-
-# Your machine: Connect and control target
-./clawsec 192.168.1.100 4444 -k "MySecurePassword"
+./clawsec -k "TestPass123" server-ip 8888
 ```
 
-You now have full shell access to the target machine. Run any command: `ls`, `cd`, `cat`, `ps`, etc. All traffic is encrypted.
+**Features:**
+- Server sees colored timestamps: `[HH:MM:SS You]` and `[HH:MM:SS Remote]`
+- Client sees plain text
+- All communication encrypted with AES-256-GCM
+- Type messages on either side in real-time
 
-**Note**: Interactive programs like `nano` or `vim` don't work. Use simple commands instead.
+#### 2. Reverse Shell Mode (Encrypted Remote Access)
 
-#### File Transfer
+Get encrypted command-line access to a remote machine.
 
-Send files securely between machines:
+**Server (target machine):**
+```bash
+cd ~/ClawSec/unix
+./clawsec -l -p 8888 -k "TestPass123" -e /bin/bash
+```
+
+**Client (your machine):**
+```bash
+./clawsec -k "TestPass123" server-ip 8888
+```
+
+**Features:**
+- Full encrypted shell access to target
+- Run commands: `ls`, `cd`, `cat`, `ps`, `whoami`, `pwd`, etc.
+- All traffic encrypted end-to-end
+- Clean output without formatting
+
+**Note**: Interactive programs (`nano`, `vim`) require PTY and are not currently supported. Use `cat`, `echo`, `sed` for file operations.
+
+#### 3. File Transfer Mode (Secure File Transmission)
+
+Transfer files with automatic connection close and transfer statistics.
+
+**Server (receiving machine):**
+```bash
+./clawsec -v -l -p 8888 -k "FilePass123" > received_file.py
+```
+
+**Client (sending machine):**
+```bash
+./clawsec -v -k "FilePass123" server-ip 8888 < file_to_send.py
+```
+
+**Features:**
+- Automatic connection close after transfer
+- Transfer statistics: `[Transfer complete] Sent/Received X bytes`
+- Files transferred with full AES-256-GCM encryption
+- Supports any file type (text, binary, archives)
+
+**Advanced Examples:**
 
 ```bash
-# Receiving machine
-./clawsec -l -p 9999 -k "SecureTransfer2025" > received_file.txt
+# Transfer archive
+tar -czf - /path/to/directory | ./clawsec -k "pass" server 9999
+./clawsec -l -p 9999 -k "pass" | tar -xzf -
 
-# Sending machine
-./clawsec 192.168.1.200 9999 -k "SecureTransfer2025" < file_to_send.txt
+# Transfer with progress (requires pv)
+pv largefile.iso | ./clawsec -k "pass" server 7777
+./clawsec -l -p 7777 -k "pass" > largefile.iso
 ```
 
 ## Requirements
@@ -172,35 +206,57 @@ Options:
 
 ### Chat Mode
 ```bash
-# Server: Listen for encrypted chat
-./clawsec -l -p 4444 -k "MyPassword"
+# Server: Listen for encrypted chat (shows timestamps)
+./clawsec -l -p 8888 -k "TestPass123"
 
-# Client: Connect to server
-./clawsec 192.168.1.100 4444 -k "MyPassword"
+# Client: Connect to server (plain text)
+./clawsec -k "TestPass123" server-ip 8888
+```
+
+Server sees:
+```
+[10:30:15 You] Hello!
+[10:30:18 Remote] Hi there!
 ```
 
 ### Reverse Shell Mode
 ```bash
 # Server: Provide encrypted shell access
-./clawsec -vv -l -p 8888 -k "Secret123" -e /bin/bash
+./clawsec -l -p 8888 -k "TestPass123" -e /bin/bash
 
-# Client: Connect and control server
-./clawsec 192.168.1.100 8888 -k "Secret123"
+# Client: Connect and execute commands
+./clawsec -k "TestPass123" server-ip 8888
+ls
+pwd
+whoami
 ```
 
-### File Transfer
+### File Transfer Mode
 ```bash
-# Receiver
-./clawsec -l -p 9999 -k "FilePass" > backup.tar.gz
+# Server: Receive file with statistics
+./clawsec -v -l -p 8888 -k "FilePass123" > received.py
 
-# Sender
-./clawsec server.com 9999 -k "FilePass" < backup.tar.gz
+# Client: Send file
+./clawsec -v -k "FilePass123" server-ip 8888 < file.py
 ```
 
-### Advanced Options
+Output:
+```
+[Transfer complete] Sent 245 bytes      # Client
+[Transfer complete] Received 245 bytes  # Server
+```
+
+### Advanced Examples
 ```bash
-# Verbose mode with timeout
-./clawsec -l -p 8080 -k "Secret123" -v -w 30
+# Transfer directory as archive
+tar -czf - /data | ./clawsec -k "pass" server 9999
+./clawsec -l -p 9999 -k "pass" | tar -xzf -
+
+# Port scanning
+./clawsec -z -v server.com 20-80
+
+# Verbose debug mode
+./clawsec -vv -l -p 8080 -k "debug"
 
 # UDP mode
 ./clawsec -l -u -p 5353 -k "DNSTunnel"
