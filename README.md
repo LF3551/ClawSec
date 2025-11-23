@@ -248,15 +248,9 @@ Output:
 tar -czf - /data | ./clawsec -k "pass" server 9999
 ./clawsec -l -p 9999 -k "pass" | tar -xzf -
 
-# Port scanning
-./clawsec -z -v server.com 20-80
-
 # Verbose debug mode
 ./clawsec -vv -l -p 8080 -k "debug"
 
-# UDP mode
-./clawsec -l -u -p 5353 -k "DNSTunnel"
-```
 
 ## Security Guidelines
 

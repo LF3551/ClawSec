@@ -8,7 +8,8 @@ services:
       - "8888:8888"
     environment:
       - CLAW_PASSWORD=TestPassword123
-    command: ["-l", "-p", "8888", "-k", "TestPassword123", "-v"]
+    command: ["-l", "-p", "8888", "-k", "${CLAW_PASSWORD}", "-v"]
+    restart: unless-stopped
     networks:
       - clawsec-net
 
@@ -19,7 +20,7 @@ services:
       - clawsec-server
     environment:
       - CLAW_PASSWORD=TestPassword123
-    command: ["-k", "TestPassword123", "clawsec-server", "8888"]
+    command: ["-k", "${CLAW_PASSWORD}", "clawsec-server", "8888"]
     stdin_open: true
     tty: true
     networks:
