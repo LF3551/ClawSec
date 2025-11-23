@@ -1121,9 +1121,9 @@ Debug (("got %d from the net, errno %d", rr, errno))
 	  FD_CLR (0, ding1);		/* disable and close stdin */
 	  close (0);
 	  /* In file transfer mode, close connection after stdin EOF */
-	  if (!isatty(1) || !pr00gie) {
-	    /* Print transfer statistics to stderr if not in chat mode */
-	    if (!isatty(1) && o_verbose) {
+	  if (!isatty(0) || !pr00gie) {  /* stdin redirected = file transfer */
+	    /* Print transfer statistics to stderr in verbose mode */
+	    if (o_verbose) {
 	      fprintf(stderr, "\n[Transfer complete] Sent %u bytes\n", wrote_net);
 	    }
 	    /* Give time for data to flush, then close */
