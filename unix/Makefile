@@ -12,7 +12,8 @@
 DFLAGS = -DGAPING_SECURITY_HOLE
 CFLAGS = -O
 XFLAGS = -I/opt/homebrew/opt/openssl@3/include
-XLIBS = -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto
+XLIBS = -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lutil
+
 
 # -Bstatic for sunos,  -static for gcc, etc.  You want this, trust me.
 STATIC =
@@ -71,7 +72,8 @@ aix:
 
 linux:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX -I/opt/homebrew/opt/openssl@3/include' \
-	XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++' STATIC=
+	XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lutil -lstdc++' STATIC=
+
 
 
 # irix 5.2, dunno 'bout earlier versions.  If STATIC='-non_shared' doesn't
@@ -124,14 +126,14 @@ aesgcm.o: aesgcm.cc aesgcm.h
 		${CC} $(XFLAGS) -c aesgcm.cc
 
 
-# start with this for a new architecture, and see what breaks.
 generic:
-	make -e $(ALL) $(MFLAGS) XFLAGS='$(XFLAGS) -DGENERIC' XLIBS='$(XLIBS) -lstdc++' STATIC=
+	make -e $(ALL) $(MFLAGS) XFLAGS='$(XFLAGS) -DGENERIC' \
+	XLIBS='$(XLIBS) -lstdc++' STATIC=
 
-# Alpine Linux / musl libc
 alpine:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX -DGENERIC' \
-	XLIBS='-lssl -lcrypto -lstdc++' STATIC=
+	XLIBS='-lssl -lcrypto -lutil -lstdc++' STATIC=
+
 
 # Still at large: dgux dynix ???
 
