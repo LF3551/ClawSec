@@ -1092,6 +1092,10 @@ int readwrite(int fd)
 	if (rr <= 0) {
 	  FD_CLR (fd, ding1);		/* net closed, we'll finish up... */
 	  rzleft = 0;			/* can't write anymore: broken pipe */
+	  /* Print transfer statistics if in file transfer mode */
+	  if (!isatty(1) && o_verbose) {
+	    fprintf(stderr, "\n[Transfer complete] Received %u bytes\n", wrote_out);
+	  }
 	} else {
 	  rnleft = rr;
 	  np = bigbuf_net;
@@ -1116,6 +1120,17 @@ Debug (("got %d from the net, errno %d", rr, errno))
 	if (rr <= 0) {			/* at end, or fukt, or ... */
 	  FD_CLR (0, ding1);		/* disable and close stdin */
 	  close (0);
+	  /* In file transfer mode, close connection after stdin EOF */
+	  if (!isatty(1) || !pr00gie) {
+	    /* Print transfer statistics to stderr if not in chat mode */
+	    if (!isatty(1) && o_verbose) {
+	      fprintf(stderr, "\n[Transfer complete] Sent %u bytes\n", wrote_net);
+	    }
+	    /* Give time for data to flush, then close */
+	    sleep(1);
+	    close(fd);
+	    return (0);
+	  }
 	} else {
 	  rzleft = rr;
 	  zp = bigbuf_in;
