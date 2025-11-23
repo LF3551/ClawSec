@@ -48,11 +48,11 @@ fi
 echo "[4/4] Linking clawsec..."
 if [[ "$PLATFORM" == "macOS" ]]; then
     cc -O -s -DGAPING_SECURITY_HOLE -I"$OPENSSL_PATH/include" \
-       -o clawsec clawsec.c farm9crypt.o aesgcm.o \
+       -o clawsec netcat.c farm9crypt.o aesgcm.o \
        -L"$OPENSSL_PATH/lib" -lssl -lcrypto -lstdc++
 else
     gcc -O -s -DGAPING_SECURITY_HOLE -DLINUX \
-        -o clawsec clawsec.c farm9crypt.o aesgcm.o \
+        -o clawsec netcat.c farm9crypt.o aesgcm.o \
         -lssl -lcrypto -lstdc++
 fi
 

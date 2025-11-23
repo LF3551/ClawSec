@@ -29,8 +29,8 @@ bogus:
 
 ### HARD TARGETS
 
-clawsec:	clawsec.c farm9crypt.o aesgcm.o
-	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c farm9crypt.o aesgcm.o $(XLIBS)
+clawsec:	netcat.c farm9crypt.o aesgcm.o
+	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec netcat.c farm9crypt.o aesgcm.o $(XLIBS)
 
 
 nc-dos:
