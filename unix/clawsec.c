@@ -25,6 +25,7 @@
 #define BUFSIZE 8192
 
 static int g_verbose = 0;
+static int g_chat_mode = 0;
 
 static void vlogf(int level, const char *fmt, va_list ap) {
     if (g_verbose < level) return;
@@ -219,14 +220,15 @@ static int accept_one(int listen_fd) {
     return fd;
 }
 
-static int relay_socket_stdio(int sockfd, int is_server) {
+static int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
     char inbuf[BUFSIZE];
     char netbuf[BUFSIZE];
     ssize_t n;
     size_t sent = 0, received = 0;
     const char *local_label = is_server ? "Server" : "Client";
     const char *remote_label = is_server ? "Client" : "Server";
-    int chat_mode = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
+    int interactive = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
+    int chat_mode = chat_enabled && interactive;
     int stdin_closed = 0;
 
     if (chat_mode) {
@@ -367,8 +369,8 @@ static void run_encrypted_exec(int sockfd, const char *prog) {
 static void usage(const char *prog) {
     fprintf(stderr,
             "Usage:\n"
-            "  %s -k <password> [-v] [-w sec] host port\n"
-            "  %s -l -k <password> -p port [-v]", prog, prog);
+            "  %s -k <password> [-c] [-v] [-w sec] host port\n"
+            "  %s -l -k <password> -p port [-c] [-v]", prog, prog);
 #ifdef GAPING_SECURITY_HOLE
     fprintf(stderr, " [-e program]\n\n");
 #else
@@ -379,6 +381,7 @@ static void usage(const char *prog) {
             "  -k <password>  Encryption password (required)\n"
             "  -l             Listen mode (server)\n"
             "  -p <port>      Local port in listen mode\n"
+            "  -c             Chat mode (timestamps, roles)\n"
             "  -w <sec>       Connect timeout in seconds\n"
             "  -v             Verbose output\n");
 #ifdef GAPING_SECURITY_HOLE
@@ -398,9 +401,9 @@ int main(int argc, char **argv) {
     int opt;
 
 #ifdef GAPING_SECURITY_HOLE
-    const char *optstring = "hle:k:p:w:v";
+    const char *optstring = "hlck:p:w:v";
 #else
-    const char *optstring = "hlk:p:w:v";
+    const char *optstring = "hlck:p:w:v";
 #endif
 
     while ((opt = getopt(argc, argv, optstring)) != -1) {
@@ -410,6 +413,9 @@ int main(int argc, char **argv) {
             return 0;
         case 'l':
             listen_mode = 1;
+            break;
+        case 'c':
+            g_chat_mode = 1;
             break;
         case 'k':
             password = optarg;
@@ -477,7 +483,7 @@ int main(int argc, char **argv) {
             return 0;
         }
 #endif
-        relay_socket_stdio(sockfd, 1);
+        relay_socket_stdio(sockfd, 1, g_chat_mode);
     } else {
         if (optind + 2 != argc) {
             usage(argv[0]);
@@ -490,7 +496,7 @@ int main(int argc, char **argv) {
 
         sockfd = connect_with_timeout(host, port, timeout_sec);
         log_msg(1, "connected to %s:%s", host, port);
-        relay_socket_stdio(sockfd, 0);
+        relay_socket_stdio(sockfd, 0, g_chat_mode);
     }
 
     close(sockfd);
