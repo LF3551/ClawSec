@@ -53,6 +53,13 @@
 #include <resolv.h>
 #endif
 
+/* ANSI color codes for chat mode */
+#define COLOR_RESET   "\033[0m"
+#define COLOR_GREEN   "\033[32m"
+#define COLOR_BLUE    "\033[34m"
+#define COLOR_YELLOW  "\033[33m"
+#define COLOR_CYAN    "\033[36m"
+
 /* handy stuff: */
 #define SA struct sockaddr	/* socket overgeneralization braindeath */
 #define SAI struct sockaddr_in	/* ... whoever came up with this model */
@@ -965,6 +972,41 @@ notiac:
 } /* atelnet */
 #endif /* TELNET */
 
+/* print_chat_message :
+   Print message with timestamp and sender label for chat mode */
+void print_chat_message(const char *sender_label, const char *color, 
+                        const char *msg, int len)
+{
+  time_t now;
+  struct tm *tm_info;
+  char timestamp[20];
+  int i;
+  
+  /* Get current time */
+  time(&now);
+  tm_info = localtime(&now);
+  strftime(timestamp, sizeof(timestamp), "%H:%M:%S", tm_info);
+  
+  /* Print with color and timestamp */
+  fprintf(stdout, "%s[%s %s]%s ", color, timestamp, sender_label, COLOR_RESET);
+  
+  /* Print message, handling line by line */
+  for (i = 0; i < len; i++) {
+    putchar(msg[i]);
+    /* If newline and not last char, add prefix for next line */
+    if (msg[i] == '\n' && i < len - 1) {
+      fprintf(stdout, "%s[%s %s]%s ", color, timestamp, sender_label, COLOR_RESET);
+    }
+  }
+  
+  /* Ensure newline at end if not present */
+  if (len > 0 && msg[len-1] != '\n') {
+    putchar('\n');
+  }
+  
+  fflush(stdout);
+}
+
 /* readwrite :
    handle stdin/stdout/network I/O.  Bwahaha!! -- the select loop from hell.
    In this instance, return what might become our exit status. */
@@ -1105,13 +1147,22 @@ shovel:
 	return (1);
     }
     if (rnleft) {
-	rr = write (1, np, rnleft);
-	if (rr > 0) {
-	  if (o_wfile)
-	    oprint (1, np, rr);		/* log the stdout */
-	  np += rr;			/* fix up ptrs and whatnot */
-	  rnleft -= rr;			/* will get sanity-checked above */
-	  wrote_out += rr;		/* global count */
+	/* Received from network - print with timestamp in chat mode */
+	if (!pr00gie) {  /* Only format chat messages when not in -e mode */
+	  print_chat_message("Remote", COLOR_CYAN, np, rnleft);
+	  np += rnleft;
+	  wrote_out += rnleft;
+	  rnleft = 0;
+	} else {
+	  /* In execute mode, just write raw output */
+	  rr = write (1, np, rnleft);
+	  if (rr > 0) {
+	    if (o_wfile)
+	      oprint (1, np, rr);		/* log the stdout */
+	    np += rr;			/* fix up ptrs and whatnot */
+	    rnleft -= rr;		/* will get sanity-checked above */
+	    wrote_out += rr;		/* global count */
+	  }
 	}
 Debug (("wrote %d to stdout, errno %d", rr, errno))
     } /* rnleft */
@@ -1120,6 +1171,12 @@ Debug (("wrote %d to stdout, errno %d", rr, errno))
 	  rr = findline (zp, rzleft);
 	else
 	  rr = rzleft;
+	
+	/* Print local message with timestamp in chat mode before sending */
+	if (!pr00gie) {  /* Only in chat mode */
+	  print_chat_message("You", COLOR_GREEN, zp, rr);
+	}
+	
 	/*rr = write (fd, zp, rr);*/	/* one line, or the whole buffer */
 	rr = farm9crypt_write (fd, zp, rr);	/* one line, or the whole buffer */
  
