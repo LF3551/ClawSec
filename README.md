@@ -89,19 +89,20 @@ Secure encrypted chat between two machines with timestamps and colored output (s
 **Server:**
 ```bash
 cd ~/ClawSec/unix
-./clawsec -l -p 8888 -k "TestPass123"
+./clawsec -l -p 8888 -k "TestPass123" -c
 ```
 
 **Client:**
 ```bash
-./clawsec -k "TestPass123" server-ip 8888
+./clawsec -k "TestPass123" -c server-ip 8888
 ```
 
 **Features:**
-- Server sees colored timestamps: `[HH:MM:SS You]` and `[HH:MM:SS Remote]`
-- Client sees plain text
+- Interactive chat with timestamps: `[HH:MM:SS Server/Client]`
+- Colored output: green for you, cyan for remote
 - All communication encrypted with AES-256-GCM
 - Type messages on either side in real-time
+- Use `-c` flag to enable chat mode on both sides
 
 #### 2. Reverse Shell Mode (Encrypted Remote Access)
 
@@ -124,7 +125,7 @@ cd ~/ClawSec/unix
 - All traffic encrypted end-to-end
 - Clean output without formatting
 
-**Note**: Interactive programs (`nano`, `vim`) require PTY and are not currently supported. Use `cat`, `echo`, `sed` for file operations.
+**Note**: Interactive programs (`nano`, `vim`, `top`) are now supported with PTY (pseudo-terminal). Use Ctrl+C to terminate programs, and `exit` or Ctrl+D to close the shell.
 
 #### 3. File Transfer Mode (Secure File Transmission)
 
@@ -189,17 +190,12 @@ Required:
 Connection:
   -l                Listen mode for inbound connections
   -p port           Local port number
-  -s addr           Local source address
 
 Options:
+  -c                Chat mode with timestamps and colors
   -v                Verbose mode
-  -w secs           Timeout for connects and reads
-  -n                Numeric-only IP addresses (no DNS)
-  -z                Zero-I/O mode (port scanning)
-  -u                UDP mode
-  -i secs           Delay interval for lines/ports
-  -o file           Hex dump of traffic to file
-  -e prog           Execute program after connect (requires DGAPING_SECURITY_HOLE)
+  -w secs           Timeout for connects
+  -e prog           Execute program after connect (requires GAPING_SECURITY_HOLE)
 ```
 
 ## Examples
@@ -207,16 +203,16 @@ Options:
 ### Chat Mode
 ```bash
 # Server: Listen for encrypted chat (shows timestamps)
-./clawsec -l -p 8888 -k "TestPass123"
+./clawsec -l -p 8888 -k "TestPass123" -c
 
-# Client: Connect to server (plain text)
-./clawsec -k "TestPass123" server-ip 8888
+# Client: Connect to server for chat
+./clawsec -k "TestPass123" -c server-ip 8888
 ```
 
-Server sees:
+Both sides see:
 ```
-[10:30:15 You] Hello!
-[10:30:18 Remote] Hi there!
+[10:30:15 Server] Hello!
+[10:30:18 Client] Hi there!
 ```
 
 ### Reverse Shell Mode
