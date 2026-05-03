@@ -4,7 +4,7 @@ _clawsec() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="-l -p -k -K -L -u -4 -6 -c -v -w -e -z -P -V -n -h --obfs"
+    opts="-l -p -k -K -L -u -4 -6 -c -v -w -e -z -P -V -n -h --obfs --pad --jitter"
 
     case "${prev}" in
         -p|-w)
@@ -25,7 +25,11 @@ _clawsec() {
             return 0
             ;;
         --obfs)
-            COMPREPLY=( $(compgen -W "http" -- "${cur}") )
+            COMPREPLY=( $(compgen -W "http tls" -- "${cur}") )
+            return 0
+            ;;
+        --jitter)
+            # Milliseconds - expect number
             return 0
             ;;
     esac

@@ -56,10 +56,31 @@ forward all decrypted traffic to the specified host:port.
 Replaces \fBssh \-L\fR without requiring SSH. Supports IPv6
 with bracket notation: \fB[::1]:8080\fR.
 .TP
-.BI \-\-obfs " http"
-Traffic obfuscation. Wrap encrypted frames in HTTP POST requests
-with realistic headers to evade deep packet inspection (DPI).
-Currently supported modes: \fBhttp\fR.
+.BI \-\-obfs " mode"
+Traffic obfuscation. Supported modes:
+.RS
+.TP
+.B http
+Wrap encrypted frames in HTTP POST requests with realistic headers
+to evade shallow DPI. Traffic pattern may still be detectable by
+advanced statistical analysis.
+.TP
+.B tls
+Wrap the entire connection in a real TLS 1.3 session with an
+auto-generated EC certificate and randomized CDN-like SNI hostname.
+From the outside, traffic is indistinguishable from HTTPS. This is
+the recommended mode for maximum stealth.
+.RE
+.TP
+.B \-\-pad
+Pad all packets to a uniform 1400 bytes with cryptographically
+random padding. Defeats traffic analysis based on packet sizes.
+Both sides must use \fB\-\-pad\fR.
+.TP
+.BI \-\-jitter " ms"
+Add a random delay of 0 to \fIms\fR milliseconds between each
+packet sent. Defeats timing correlation attacks used by advanced
+DPI and traffic analysis systems.
 .TP
 .B \-z
 Compress data with zlib (deflate) before encryption. Reduces

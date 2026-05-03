@@ -16,6 +16,8 @@ extern int g_chat_mode;
 extern int g_compress;   /* -z: zlib compression */
 extern int g_progress;   /* -P: progress bar */
 extern int g_verify;     /* -V: SHA-256 end-to-end verify */
+extern int g_pad;        /* --pad: uniform packet padding */
+extern int g_jitter;     /* --jitter N: timing jitter (ms) */
 extern char *g_nickname; /* -n: custom nickname for chat */
 
 #endif

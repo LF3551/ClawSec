@@ -166,8 +166,8 @@ alpine:
 clean:
 	rm -f clawsec cryptcat test_clawsec *.o *.obj
 
-test: farm9crypt.o aesgcm.o obfs.o util.o test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test_parse.c test_zlib.c test_sha256.c test_chat.c test_util.c test.h
-	$(LD) $(XFLAGS) -o test_clawsec test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test_parse.c test_zlib.c test_sha256.c test_chat.c test_util.c farm9crypt.o aesgcm.o obfs.o util.o $(XLIBS)
+test: farm9crypt.o aesgcm.o obfs.o util.o test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test_parse.c test_zlib.c test_sha256.c test_chat.c test_util.c test_stealth.c test.h
+	$(LD) $(XFLAGS) -o test_clawsec test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test_parse.c test_zlib.c test_sha256.c test_chat.c test_util.c test_stealth.c farm9crypt.o aesgcm.o obfs.o util.o $(XLIBS)
 	./test_clawsec
 
 test-macos:

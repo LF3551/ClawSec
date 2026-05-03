@@ -51,6 +51,17 @@ static void install_sigchld(void) {
 static void handle_client(int sockfd, const char *password, int is_server,
                           int send_first, const char *exec_prog,
                           const char *fwd_host, const char *fwd_port) {
+    /* TLS camouflage: wrap socket in TLS before any crypto handshake */
+    if (obfs_get_mode() == OBFS_TLS) {
+        int tls_rc = is_server ? obfs_tls_accept(sockfd) : obfs_tls_connect(sockfd);
+        if (tls_rc < 0) {
+            fprintf(stderr, "ERROR: TLS camouflage handshake failed\n");
+            close(sockfd);
+            return;
+        }
+        log_msg(1, "TLS 1.3 camouflage established");
+    }
+
     if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), send_first) != 0) {
         fprintf(stderr, "ERROR: ECDHE handshake failed\n");
         close(sockfd);
@@ -102,6 +113,9 @@ static void usage(const char *prog) {
             "  -K                Keep-open: accept multiple clients (fork per client)\n"
             "  -L <host:port>    Port forwarding: forward decrypted traffic to host:port\n"
             "  --obfs http       Obfuscate traffic as HTTP requests (anti-DPI)\n"
+            "  --obfs tls        Wrap connection in real TLS 1.3 (stealth mode)\n"
+            "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
+            "  --jitter <ms>     Add random 0-N ms delay between packets (anti-timing)\n"
             "  -z                Compress data with zlib before encryption\n"
             "  -P                Show transfer progress bar\n"
             "  -V                SHA-256 end-to-end file verification\n"
@@ -157,8 +171,10 @@ int main(int argc, char **argv) {
 #endif
 
     static struct option long_opts[] = {
-        {"obfs", required_argument, NULL, 'O'},
-        {"help", no_argument, NULL, 'h'},
+        {"obfs",   required_argument, NULL, 'O'},
+        {"pad",    no_argument,       NULL, 'D'},
+        {"jitter", required_argument, NULL, 'J'},
+        {"help",   no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
 
@@ -184,8 +200,10 @@ int main(int argc, char **argv) {
         case 'O':
             if (strcmp(optarg, "http") == 0) {
                 obfs_set_mode(OBFS_HTTP);
+            } else if (strcmp(optarg, "tls") == 0) {
+                obfs_set_mode(OBFS_TLS);
             } else {
-                fprintf(stderr, "ERROR: Unknown obfuscation mode '%s' (supported: http)\n", optarg);
+                fprintf(stderr, "ERROR: Unknown obfuscation mode '%s' (supported: http, tls)\n", optarg);
                 return 1;
             }
             break;
@@ -198,6 +216,11 @@ int main(int argc, char **argv) {
         case 'P': g_progress = 1; break;
         case 'V': g_verify = 1; break;
         case 'n': g_nickname = optarg; break;
+        case 'D': g_pad = 1; break;
+        case 'J':
+            g_jitter = atoi(optarg);
+            if (g_jitter < 0) g_jitter = 0;
+            break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;
 #endif

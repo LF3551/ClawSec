@@ -63,6 +63,15 @@ extern void test_raw_key_init(void);
 extern void test_fingerprint_uninitialized(void);
 extern void test_write_all_basic(void);
 
+/* test_stealth.c */
+extern void test_obfs_mode_set_tls(void);
+extern void test_tls_roundtrip(void);
+extern void test_pad_roundtrip(void);
+extern void test_pad_uniform_size(void);
+extern void test_pad_too_large(void);
+extern void test_jitter_applies_delay(void);
+extern void test_jitter_zero_noop(void);
+
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
 
@@ -114,6 +123,15 @@ int main(void) {
     test_raw_key_init();
     test_fingerprint_uninitialized();
     test_write_all_basic();
+
+    /* Stealth / anti-fingerprint tests */
+    test_obfs_mode_set_tls();
+    test_tls_roundtrip();
+    test_pad_roundtrip();
+    test_pad_uniform_size();
+    test_pad_too_large();
+    test_jitter_applies_delay();
+    test_jitter_zero_noop();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

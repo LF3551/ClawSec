@@ -16,6 +16,7 @@
 #include "relay.h"
 #include "util.h"
 #include "farm9crypt.h"
+#include "obfs.h"
 
 #define COLOR_RESET   "\033[0m"
 #define COLOR_GREEN   "\033[32m"
@@ -32,6 +33,8 @@
 int g_compress = 0;
 int g_progress = 0;
 int g_verify   = 0;
+int g_pad      = 0;
+int g_jitter   = 0;
 char *g_nickname = NULL;
 
 /* ── Control message protocol ── */
@@ -137,6 +140,33 @@ static uint64_t now_ms(void) {
     return (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
+/* ── Anti-fingerprint wrappers ── */
+
+/* Write with optional padding + jitter */
+static int relay_write(int sockfd, char *data, int len) {
+    if (g_jitter > 0)
+        obfs_jitter(g_jitter);
+
+    if (g_pad) {
+        char padded[OBFS_PAD_SIZE];
+        int plen = obfs_pad(data, (size_t)len, padded, sizeof(padded));
+        if (plen < 0) return -1;
+        return farm9crypt_write(sockfd, padded, plen) == plen ? len : -1;
+    }
+    return farm9crypt_write(sockfd, data, len) == len ? len : -1;
+}
+
+/* Read with optional unpadding */
+static int relay_read(int sockfd, char *buf, int bufsize) {
+    if (g_pad) {
+        char padded[OBFS_PAD_SIZE];
+        int got = farm9crypt_read(sockfd, padded, sizeof(padded));
+        if (got <= 0) return got;
+        return obfs_unpad(padded, (size_t)got, buf, (size_t)bufsize);
+    }
+    return farm9crypt_read(sockfd, buf, bufsize);
+}
+
 /* ── Build control message ── */
 static int build_ctrl(char *buf, size_t buflen, char type,
                       const void *payload, size_t plen) {
@@ -161,7 +191,7 @@ static int send_ctrl(int sockfd, char type, const void *payload, size_t plen,
         if (send_len < 0) return -1;
         send_data = zbuf;
     }
-    return farm9crypt_write(sockfd, send_data, send_len) == send_len ? 0 : -1;
+    return relay_write(sockfd, send_data, send_len) > 0 ? 0 : -1;
 }
 
 /* ── Chat message display ── */
@@ -229,7 +259,7 @@ static int cmd_file(int sockfd, const char *path, const char *local_label,
         if (send_len < 0) { free(msg); free(zbig); return -1; }
         send_data = zbig;
     }
-    int rc = (farm9crypt_write(sockfd, send_data, send_len) == send_len) ? 0 : -1;
+    int rc = (relay_write(sockfd, send_data, send_len) > 0) ? 0 : -1;
     free(msg);
     if (zbig) free(zbig);
 
@@ -501,7 +531,7 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
 
         /* ── Network → stdout ── */
         if (FD_ISSET(sockfd, &rfds)) {
-            n = farm9crypt_read(sockfd, netbuf, sizeof(netbuf));
+            n = relay_read(sockfd, netbuf, sizeof(netbuf));
             if (n < 0) fatal("read from network failed");
             if (n == 0) {
                 if (chat_mode) {
@@ -595,7 +625,7 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
                         if (sl < 0) fatal("zlib compress failed");
                         sd = zbuf;
                     }
-                    farm9crypt_write(sockfd, sd, sl);
+                    relay_write(sockfd, sd, sl);
                 }
                 shutdown(sockfd, SHUT_WR);
                 stdin_closed = 1;
@@ -625,8 +655,8 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
                 if (chat_mode)
                     print_chat_message(local_label, COLOR_GREEN, inbuf, (size_t)n);
 
-                ssize_t wn = farm9crypt_write(sockfd, send_data, send_len);
-                if (wn != send_len) fatal("write to network failed");
+                int wn = relay_write(sockfd, send_data, send_len);
+                if (wn < 0) fatal("write to network failed");
 
                 if (g_progress && !chat_mode)
                     print_progress(g_compress ? sent_raw : sent, &start, 1);
@@ -675,7 +705,7 @@ int relay_encrypted_plain(int enc_fd, int plain_fd) {
         }
 
         if (FD_ISSET(enc_fd, &rfds)) {
-            n = farm9crypt_read(enc_fd, buf, sizeof(buf));
+            n = relay_read(enc_fd, buf, sizeof(buf));
             if (n <= 0) break;
             received += (size_t)n;
             if (write_all(plain_fd, buf, (size_t)n) < 0) break;
@@ -685,7 +715,7 @@ int relay_encrypted_plain(int enc_fd, int plain_fd) {
             n = read(plain_fd, buf, sizeof(buf));
             if (n <= 0) break;
             sent += (size_t)n;
-            if (farm9crypt_write(enc_fd, buf, (size_t)n) != n) break;
+            if (relay_write(enc_fd, buf, (int)n) < 0) break;
         }
     }
 

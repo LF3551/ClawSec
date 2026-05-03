@@ -13,7 +13,9 @@ _clawsec() {
         '-w[Connection timeout in seconds]:seconds:' \
         '-K[Keep-open: accept multiple clients (fork per client)]' \
         '-L[Port forwarding target]:host\:port:' \
-        '--obfs[Traffic obfuscation mode]:mode:(http)' \
+        '--obfs[Traffic obfuscation mode]:mode:(http tls)' \
+        '--pad[Pad all packets to uniform 1400 bytes (anti-analysis)]' \
+        '--jitter[Random delay between packets (ms)]:milliseconds:' \
         '-z[Compress data with zlib before encryption]' \
         '-P[Show transfer progress bar]' \
         '-V[SHA-256 end-to-end file verification]' \

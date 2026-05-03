@@ -41,7 +41,9 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | **Shell Completions** | ✅ bash/zsh/fish | ❌ No | ❌ No | ❌ No |
 | **Keep-Open** | ✅ `-K` multi-client | ❌ No | ✅ Yes | ✅ Yes |
 | **Port Forwarding** | ✅ `-L` (no SSH) | ❌ No | ❌ No | ✅ Yes |
-| **Traffic Obfuscation** | ✅ `--obfs http` | ❌ No | ❌ No | ❌ No |
+| **Traffic Obfuscation** | ✅ `--obfs http/tls` | ❌ No | ❌ No | ❌ No |
+| **TLS Camouflage** | ✅ `--obfs tls` (TLS 1.3) | ❌ No | ❌ No | ❌ No |
+| **Anti-Fingerprint** | ✅ `--pad` + `--jitter` | ❌ No | ❌ No | ❌ No |
 | **Compression** | ✅ `-z` zlib | ❌ No | ❌ No | ❌ No |
 | **Progress Bar** | ✅ `-P` built-in | ❌ No | ❌ No | ❌ No |
 | **File Verification** | ✅ `-V` SHA-256 | ❌ No | ❌ No | ❌ No |
@@ -236,6 +238,9 @@ Options:
   -K                Keep-open: accept multiple clients
   -L host:port      Port forwarding (encrypted tunnel)
   --obfs http       Traffic obfuscation (anti-DPI)
+  --obfs tls        TLS 1.3 camouflage (stealth mode)
+  --pad             Pad packets to uniform 1400 bytes
+  --jitter ms       Random delay 0-N ms between packets
   -w secs           Timeout for connects
   -e prog           Execute program after connect (requires GAPING_SECURITY_HOLE)
 ```
@@ -386,7 +391,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ## Testing
 
 ```bash
-# Run integration test suite (31 tests)
+# Run integration test suite (38 tests)
 cd unix
 make macos    # or: make linux
 make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
@@ -417,6 +422,12 @@ Test coverage:
 - Raw 32-byte key initialization
 - Fingerprint error when uninitialized
 - write_all full buffer correctness
+- TLS camouflage accept/connect roundtrip
+- Packet padding/unpadding roundtrip
+- Padding uniform size across different inputs
+- Padding rejects oversized input
+- Timing jitter applies delay
+- Timing jitter(0) is no-op
 
 ```bash
 # Manual connection test (two terminals)
