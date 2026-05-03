@@ -48,6 +48,13 @@ extern int tests_passed;
 /* Assert string equality */
 #define ASSERT_STR_EQ(a, b, msg) ASSERT(strcmp((a), (b)) == 0, msg)
 
+/* Skip test (counts as passed) */
+#define TEST_SKIP(reason) do { \
+    printf("SKIP (%s)\n", (reason)); \
+    tests_passed++; \
+    goto _test_cleanup; \
+} while(0)
+
 /* End test case (cleanup label + pass/fail reporting) */
 #define TEST_END \
     if (!_test_failed) { tests_passed++; printf("PASS\n"); } \

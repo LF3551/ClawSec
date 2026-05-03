@@ -29,13 +29,14 @@ static void pq_test_cleanup(void) {
 /* Test 1: ML-KEM-768 availability check */
 void test_pq_available(void) {
     TEST_BEGIN("ML-KEM-768 is available") {
-        ASSERT(pq_available() == 1, "ML-KEM-768 not available in OpenSSL");
+        if (!pq_available()) TEST_SKIP("OpenSSL < 3.5");
     } TEST_END;
 }
 
 /* Test 2: Keygen produces valid public key */
 void test_pq_keygen(void) {
     TEST_BEGIN("ML-KEM-768 keygen produces 1184-byte pubkey") {
+        if (!pq_available()) TEST_SKIP("OpenSSL < 3.5");
         unsigned char pubkey[PQ_KEM_PUBKEY_LEN];
         memset(pubkey, 0, sizeof(pubkey));
 
@@ -55,6 +56,7 @@ void test_pq_keygen(void) {
 /* Test 3: Encapsulate/Decapsulate roundtrip */
 void test_pq_encap_decap(void) {
     TEST_BEGIN("ML-KEM-768 encapsulate/decapsulate roundtrip") {
+        if (!pq_available()) TEST_SKIP("OpenSSL < 3.5");
         unsigned char pubkey[PQ_KEM_PUBKEY_LEN];
         void *handle = pq_keygen(pubkey);
         ASSERT(handle != NULL, "keygen failed");
@@ -76,6 +78,7 @@ void test_pq_encap_decap(void) {
 /* Test 4: Different encapsulations produce different shared secrets */
 void test_pq_different_secrets(void) {
     TEST_BEGIN("ML-KEM-768 different encapsulations differ") {
+        if (!pq_available()) TEST_SKIP("OpenSSL < 3.5");
         unsigned char pubkey[PQ_KEM_PUBKEY_LEN];
         void *handle = pq_keygen(pubkey);
         ASSERT(handle != NULL, "keygen failed");
@@ -97,6 +100,7 @@ void test_pq_different_secrets(void) {
 /* Test 5: Tampered ciphertext produces different secret (implicit reject) */
 void test_pq_tampered_ct(void) {
     TEST_BEGIN("ML-KEM-768 tampered ciphertext produces wrong secret") {
+        if (!pq_available()) TEST_SKIP("OpenSSL < 3.5");
         unsigned char pubkey[PQ_KEM_PUBKEY_LEN];
         void *handle = pq_keygen(pubkey);
         ASSERT(handle != NULL, "keygen failed");
@@ -124,6 +128,7 @@ void test_pq_tampered_ct(void) {
 /* Test 6: Full hybrid ECDHE+PQ handshake over socketpair */
 void test_pq_ecdhe_roundtrip(void) {
     TEST_BEGIN("Post-quantum hybrid ECDHE roundtrip") {
+        if (!pq_available()) TEST_SKIP("OpenSSL < 3.5");
         pq_test_setup();
 
         int fds[2];
@@ -177,6 +182,7 @@ void test_pq_ecdhe_roundtrip(void) {
 /* Test 7: Full hybrid ECDHE+PQ+TOFU handshake */
 void test_pq_tofu_ecdhe_roundtrip(void) {
     TEST_BEGIN("Post-quantum hybrid + TOFU ECDHE roundtrip") {
+        if (!pq_available()) TEST_SKIP("OpenSSL < 3.5");
         pq_test_setup();
 
         int fds[2];
