@@ -39,6 +39,7 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 ## Security Features
 
 - **AES-256-GCM**: Authenticated encryption with integrity verification
+- **X25519 ECDHE**: Perfect Forward Secrecy — each session has unique ephemeral keys
 - **PBKDF2**: Password-based key derivation with 100,000 iterations
 - **Random Session Salt**: Per-session salt exchange prevents key reuse across sessions
 - **Replay Protection**: Message sequence counters reject duplicated/reordered packets
@@ -310,10 +311,14 @@ clawsec -l -p 1234 -k "$CLAW_KEY"
 
 ```
 Client ──TCP connect──▶ Server
-Client ◀──16-byte random salt── Server
-       [Both derive key: PBKDF2(password, salt, 100K)]
+Client ◀──X25519 pubkey (32B)── Server
+Client ──X25519 pubkey (32B)──▶ Server
+       [Both: key = SHA256(ECDH_secret || PBKDF2(password))]
 Client ◀──encrypted messages──▶ Server
 ```
+
+Perfect Forward Secrecy: even if password is later compromised,
+previously recorded sessions cannot be decrypted.
 
 See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 
@@ -381,6 +386,12 @@ make clean && make linux
 ```
 
 ## Changelog
+
+### Version 2.5.0 (May 2026) - Perfect Forward Secrecy
+- **ECDHE (X25519)**: Ephemeral key exchange provides Perfect Forward Secrecy
+- **Password-authenticated ECDHE**: Password binds to key exchange, preventing MITM
+- **Man page**: Added `clawsec.1` for `man clawsec`
+- **Shell completions**: Bash, Zsh, and Fish autocompletion scripts
 
 ### Version 2.4.0 (May 2026) - Security Hardening
 - **Random Session Salt**: Per-session CSPRNG salt exchange replaces fixed salt

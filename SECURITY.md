@@ -14,11 +14,12 @@ ClawSec implements modern authenticated encryption using **AES-256-GCM** (Galois
 - **Tag Size**: 128 bits (16 bytes) - authentication tag
 
 ### Key Derivation
-- **Algorithm**: PBKDF2-HMAC-SHA256
-- **Iterations**: 100,000 (OWASP recommended minimum)
-- **Salt**: 16-byte random salt generated per session (CSPRNG)
-- **Salt Exchange**: Server generates salt, sends to client in plaintext after TCP connect
+- **Algorithm**: X25519 ECDHE + PBKDF2-HMAC-SHA256
+- **ECDHE**: Ephemeral X25519 keypair per session (Perfect Forward Secrecy)
+- **PBKDF2 Iterations**: 100,000 (OWASP recommended minimum)
+- **Key Binding**: final_key = SHA256(ECDH_shared_secret || PBKDF2(password, pubkey_hash))
 - **Output**: 256-bit derived key
+- **Property**: Both ECDH agreement AND password knowledge required for decryption
 
 ### Protocol Format
 
@@ -38,11 +39,17 @@ TAG      = GCM authentication tag
 
 ```
 1. TCP connection established
-2. Server generates 16-byte random salt (RAND_bytes)
-3. Server sends salt to client (plaintext, 16 bytes)
-4. Both sides: key = PBKDF2(password, salt, 100000, SHA-256)
-5. Encrypted communication begins (seq counters start at 0)
+2. Server sends X25519 ephemeral public key (32 bytes)
+3. Client sends X25519 ephemeral public key (32 bytes)
+4. Both compute: shared_secret = X25519(my_privkey, peer_pubkey)
+5. Both compute: salt = SHA256(server_pubkey || client_pubkey)
+6. Both compute: password_key = PBKDF2(password, salt[0:16], 100000)
+7. Both compute: final_key = SHA256(shared_secret || password_key)
+8. Encrypted communication begins (seq counters start at 0)
 ```
+
+Perfect Forward Secrecy: ephemeral private keys are never stored. Even if
+password is compromised later, recorded traffic cannot be decrypted.
 
 ## Security Properties
 
@@ -50,16 +57,16 @@ TAG      = GCM authentication tag
 
 1. **Confidentiality**: AES-256 encryption protects data from eavesdropping
 2. **Integrity**: GCM authentication tag detects tampering
-3. **Authentication**: Both endpoints verify message authenticity
+3. **Authentication**: Both endpoints verify message authenticity via password-bound ECDHE
 4. **IV Uniqueness**: Cryptographically secure random IV per message
 5. **Replay Protection**: Monotonic sequence counters reject duplicated/reordered messages
-6. **Session Isolation**: Random salt per session ensures unique keys even with same password
+6. **Session Isolation**: Ephemeral X25519 keys ensure unique session keys
+7. **Perfect Forward Secrecy**: Compromised password cannot decrypt past sessions
 
 ### ⚠️ Current Limitations
 
-1. **No Key Exchange**: Both parties must share password out-of-band
-2. **MITM Protection**: Requires pre-shared password (no PKI/certificates)
-3. **Perfect Forward Secrecy**: Not provided (compromised password exposes past sessions if salt was captured)
+1. **No Key Exchange without password**: Both parties must share password out-of-band
+2. **MITM Protection**: Relies on password authentication (no PKI/certificates)
 
 ## Usage Guidelines
 
@@ -189,7 +196,7 @@ Found a security issue? Please report to:
 ## Future Enhancements
 
 ### Planned Security Features
-1. **Key Exchange**: Implement ECDHE for perfect forward secrecy
+1. ~~**Key Exchange**: Implement ECDHE for perfect forward secrecy~~ ✅ Done (v2.5.0)
 2. ~~**Replay Protection**: Add sequence numbers and timestamps~~ ✅ Done (v2.4.0)
 3. **Certificate Support**: Optional PKI for endpoint authentication
 4. **Password Hashing**: Consider Argon2 instead of PBKDF2
