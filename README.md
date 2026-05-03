@@ -393,7 +393,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ## Testing
 
 ```bash
-# Run integration test suite (38 tests)
+# Run integration test suite (45 tests)
 cd unix
 make macos    # or: make linux
 make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
@@ -480,7 +480,7 @@ make clean && make linux
 - **HTTP Obfuscation**: `--obfs http` anti-DPI packet wrapping
 - **Compression**: `-z` zlib, `-P` progress bar, `-V` SHA-256 verification
 - **Chat Enhancements**: Fingerprints, receipts, `/file`, `/ping`, nicknames
-- **Test Suite**: 43 integration tests covering crypto, protocol, stealth, ECH, mux, and more
+- **Test Suite**: 45 integration tests covering crypto, protocol, stealth, ECH, mux, and more
 
 ### Version 2.4.0 (May 2026) - Security Hardening
 - **Random Session Salt**: Per-session CSPRNG salt exchange replaces fixed salt

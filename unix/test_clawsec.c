@@ -80,6 +80,8 @@ extern void test_jitter_zero_noop(void);
 /* test_ech.c */
 extern void test_ech_flag(void);
 extern void test_ech_tls_connects(void);
+extern void test_ech_extension_present(void);
+extern void test_ech_auto_enables_tls(void);
 
 /* test_mux.c */
 extern void test_mux_encode_decode(void);
@@ -150,6 +152,8 @@ int main(void) {
     /* ECH tests */
     test_ech_flag();
     test_ech_tls_connects();
+    test_ech_extension_present();
+    test_ech_auto_enables_tls();
 
     /* Mux tests */
     test_mux_encode_decode();

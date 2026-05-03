@@ -32,7 +32,7 @@ All notable changes to ClawSec will be documented in this file.
 ### Added — Security
 - X25519 ECDHE for Perfect Forward Secrecy
 - Replay protection with sequence counters
-- 43 integration tests covering crypto, protocol, obfuscation, stealth, ECH, mux
+- 45 integration tests covering crypto, protocol, obfuscation, stealth, ECH, mux
 
 ## [2.3.0] - 2025-11-23
 
