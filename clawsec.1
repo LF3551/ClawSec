@@ -1,0 +1,135 @@
+.TH CLAWSEC 1 "May 2026" "ClawSec 2.4.0" "User Commands"
+.SH NAME
+clawsec \- encrypted network tool with AES-256-GCM and Perfect Forward Secrecy
+.SH SYNOPSIS
+.B clawsec
+.RB [ \-l ]
+.RB [ \-p
+.IR port ]
+.B \-k
+.I password
+.RB [ \-c ]
+.RB [ \-v ]
+.RB [ \-w
+.IR secs ]
+.RB [ \-e
+.IR program ]
+.RI [ hostname ]
+.RI [ port ]
+.SH DESCRIPTION
+.B clawsec
+is a modern encrypted network tool evolved from Cryptcat. It provides
+AES-256-GCM authenticated encryption with X25519 ECDHE key exchange for
+Perfect Forward Secrecy. It is designed as a drop-in replacement for netcat
+with built-in encryption.
+.PP
+All communication is encrypted using a password-authenticated ephemeral
+key exchange. Even if the password is later compromised, previously recorded
+sessions cannot be decrypted.
+.SH OPTIONS
+.TP
+.BI \-k " password"
+Encryption password (required). Used for mutual authentication during
+ECDHE handshake. Minimum 8 characters recommended.
+.TP
+.B \-l
+Listen mode. Wait for inbound connections.
+.TP
+.BI \-p " port"
+Local port number for listen mode.
+.TP
+.B \-c
+Chat mode. Display messages with timestamps and colored roles
+(green for local, cyan for remote).
+.TP
+.B \-v
+Verbose output. Use \fB\-vv\fR for extra debug information.
+.TP
+.BI \-w " secs"
+Connection timeout in seconds.
+.TP
+.BI \-e " program"
+Execute program after connection (encrypted reverse shell).
+Only available if compiled with GAPING_SECURITY_HOLE.
+.TP
+.B \-h
+Display usage information.
+.SH MODES
+.SS Chat Mode
+Interactive encrypted chat with timestamps:
+.PP
+.nf
+Server: clawsec \-l \-p 8888 \-k "pass" \-c
+Client: clawsec \-k "pass" \-c host 8888
+.fi
+.SS File Transfer
+Pipe files through encrypted connection:
+.PP
+.nf
+Receive: clawsec \-v \-l \-p 8888 \-k "pass" > file
+Send:    clawsec \-v \-k "pass" host 8888 < file
+.fi
+.SS Reverse Shell
+Encrypted remote command execution:
+.PP
+.nf
+Server: clawsec \-l \-p 8888 \-k "pass" \-e /bin/bash
+Client: clawsec \-k "pass" host 8888
+.fi
+.SH SECURITY
+.SS Cryptography
+.IP \(bu 2
+AES-256-GCM (AEAD) for authenticated encryption
+.IP \(bu 2
+X25519 ECDHE for Perfect Forward Secrecy
+.IP \(bu 2
+PBKDF2-HMAC-SHA256 (100,000 iterations) for password binding
+.IP \(bu 2
+Per-message random IV (96-bit)
+.IP \(bu 2
+Monotonic sequence counters (replay protection)
+.SS Handshake Protocol
+.PP
+.nf
+1. TCP connection established
+2. Server/Client exchange X25519 ephemeral public keys (32 bytes each)
+3. Both compute: shared_secret = ECDH(my_priv, peer_pub)
+4. Both compute: final_key = SHA256(shared_secret || PBKDF2(password))
+5. Encrypted communication begins
+.fi
+.SS Wire Format
+.PP
+.nf
+[MAGIC:4][VERSION:2][FLAGS:2][SEQ:4][LENGTH:4][IV:12][TAG:16][CIPHERTEXT]
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Success
+.TP
+.B 1
+Error (connection failed, authentication failed, etc.)
+.SH EXAMPLES
+.PP
+Encrypted chat between two machines:
+.PP
+.nf
+$ clawsec \-l \-p 9999 \-k "MyS3cur3Pass!" \-c
+$ clawsec \-k "MyS3cur3Pass!" \-c 192.168.1.10 9999
+.fi
+.PP
+Transfer a directory:
+.PP
+.nf
+$ tar czf \- /data | clawsec \-k "pass" host 9999
+$ clawsec \-l \-p 9999 \-k "pass" | tar xzf \-
+.fi
+.SH SEE ALSO
+.BR nc (1),
+.BR ncat (1),
+.BR socat (1),
+.BR ssh (1)
+.SH AUTHORS
+ClawSec Project <https://github.com/LF3551/ClawSec>
+.SH BUGS
+Report bugs at: https://github.com/LF3551/ClawSec/issues

@@ -1,0 +1,16 @@
+#compdef clawsec
+
+_clawsec() {
+    _arguments \
+        '-l[Listen mode for inbound connections]' \
+        '-p[Local port number]:port:' \
+        '-k[Encryption password (required)]:password:' \
+        '-c[Chat mode with timestamps and colors]' \
+        '-v[Verbose output]' \
+        '-w[Connection timeout in seconds]:seconds:' \
+        '-e[Execute program after connect]:program:_command_names' \
+        '-h[Display usage information]' \
+        '*:host:_hosts'
+}
+
+_clawsec "$@"

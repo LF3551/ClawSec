@@ -1,0 +1,34 @@
+# Bash completion for clawsec
+_clawsec() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    opts="-l -p -k -c -v -w -e -h"
+
+    case "${prev}" in
+        -p|-w)
+            # Port or timeout - expect number
+            return 0
+            ;;
+        -k)
+            # Password - no completion
+            return 0
+            ;;
+        -e)
+            # Program path
+            COMPREPLY=( $(compgen -c -- "${cur}") )
+            return 0
+            ;;
+    esac
+
+    if [[ "${cur}" == -* ]]; then
+        COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+        return 0
+    fi
+
+    # Default: hostname completion
+    COMPREPLY=( $(compgen -A hostname -- "${cur}") )
+}
+
+complete -F _clawsec clawsec
