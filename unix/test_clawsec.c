@@ -332,45 +332,50 @@ static void test_bad_magic(void) {
 
 /* ========== Test: Full handshake simulation (server + client) ========== */
 static void test_full_handshake(void) {
-    TEST("full salt handshake (server/client simulation)");
+    TEST("full ECDHE handshake (server/client simulation)");
 
     int fds[2];
     if (make_socketpair(fds) < 0) { FAIL("socketpair"); return; }
 
     const char *password = "HandshakePass1";
 
-    /* Server side: generate salt, send it, init crypto */
-    unsigned char server_salt[16];
-    if (farm9crypt_generate_salt(server_salt, sizeof(server_salt)) != 0) {
-        FAIL("gen salt"); close(fds[0]); close(fds[1]); return;
+    /* Fork: child = server, parent = client */
+    pid_t pid = fork();
+    if (pid < 0) { FAIL("fork"); close(fds[0]); close(fds[1]); return; }
+
+    if (pid == 0) {
+        /* Child: server side */
+        close(fds[1]);
+        if (farm9crypt_init_ecdhe(fds[0], password, strlen(password), 1) != 0)
+            _exit(1);
+        const char *msg = "hello from server";
+        int wn = farm9crypt_write(fds[0], (char *)msg, strlen(msg));
+        farm9crypt_cleanup();
+        close(fds[0]);
+        _exit(wn == (int)strlen(msg) ? 0 : 1);
     }
-    write(fds[0], server_salt, 16);
 
-    /* Client side: receive salt */
-    unsigned char client_salt[16];
-    ssize_t n = read(fds[1], client_salt, 16);
-    if (n != 16) { FAIL("recv salt"); close(fds[0]); close(fds[1]); return; }
+    /* Parent: client side */
+    close(fds[0]);
+    if (farm9crypt_init_ecdhe(fds[1], password, strlen(password), 0) != 0) {
+        FAIL("client ECDHE failed");
+        close(fds[1]);
+        waitpid(pid, NULL, 0);
+        return;
+    }
 
-    /* Both init with same password + salt */
-    farm9crypt_init_password_with_salt(password, strlen(password), server_salt, 16);
-
-    /* Server sends encrypted message */
-    const char *server_msg = "hello from server";
-    farm9crypt_write(fds[0], (char *)server_msg, strlen(server_msg));
-    farm9crypt_cleanup();
-
-    /* Client inits and reads */
-    farm9crypt_init_password_with_salt(password, strlen(password), client_salt, 16);
     char buf[256];
     int rn = farm9crypt_read(fds[1], buf, sizeof(buf));
     farm9crypt_cleanup();
-
-    close(fds[0]);
     close(fds[1]);
 
-    if (rn != (int)strlen(server_msg)) { FAIL("read length"); return; }
+    int status;
+    waitpid(pid, &status, 0);
+
+    if (rn <= 0) { FAIL("read failed"); return; }
     buf[rn] = '\0';
-    if (strcmp(buf, server_msg) != 0) { FAIL("content mismatch"); return; }
+    if (strcmp(buf, "hello from server") != 0) { FAIL("content mismatch"); return; }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) { FAIL("server failed"); return; }
 
     PASS();
 }

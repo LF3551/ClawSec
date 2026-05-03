@@ -19,6 +19,12 @@ int farm9crypt_init_password(const char* password, size_t pass_len);
 int farm9crypt_init_password_with_salt(const char* password, size_t pass_len,
                                        const unsigned char* salt, size_t salt_len);
 
+/* Initialize with ECDHE + password (Perfect Forward Secrecy) */
+/* Returns: 0 on success, -1 on error */
+/* server_mode: 1 = generate keypair and write pubkey to sockfd, read peer pubkey */
+/*              0 = read peer pubkey from sockfd, generate keypair and write pubkey */
+int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pass_len, int server_mode);
+
 /* Generate random salt for session handshake */
 int farm9crypt_generate_salt(unsigned char* salt_out, size_t len);
 

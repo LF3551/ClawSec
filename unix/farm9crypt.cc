@@ -141,6 +141,196 @@ extern "C" int farm9crypt_generate_salt(unsigned char* salt_out, size_t len) {
     return 0;
 }
 
+/*
+ * ECDHE key exchange with password authentication (Perfect Forward Secrecy)
+ *
+ * Protocol:
+ *   1. Both sides generate ephemeral X25519 keypair
+ *   2. Server sends pubkey (32 bytes), client sends pubkey (32 bytes)
+ *   3. Both compute shared_secret = ECDH(my_privkey, peer_pubkey)
+ *   4. Final key = HKDF(shared_secret || PBKDF2(password, salt))
+ *      - This binds the session to the password (MITM cannot derive key without password)
+ *   5. Salt = SHA256(server_pubkey || client_pubkey) (deterministic, no extra exchange)
+ */
+
+#include <openssl/evp.h>
+#include <openssl/kdf.h>
+
+/* Send exactly len bytes */
+static int ecdhe_send(int sockfd, const void* buf, size_t len) {
+    size_t total = 0;
+    const unsigned char* ptr = (const unsigned char*)buf;
+    while (total < len) {
+        ssize_t n = send(sockfd, ptr + total, len - total, 0);
+        if (n <= 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        total += n;
+    }
+    return 0;
+}
+
+/* Receive exactly len bytes */
+static int ecdhe_recv(int sockfd, void* buf, size_t len) {
+    size_t total = 0;
+    unsigned char* ptr = (unsigned char*)buf;
+    while (total < len) {
+        ssize_t n = recv(sockfd, ptr + total, len - total, 0);
+        if (n <= 0) {
+            if (n == 0) return -1;
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        total += n;
+    }
+    return 0;
+}
+
+extern "C" int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pass_len, int server_mode) {
+    if (!password || pass_len == 0) {
+        if (debug) fprintf(stderr, "[ECDHE] Error: Empty password\n");
+        return -1;
+    }
+
+    /* Generate ephemeral X25519 keypair */
+    EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, NULL);
+    if (!pctx) { if (debug) fprintf(stderr, "[ECDHE] Error: CTX alloc failed\n"); return -1; }
+
+    EVP_PKEY* my_key = NULL;
+    if (EVP_PKEY_keygen_init(pctx) <= 0 || EVP_PKEY_keygen(pctx, &my_key) <= 0) {
+        if (debug) fprintf(stderr, "[ECDHE] Error: Keygen failed\n");
+        EVP_PKEY_CTX_free(pctx);
+        return -1;
+    }
+    EVP_PKEY_CTX_free(pctx);
+
+    /* Extract my public key (32 bytes for X25519) */
+    unsigned char my_pubkey[32];
+    size_t pubkey_len = 32;
+    if (EVP_PKEY_get_raw_public_key(my_key, my_pubkey, &pubkey_len) != 1) {
+        if (debug) fprintf(stderr, "[ECDHE] Error: Get pubkey failed\n");
+        EVP_PKEY_free(my_key);
+        return -1;
+    }
+
+    /* Exchange public keys */
+    unsigned char peer_pubkey[32];
+
+    if (server_mode) {
+        /* Server: send first, then receive */
+        if (ecdhe_send(sockfd, my_pubkey, 32) < 0) {
+            if (debug) fprintf(stderr, "[ECDHE] Error: Send pubkey failed\n");
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+        if (ecdhe_recv(sockfd, peer_pubkey, 32) < 0) {
+            if (debug) fprintf(stderr, "[ECDHE] Error: Recv pubkey failed\n");
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+    } else {
+        /* Client: receive first, then send */
+        if (ecdhe_recv(sockfd, peer_pubkey, 32) < 0) {
+            if (debug) fprintf(stderr, "[ECDHE] Error: Recv pubkey failed\n");
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+        if (ecdhe_send(sockfd, my_pubkey, 32) < 0) {
+            if (debug) fprintf(stderr, "[ECDHE] Error: Send pubkey failed\n");
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+    }
+
+    /* Load peer public key */
+    EVP_PKEY* peer_key = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, NULL, peer_pubkey, 32);
+    if (!peer_key) {
+        if (debug) fprintf(stderr, "[ECDHE] Error: Load peer key failed\n");
+        EVP_PKEY_free(my_key);
+        return -1;
+    }
+
+    /* Compute shared secret via ECDH */
+    EVP_PKEY_CTX* dctx = EVP_PKEY_CTX_new(my_key, NULL);
+    if (!dctx || EVP_PKEY_derive_init(dctx) <= 0 || EVP_PKEY_derive_set_peer(dctx, peer_key) <= 0) {
+        if (debug) fprintf(stderr, "[ECDHE] Error: Derive init failed\n");
+        if (dctx) EVP_PKEY_CTX_free(dctx);
+        EVP_PKEY_free(my_key);
+        EVP_PKEY_free(peer_key);
+        return -1;
+    }
+
+    size_t secret_len = 32;
+    unsigned char shared_secret[32];
+    if (EVP_PKEY_derive(dctx, shared_secret, &secret_len) <= 0) {
+        if (debug) fprintf(stderr, "[ECDHE] Error: Derive failed\n");
+        EVP_PKEY_CTX_free(dctx);
+        EVP_PKEY_free(my_key);
+        EVP_PKEY_free(peer_key);
+        return -1;
+    }
+
+    EVP_PKEY_CTX_free(dctx);
+    EVP_PKEY_free(my_key);
+    EVP_PKEY_free(peer_key);
+
+    /* Derive salt from public keys: SHA256(server_pub || client_pub) */
+    unsigned char salt[32];
+    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
+    if (server_mode) {
+        EVP_DigestUpdate(mdctx, my_pubkey, 32);
+        EVP_DigestUpdate(mdctx, peer_pubkey, 32);
+    } else {
+        EVP_DigestUpdate(mdctx, peer_pubkey, 32);
+        EVP_DigestUpdate(mdctx, my_pubkey, 32);
+    }
+    unsigned int md_len;
+    EVP_DigestFinal_ex(mdctx, salt, &md_len);
+    EVP_MD_CTX_free(mdctx);
+
+    /* Derive password component: PBKDF2(password, salt[0:16], 100k) */
+    unsigned char password_key[32];
+    if (PKCS5_PBKDF2_HMAC(password, pass_len, salt, 16, 100000,
+                           EVP_sha256(), 32, password_key) != 1) {
+        if (debug) fprintf(stderr, "[ECDHE] Error: PBKDF2 failed\n");
+        secure_zero(shared_secret, 32);
+        return -1;
+    }
+
+    /* Final key = SHA256(shared_secret || password_key) */
+    /* This ensures both ECDH agreement AND password knowledge are required */
+    mdctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
+    EVP_DigestUpdate(mdctx, shared_secret, 32);
+    EVP_DigestUpdate(mdctx, password_key, 32);
+    EVP_DigestFinal_ex(mdctx, derived_key, &md_len);
+    EVP_MD_CTX_free(mdctx);
+
+    /* Wipe intermediate secrets */
+    secure_zero(shared_secret, 32);
+    secure_zero(password_key, 32);
+
+    /* Initialize encryptor and decryptor */
+    if (encryptor) delete encryptor;
+    if (decryptor) delete decryptor;
+
+    encryptor = new AESGCM(derived_key, 32);
+    decryptor = new AESGCM(derived_key, 32);
+
+    if (!encryptor || !decryptor) {
+        if (debug) fprintf(stderr, "[ECDHE] Error: Cipher init failed\n");
+        return -1;
+    }
+
+    initialized = true;
+    send_seq = 0;
+    recv_seq = 0;
+    if (debug) fprintf(stderr, "[ECDHE] PFS session established (X25519 + PBKDF2)\n");
+    return 0;
+}
+
 /* Legacy init with raw key (deprecated - use farm9crypt_init_password) */
 extern "C" void farm9crypt_init(char* keystr) {
     if (!keystr) {
