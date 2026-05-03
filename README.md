@@ -40,6 +40,8 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 
 - **AES-256-GCM**: Authenticated encryption with integrity verification
 - **PBKDF2**: Password-based key derivation with 100,000 iterations
+- **Random Session Salt**: Per-session salt exchange prevents key reuse across sessions
+- **Replay Protection**: Message sequence counters reject duplicated/reordered packets
 - **Secure Random IV**: Cryptographically strong per-message randomization
 - **Protocol Versioning**: Future-proof binary message format
 - **Memory Safety**: Secure key wiping and resource cleanup
@@ -62,7 +64,11 @@ chmod +x install.sh
 
 ```bash
 cd unix
-make linux    # or: make freebsd, make netbsd, make solaris
+make linux    # Linux with system OpenSSL
+make macos    # macOS with Homebrew OpenSSL
+make alpine   # Alpine Linux (Docker)
+make freebsd  # FreeBSD
+make netbsd   # NetBSD
 ```
 
 ### Docker
@@ -292,12 +298,22 @@ clawsec -l -p 1234 -k "$CLAW_KEY"
 ### Protocol Format
 
 ```
-[MAGIC:4][VERSION:2][FLAGS:2][LENGTH:4][IV:12][TAG:16][CIPHERTEXT]
+[MAGIC:4][VERSION:2][FLAGS:2][SEQ:4][LENGTH:4][IV:12][TAG:16][CIPHERTEXT]
 ```
 
 - Magic number: `0x434C4157` ("CLAW")
 - Version: `0x0001` (protocol v1)
+- Sequence number: monotonic counter (replay protection)
 - Automatic authentication and integrity verification
+
+### Session Handshake
+
+```
+Client ──TCP connect──▶ Server
+Client ◀──16-byte random salt── Server
+       [Both derive key: PBKDF2(password, salt, 100K)]
+Client ◀──encrypted messages──▶ Server
+```
 
 See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 
@@ -314,12 +330,30 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ## Testing
 
 ```bash
-# Compile and run encryption tests
+# Run integration test suite (12 tests)
 cd unix
-make test_aes
-./test_aes
+make macos    # or: make linux
+make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
 
-# Test connection (two terminals)
+# On Linux (system OpenSSL):
+make linux && make test
+```
+
+Test coverage:
+- Encrypt/decrypt roundtrip
+- Multi-message sequencing
+- Random salt generation & uniqueness
+- Different salts → different ciphertext
+- Wrong password rejection
+- Replay protection (duplicated packets rejected)
+- Large messages (8KB)
+- Input validation (NULL/empty password, invalid salt)
+- Protocol magic validation
+- Full handshake simulation
+- Bidirectional communication
+
+```bash
+# Manual connection test (two terminals)
 # Terminal 1:
 ./clawsec -l -p 12345 -k "TestPassword" -v
 
@@ -347,6 +381,13 @@ make clean && make linux
 ```
 
 ## Changelog
+
+### Version 2.4.0 (May 2026) - Security Hardening
+- **Random Session Salt**: Per-session CSPRNG salt exchange replaces fixed salt
+- **Replay Protection**: Message sequence counters prevent replay/reorder attacks
+- **Makefile Fix**: Removed hardcoded Homebrew paths; added dedicated `make macos` target
+- **Test Suite**: 12 integration tests covering crypto, protocol, and handshake
+- **Build**: `make linux` now works on standard Linux without Homebrew
 
 ### Version 2.3.0 (November 2025) - Complete Rewrite
 - **Code Modernization**: Rewritten from 1714 lines to 439 lines (75% reduction)
