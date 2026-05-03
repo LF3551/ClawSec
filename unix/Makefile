@@ -149,5 +149,9 @@ alpine:
 ### RANDOM
 
 clean:
-	rm -f clawsec cryptcat *.o *.obj
+	rm -f clawsec cryptcat test_clawsec *.o *.obj
+
+test: farm9crypt.o aesgcm.o test_clawsec.c
+	$(LD) $(XFLAGS) -o test_clawsec test_clawsec.c farm9crypt.o aesgcm.o $(XLIBS)
+	./test_clawsec
 
