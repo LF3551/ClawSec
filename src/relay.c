@@ -217,19 +217,21 @@ static void print_chat_message(const char *sender_label,
 /* ── Slash command: /file ── */
 static int cmd_file(int sockfd, const char *path, const char *local_label,
                     int compress, char *zbuf, size_t zbuflen) {
-    struct stat st;
-    if (stat(path, &st) < 0 || !S_ISREG(st.st_mode)) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) {
         fprintf(stdout, "%s  ⚠ File not found: %s%s\n", COLOR_YELLOW, path, COLOR_RESET);
+        return -1;
+    }
+    struct stat st;
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
+        fprintf(stdout, "%s  ⚠ Not a regular file: %s%s\n", COLOR_YELLOW, path, COLOR_RESET);
+        close(fd);
         return -1;
     }
     if ((size_t)st.st_size > MAX_FILE_SIZE) {
         fprintf(stdout, "%s  ⚠ File too large (max 4MB for inline). Use file transfer mode.%s\n",
                 COLOR_YELLOW, COLOR_RESET);
-        return -1;
-    }
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) {
-        fprintf(stdout, "%s  ⚠ Cannot open: %s%s\n", COLOR_YELLOW, path, COLOR_RESET);
+        close(fd);
         return -1;
     }
     size_t fsize = (size_t)st.st_size;
