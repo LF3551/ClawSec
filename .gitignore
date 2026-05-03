@@ -5,6 +5,7 @@ unix/*.obj
 
 # Test executables
 unix/test_aes
+unix/test_clawsec
 
 # macOS
 .DS_Store

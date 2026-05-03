@@ -23,6 +23,11 @@ jobs:
         make clean
         make linux
     
+    - name: Run tests
+      run: |
+        cd unix
+        make test
+    
     - name: Test binary
       run: |
         cd unix
@@ -48,7 +53,12 @@ jobs:
       run: |
         cd unix
         make clean
-        make linux
+        make macos
+    
+    - name: Run tests
+      run: |
+        cd unix
+        make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
     
     - name: Test binary
       run: |
