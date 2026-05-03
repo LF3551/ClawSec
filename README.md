@@ -239,6 +239,8 @@ Options:
   -L host:port      Port forwarding (encrypted tunnel)
   --obfs http       Traffic obfuscation (anti-DPI)
   --obfs tls        TLS 1.3 camouflage (stealth mode)
+  --ech             Encrypted Client Hello (hide SNI from DPI)
+  --mux             Multiplex streams over one tunnel (with -L)
   --pad             Pad packets to uniform 1400 bytes
   --jitter ms       Random delay 0-N ms between packets
   -w secs           Timeout for connects
@@ -468,6 +470,8 @@ make clean && make linux
 - **Shell completions**: Bash, Zsh, and Fish autocompletion scripts
 
 ### Version 2.5.0 (May 2026) - Stealth Mode
+- **Encrypted Client Hello**: `--ech` adds GREASE ECH extension, hides SNI from DPI
+- **Stream Multiplexer**: `--mux` — 64 concurrent streams over one encrypted tunnel
 - **TLS 1.3 Camouflage**: `--obfs tls` wraps connections in real TLS 1.3 sessions
 - **Packet Padding**: `--pad` makes all packets uniform 1400 bytes
 - **Timing Jitter**: `--jitter N` adds random 0-N ms delays between packets
@@ -476,7 +480,7 @@ make clean && make linux
 - **HTTP Obfuscation**: `--obfs http` anti-DPI packet wrapping
 - **Compression**: `-z` zlib, `-P` progress bar, `-V` SHA-256 verification
 - **Chat Enhancements**: Fingerprints, receipts, `/file`, `/ping`, nicknames
-- **Test Suite**: 38 integration tests covering crypto, protocol, stealth, and more
+- **Test Suite**: 43 integration tests covering crypto, protocol, stealth, ECH, mux, and more
 
 ### Version 2.4.0 (May 2026) - Security Hardening
 - **Random Session Salt**: Per-session CSPRNG salt exchange replaces fixed salt

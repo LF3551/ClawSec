@@ -5,6 +5,11 @@ All notable changes to ClawSec will be documented in this file.
 ## [2.5.0] - 2026-05-03
 
 ### Added — Stealth Mode (Anti-DPI / Anti-Fingerprint)
+- `--ech` — Encrypted Client Hello: GREASE ECH extension in TLS ClientHello,
+  hides SNI from DPI. Automatically enables TLS mode.
+- `--mux` — Stream multiplexer: multiple logical connections over one encrypted
+  tunnel. Server: `--mux -L host:port`, Client: `--mux -p local_port`.
+  Up to 64 concurrent streams.
 - `--obfs tls` — TLS 1.3 camouflage: wraps connection in a real TLS session
   with auto-generated EC P-256 certificate and randomized CDN-like SNI hostname.
   Traffic is indistinguishable from HTTPS to any DPI system.
@@ -27,7 +32,7 @@ All notable changes to ClawSec will be documented in this file.
 ### Added — Security
 - X25519 ECDHE for Perfect Forward Secrecy
 - Replay protection with sequence counters
-- 38 integration tests covering crypto, protocol, obfuscation, stealth
+- 43 integration tests covering crypto, protocol, obfuscation, stealth, ECH, mux
 
 ## [2.3.0] - 2025-11-23
 

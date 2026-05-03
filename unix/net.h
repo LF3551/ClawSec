@@ -13,6 +13,9 @@ int net_accept(int listen_fd);
 /* UDP "accept": wait for first datagram, connect to sender. Returns fd. */
 int net_udp_accept(int udp_fd);
 
+/* Like net_connect but returns -1 on failure instead of exiting */
+int net_try_connect(const char *host, const char *port, int timeout_sec);
+
 /* Global network config (set before calling net_* functions) */
 extern int g_udp_mode;
 extern int g_af_family;

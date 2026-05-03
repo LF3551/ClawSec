@@ -16,6 +16,8 @@ _clawsec() {
         '--obfs[Traffic obfuscation mode]:mode:(http tls)' \
         '--pad[Pad all packets to uniform 1400 bytes (anti-analysis)]' \
         '--jitter[Random delay between packets (ms)]:milliseconds:' \
+        '--ech[Encrypted Client Hello (hide SNI from DPI)]' \
+        '--mux[Multiplex streams over one encrypted tunnel]' \
         '-z[Compress data with zlib before encryption]' \
         '-P[Show transfer progress bar]' \
         '-V[SHA-256 end-to-end file verification]' \

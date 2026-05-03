@@ -17,6 +17,7 @@
 #include "relay.h"
 #include "exec.h"
 #include "obfs.h"
+#include "mux.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -25,6 +26,7 @@ int g_udp_mode = 0;
 int g_af_family; /* AF_UNSPEC */
 
 static volatile sig_atomic_t g_child_exited = 0;
+static const char *s_mux_port = NULL;
 
 static void sigchld_handler(int sig) {
     (void)sig;
@@ -68,6 +70,18 @@ static void handle_client(int sockfd, const char *password, int is_server,
         return;
     }
     log_msg(1, "PFS session established (X25519 + PBKDF2)");
+
+    /* Mux mode: multiplex streams over single tunnel */
+    if (g_mux) {
+        if (is_server && fwd_host && fwd_port) {
+            mux_relay_server(sockfd, fwd_host, fwd_port);
+        } else if (!is_server && s_mux_port) {
+            mux_relay_client(sockfd, s_mux_port);
+        }
+        close(sockfd);
+        farm9crypt_cleanup();
+        return;
+    }
 
     /* Port forwarding mode: connect to target and relay */
     if (fwd_host && fwd_port) {
@@ -113,8 +127,8 @@ static void usage(const char *prog) {
             "  -K                Keep-open: accept multiple clients (fork per client)\n"
             "  -L <host:port>    Port forwarding: forward decrypted traffic to host:port\n"
             "  --obfs http       Obfuscate traffic as HTTP requests (anti-DPI)\n"
-            "  --obfs tls        Wrap connection in real TLS 1.3 (stealth mode)\n"
-            "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
+            "  --obfs tls        Wrap connection in real TLS 1.3 (stealth mode)\n"            "  --ech              Encrypted Client Hello (hide SNI from DPI)\n"
+            "  --mux              Multiplex streams over one tunnel (with -L)\n"            "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
             "  --jitter <ms>     Add random 0-N ms delay between packets (anti-timing)\n"
             "  -z                Compress data with zlib before encryption\n"
             "  -P                Show transfer progress bar\n"
@@ -174,6 +188,8 @@ int main(int argc, char **argv) {
         {"obfs",   required_argument, NULL, 'O'},
         {"pad",    no_argument,       NULL, 'D'},
         {"jitter", required_argument, NULL, 'J'},
+        {"ech",    no_argument,       NULL, 'E'},
+        {"mux",    no_argument,       NULL, 'M'},
         {"help",   no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -221,6 +237,15 @@ int main(int argc, char **argv) {
             g_jitter = atoi(optarg);
             if (g_jitter < 0) g_jitter = 0;
             break;
+        case 'E':
+            obfs_ech_enable();
+            /* ECH implies TLS mode */
+            if (obfs_get_mode() == OBFS_NONE)
+                obfs_set_mode(OBFS_TLS);
+            break;
+        case 'M':
+            g_mux = 1;
+            break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;
 #endif
@@ -249,6 +274,20 @@ int main(int argc, char **argv) {
     }
 
     ignore_sigpipe();
+
+    /* Validate mux mode */
+    if (g_mux) {
+        if (listen_mode && !fwd_spec) {
+            fprintf(stderr, "ERROR: --mux in server mode requires -L host:port\n");
+            return 1;
+        }
+        if (!listen_mode && !bind_port) {
+            fprintf(stderr, "ERROR: --mux in client mode requires -p <local_port>\n");
+            return 1;
+        }
+        if (!listen_mode)
+            s_mux_port = bind_port;
+    }
 
     if (g_udp_mode)
         farm9crypt_set_udp_mode(1);

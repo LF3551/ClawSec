@@ -14,6 +14,11 @@ int tests_passed = 0;
 /* Globals needed by util.o */
 int g_verbose = 0;
 
+/* Globals needed by mux.o and net.o */
+int g_jitter = 0;
+int g_udp_mode = 0;
+int g_af_family = 0;
+
 /* test_crypto.c */
 extern void test_basic_roundtrip(void);
 extern void test_multiple_messages(void);
@@ -71,6 +76,15 @@ extern void test_pad_uniform_size(void);
 extern void test_pad_too_large(void);
 extern void test_jitter_applies_delay(void);
 extern void test_jitter_zero_noop(void);
+
+/* test_ech.c */
+extern void test_ech_flag(void);
+extern void test_ech_tls_connects(void);
+
+/* test_mux.c */
+extern void test_mux_encode_decode(void);
+extern void test_mux_frame_types(void);
+extern void test_mux_max_payload(void);
 
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
@@ -132,6 +146,15 @@ int main(void) {
     test_pad_too_large();
     test_jitter_applies_delay();
     test_jitter_zero_noop();
+
+    /* ECH tests */
+    test_ech_flag();
+    test_ech_tls_connects();
+
+    /* Mux tests */
+    test_mux_encode_decode();
+    test_mux_frame_types();
+    test_mux_max_payload();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

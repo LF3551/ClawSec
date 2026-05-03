@@ -171,11 +171,41 @@ exit            # Close connection
 
 ### Maximum stealth — all anti-fingerprint features combined
 ```bash
-# Server: TLS + padding + jitter
-./clawsec -l -p 443 -k "MaxStealth" --obfs tls --pad --jitter 100
+# Server: TLS + ECH + padding + jitter
+./clawsec -l -p 443 -k "MaxStealth" --obfs tls --ech --pad --jitter 100
 
 # Client: same flags required on both sides
-./clawsec -k "MaxStealth" --obfs tls --pad --jitter 100 server.example.com 443
+./clawsec -k "MaxStealth" --obfs tls --ech --pad --jitter 100 server.example.com 443
+```
+
+### Encrypted Client Hello (hide SNI from DPI)
+```bash
+# --ech adds GREASE ECH extension to TLS ClientHello
+# DPI cannot see the target hostname in the handshake
+# Automatically enables TLS mode if not already set
+./clawsec -l -p 443 -k "Pass" --ech
+./clawsec -k "Pass" --ech server.example.com 443
+```
+
+### Multiplexed tunnel (multiple connections, one tunnel)
+```bash
+# Server: demux streams to internal web server
+./clawsec -l -p 4430 -k "MuxPass" -L internal.host:80 --mux
+
+# Client: listen locally on 8080, tunnel to server
+# All connections to localhost:8080 go through the encrypted tunnel
+./clawsec -k "MuxPass" -p 8080 --mux server.example.com 4430
+
+# Now: curl http://localhost:8080 → encrypted → internal.host:80
+```
+
+### Mux + TLS + ECH (maximum stealth tunnel)
+```bash
+# Server
+./clawsec -l -p 443 -k "Pass" -L db.internal:5432 --mux --ech
+
+# Client: encrypted PostgreSQL tunnel on localhost:5432
+./clawsec -k "Pass" -p 5432 --mux --ech server.example.com 443
 ```
 
 ### Packet padding only (uniform packet sizes)

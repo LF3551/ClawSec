@@ -53,4 +53,9 @@ int obfs_unpad(const void *data, size_t len, void *out, size_t out_max);
  */
 void obfs_jitter(int max_ms);
 
+/* Encrypted Client Hello (GREASE ECH) — hides SNI from DPI */
+void obfs_ech_enable(void);
+void obfs_ech_disable(void);
+int obfs_ech_enabled(void);
+
 #endif

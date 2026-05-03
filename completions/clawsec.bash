@@ -4,7 +4,7 @@ _clawsec() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="-l -p -k -K -L -u -4 -6 -c -v -w -e -z -P -V -n -h --obfs --pad --jitter"
+    opts="-l -p -k -K -L -u -4 -6 -c -v -w -e -z -P -V -n -h --obfs --pad --jitter --ech --mux"
 
     case "${prev}" in
         -p|-w)

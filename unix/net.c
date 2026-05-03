@@ -79,6 +79,69 @@ int net_connect(const char *host, const char *port, int timeout_sec) {
     return sock;
 }
 
+int net_try_connect(const char *host, const char *port, int timeout_sec) {
+    struct addrinfo hints, *res = NULL, *rp;
+    int sock = -1, ret;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family   = g_af_family;
+    hints.ai_socktype = g_udp_mode ? SOCK_DGRAM : SOCK_STREAM;
+
+    ret = getaddrinfo(host, port, &hints, &res);
+    if (ret != 0) return -1;
+
+    for (rp = res; rp != NULL; rp = rp->ai_next) {
+        sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (sock < 0) continue;
+
+        int yes = 1;
+        setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+        if (!g_udp_mode && timeout_sec > 0) {
+            int flags = fcntl(sock, F_GETFL, 0);
+            if (flags < 0) flags = 0;
+            fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+        }
+
+        ret = connect(sock, rp->ai_addr, rp->ai_addrlen);
+        if (ret == 0) {
+            if (!g_udp_mode && timeout_sec > 0) {
+                int flags = fcntl(sock, F_GETFL, 0);
+                fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
+            }
+            break;
+        }
+
+        if (!g_udp_mode && timeout_sec > 0 && errno == EINPROGRESS) {
+            fd_set wfds;
+            struct timeval tv;
+            FD_ZERO(&wfds);
+            FD_SET(sock, &wfds);
+            tv.tv_sec = timeout_sec;
+            tv.tv_usec = 0;
+            ret = select(sock + 1, NULL, &wfds, NULL, &tv);
+            if (ret > 0 && FD_ISSET(sock, &wfds)) {
+                int err = 0;
+                socklen_t slen = sizeof(err);
+                if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &slen) == 0 && err == 0) {
+                    int flags = fcntl(sock, F_GETFL, 0);
+                    fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
+                    break;
+                }
+                errno = err;
+            } else if (ret == 0) {
+                errno = ETIMEDOUT;
+            }
+        }
+
+        close(sock);
+        sock = -1;
+    }
+
+    freeaddrinfo(res);
+    return sock;
+}
+
 int net_listen(const char *port) {
     struct addrinfo hints, *res = NULL, *rp;
     int listen_fd = -1, ret;

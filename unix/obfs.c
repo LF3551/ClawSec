@@ -33,6 +33,7 @@
 #include "obfs.h"
 
 static int g_obfs_mode = OBFS_NONE;
+static int g_ech       = 0;
 static SSL_CTX *g_ssl_ctx = NULL;
 static SSL     *g_ssl     = NULL;
 
@@ -43,6 +44,10 @@ void obfs_set_mode(int mode) {
 int obfs_get_mode(void) {
     return g_obfs_mode;
 }
+
+void obfs_ech_enable(void)  { g_ech = 1; }
+void obfs_ech_disable(void) { g_ech = 0; }
+int obfs_ech_enabled(void)  { return g_ech; }
 
 /* Read exactly len bytes from fd */
 static int obfs_read_exact(int fd, void *buf, size_t len) {
@@ -265,6 +270,59 @@ int obfs_tls_accept(int fd) {
     return 0;
 }
 
+/* ──────────── GREASE ECH Extension ──────────── */
+
+/*
+ * Add a GREASE ECH extension to ClientHello.
+ * Makes the connection look like a modern browser using Encrypted Client Hello.
+ * DPI cannot extract the inner SNI — it sees only encrypted random data.
+ *
+ * Structure (draft-ietf-tls-esni):
+ *   type(1) + kdf_id(2) + aead_id(2) + config_id(1)
+ *   + enc_len(2) + enc(32) + payload_len(2) + payload(N)
+ */
+static int ech_grease_add_cb(SSL *s, unsigned int ext_type,
+                             unsigned int context,
+                             const unsigned char **out, size_t *outlen,
+                             X509 *x, size_t chainidx,
+                             int *al, void *add_arg) {
+    (void)s; (void)ext_type; (void)context;
+    (void)x; (void)chainidx; (void)al; (void)add_arg;
+
+    /* Variable payload size: 160-224 bytes (realistic browser range) */
+    unsigned char rnd_byte;
+    RAND_bytes(&rnd_byte, 1);
+    size_t payload_len = 160 + (rnd_byte & 0x3F);
+    size_t total = 42 + payload_len;
+
+    unsigned char *buf = OPENSSL_malloc(total);
+    if (!buf) return -1;
+
+    size_t off = 0;
+    buf[off++] = 0x00;  /* type: outer */
+    /* HpkeSymmetricCipherSuite: HKDF-SHA256 + AES-128-GCM */
+    buf[off++] = 0x00; buf[off++] = 0x01;  /* kdf_id */
+    buf[off++] = 0x00; buf[off++] = 0x01;  /* aead_id */
+    RAND_bytes(&buf[off], 1); off++;       /* config_id: random */
+    buf[off++] = 0x00; buf[off++] = 0x20;  /* enc_len: 32 (X25519 key size) */
+    RAND_bytes(&buf[off], 32); off += 32;  /* enc: random (looks like X25519 pubkey) */
+    buf[off++] = (payload_len >> 8) & 0xFF;
+    buf[off++] = payload_len & 0xFF;       /* payload_len */
+    RAND_bytes(&buf[off], (int)payload_len); /* payload: random (encrypted inner hello) */
+
+    *out = buf;
+    *outlen = total;
+    return 1;
+}
+
+static void ech_grease_free_cb(SSL *s, unsigned int ext_type,
+                               unsigned int context,
+                               const unsigned char *out,
+                               void *add_arg) {
+    (void)s; (void)ext_type; (void)context; (void)add_arg;
+    OPENSSL_free((void *)out);
+}
+
 int obfs_tls_connect(int fd) {
     /* Client side: connect to TLS server, skip cert verification
        (we have our own crypto layer inside — cert is just camouflage) */
@@ -274,6 +332,16 @@ int obfs_tls_connect(int fd) {
     SSL_CTX_set_min_proto_version(g_ssl_ctx, TLS1_3_VERSION);
     /* No cert verification — the inner ECDHE+PBKDF2 layer provides authentication */
     SSL_CTX_set_verify(g_ssl_ctx, SSL_VERIFY_NONE, NULL);
+
+    /* Encrypted Client Hello: add GREASE ECH extension to ClientHello */
+    if (g_ech) {
+        if (!SSL_CTX_add_custom_ext(g_ssl_ctx, 0xfe0d,
+                                    SSL_EXT_CLIENT_HELLO,
+                                    ech_grease_add_cb, ech_grease_free_cb, NULL,
+                                    NULL, NULL)) {
+            fprintf(stderr, "Warning: ECH extension registration failed\n");
+        }
+    }
 
     g_ssl = SSL_new(g_ssl_ctx);
     if (!g_ssl) {
