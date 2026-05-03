@@ -33,7 +33,7 @@ jobs:
 
     - name: Build
       run: |
-        cd unix
+        cd src
         make linux
 
     - name: Perform CodeQL Analysis

@@ -96,7 +96,7 @@ chmod +x install.sh
 ### Manual Build
 
 ```bash
-cd unix
+cd src
 make linux    # Linux with system OpenSSL
 make macos    # macOS with Homebrew OpenSSL
 make alpine   # Alpine Linux (Docker)
@@ -414,7 +414,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 
 ```bash
 # Run integration test suite (58 tests)
-cd unix
+cd src
 make macos    # or: make linux
 make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
 
@@ -564,10 +564,26 @@ This tool is for authorized testing and legitimate use only.
 ## Documentation
 
 - [SECURITY.md](SECURITY.md) - Detailed security documentation
-- [EXAMPLE_USAGE.md](EXAMPLE_USAGE.md) - Usage examples
-- [FAQ.md](FAQ.md) - Frequently asked questions
+- [docs/EXAMPLE_USAGE.md](docs/EXAMPLE_USAGE.md) - Usage examples
+- [docs/FAQ.md](docs/FAQ.md) - Frequently asked questions
 - [CHANGELOG.md](CHANGELOG.md) - Version history
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Development guide
 - [OpenSSL GCM Documentation](https://wiki.openssl.org/index.php/EVP_Authenticated_Encryption_and_Decryption)
 - [NIST SP 800-38D](https://csrc.nist.gov/publications/detail/sp/800-38d/final) - GCM Specification
 - [PBKDF2 RFC 8018](https://tools.ietf.org/html/rfc8018)
+
+## Project Structure
+
+```
+ClawSec/
+├── src/              # Source code (C/C++)
+├── tests/            # Test suite (58 tests)
+├── docs/             # Documentation (FAQ, examples, man page)
+├── scripts/          # Build, install, quickstart scripts
+├── deploy/           # Deployment configs (systemd, k8s, Homebrew)
+├── completions/      # Shell completions (bash, fish, zsh)
+├── releases/         # Release archives
+├── .github/workflows # CI/CD (build, CodeQL, Docker)
+├── Dockerfile        # Docker build
+└── docker-compose.yml
+```

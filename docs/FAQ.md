@@ -226,7 +226,7 @@ Yes. The server signs its ephemeral key, the client verifies. Both must use `--t
 brew install openssl@3
 export CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
 export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
-cd unix && make clean && make linux
+cd src && make clean && make linux
 ```
 
 ## Docker

@@ -4,13 +4,13 @@
 
 ### Terminal 1 (Server)
 ```bash
-cd unix
+cd src
 ./clawsec -l -p 9999 -k "TestPassword123" -v
 ```
 
 ### Terminal 2 (Client)
 ```bash
-cd unix
+cd src
 echo "Hello encrypted world" | ./clawsec localhost 9999 -k "TestPassword123" -v
 ```
 

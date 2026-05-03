@@ -10,16 +10,17 @@ RUN apk add --no-cache \
     util-linux-dev
 
 WORKDIR /app
-COPY unix/ ./unix/
+COPY src/ ./src/
+COPY tests/ ./tests/
 
-WORKDIR /app/unix
+WORKDIR /app/src
 RUN make clean && make alpine
 
 RUN adduser -D -u 1000 clawsec && \
     chown -R clawsec:clawsec /app
 
 USER clawsec
-WORKDIR /app/unix
+WORKDIR /app/src
 
 ENTRYPOINT ["./clawsec"]
 CMD ["-l", "-p", "8888", "-k", "ChangeMe"]

@@ -11,7 +11,7 @@ Thank you for your interest in contributing to ClawSec!
 4. Build the project
 
 ```bash
-cd unix
+cd src
 make clean
 make linux
 ```
@@ -19,18 +19,10 @@ make linux
 ## Running Tests
 
 ```bash
-# Build test suite
-make test_aes
-
-# Run encryption tests
-./test_aes
-
-# Manual integration test
-# Terminal 1:
-./clawsec -l -p 12345 -k "TestPassword" -v
-
-# Terminal 2:
-echo "Test" | ./clawsec -k "TestPassword" localhost 12345
+# Full test suite (58 tests)
+cd src
+make test         # Linux
+make test-macos   # macOS
 ```
 
 ## Code Style

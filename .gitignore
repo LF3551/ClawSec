@@ -1,11 +1,11 @@
 # Compiled binaries
-unix/clawsec
-unix/*.o
-unix/*.obj
+src/clawsec
+src/*.o
+src/*.obj
 
 # Test executables
-unix/test_aes
-unix/test_clawsec
+src/test_aes
+src/test_clawsec
 
 # macOS
 .DS_Store
@@ -16,6 +16,7 @@ unix/test_clawsec
 *.tar.gz
 *.zip
 release-*/
+releases/*/
 
 # Editor files
 *.swp

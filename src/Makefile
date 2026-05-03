@@ -175,11 +175,20 @@ alpine:
 
 ### RANDOM
 
+TESTDIR = ../tests
+
 clean:
 	rm -f clawsec cryptcat test_clawsec *.o *.obj
 
-test: farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o tofu.o net.o util.o test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test_parse.c test_zlib.c test_sha256.c test_chat.c test_util.c test_stealth.c test_ech.c test_mux.c test_fallback.c test_fingerprint.c test_tofu.c test.h
-	$(LD) $(XFLAGS) -o test_clawsec test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test_parse.c test_zlib.c test_sha256.c test_chat.c test_util.c test_stealth.c test_ech.c test_mux.c test_fallback.c test_fingerprint.c test_tofu.c farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o tofu.o net.o util.o $(XLIBS)
+TEST_SRC = $(TESTDIR)/test_clawsec.c $(TESTDIR)/test_crypto.c $(TESTDIR)/test_protocol.c \
+	$(TESTDIR)/test_handshake.c $(TESTDIR)/test_obfs.c $(TESTDIR)/test_parse.c \
+	$(TESTDIR)/test_zlib.c $(TESTDIR)/test_sha256.c $(TESTDIR)/test_chat.c \
+	$(TESTDIR)/test_util.c $(TESTDIR)/test_stealth.c $(TESTDIR)/test_ech.c \
+	$(TESTDIR)/test_mux.c $(TESTDIR)/test_fallback.c $(TESTDIR)/test_fingerprint.c \
+	$(TESTDIR)/test_tofu.c
+
+test: farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o tofu.o net.o util.o $(TEST_SRC) $(TESTDIR)/test.h
+	$(LD) $(XFLAGS) -I. -I$(TESTDIR) -o test_clawsec $(TEST_SRC) farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o tofu.o net.o util.o $(XLIBS)
 	./test_clawsec
 
 test-macos:

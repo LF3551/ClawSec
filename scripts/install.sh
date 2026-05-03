@@ -48,7 +48,7 @@ fi
 
 # Build ClawSec
 echo "Building ClawSec..."
-cd unix
+cd src
 
 if [[ "$OS" == "linux" ]]; then
     make clean

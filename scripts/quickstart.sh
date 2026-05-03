@@ -9,9 +9,9 @@ echo "================================"
 echo ""
 
 # Check if clawsec exists
-if [[ ! -f "unix/clawsec" ]]; then
+if [[ ! -f "src/clawsec" ]]; then
     echo "Building ClawSec..."
-    cd unix
+    cd src
     make clean
     make linux
     cd ..
@@ -29,14 +29,14 @@ read -p "Press Enter to continue..."
 # Start server in background
 echo ""
 echo "Starting server..."
-(timeout 5 ./unix/clawsec -l -p 9999 -k "DemoPassword123" > /tmp/clawsec_demo.txt 2>&1) &
+(timeout 5 ./src/clawsec -l -p 9999 -k "DemoPassword123" > /tmp/clawsec_demo.txt 2>&1) &
 SERVER_PID=$!
 
 sleep 1
 
 # Send message
 echo "Sending encrypted message..."
-echo "Hello from ClawSec! AES-256-GCM works!" | ./unix/clawsec -k "DemoPassword123" localhost 9999
+echo "Hello from ClawSec! AES-256-GCM works!" | ./src/clawsec -k "DemoPassword123" localhost 9999
 
 sleep 1
 
@@ -57,7 +57,7 @@ echo "Demo complete!"
 echo "================================"
 echo ""
 echo "Try it yourself:"
-echo "  Terminal 1: ./unix/clawsec -l -p 8888 -k 'YourPassword'"
-echo "  Terminal 2: echo 'message' | ./unix/clawsec -k 'YourPassword' localhost 8888"
+echo "  Terminal 1: ./src/clawsec -l -p 8888 -k 'YourPassword'"
+echo "  Terminal 2: echo 'message' | ./src/clawsec -k 'YourPassword' localhost 8888"
 echo ""
 echo "Documentation: README.md"

@@ -19,18 +19,18 @@ jobs:
     
     - name: Build
       run: |
-        cd unix
+        cd src
         make clean
         make linux
     
     - name: Run tests
       run: |
-        cd unix
+        cd src
         make test
     
     - name: Test binary
       run: |
-        cd unix
+        cd src
         ./clawsec -h || true
         test -f clawsec
     
@@ -38,7 +38,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: clawsec-linux
-        path: unix/clawsec
+        path: src/clawsec
 
   build-macos:
     runs-on: macos-latest
@@ -51,18 +51,18 @@ jobs:
     
     - name: Build
       run: |
-        cd unix
+        cd src
         make clean
         make macos
     
     - name: Run tests
       run: |
-        cd unix
+        cd src
         make test-macos
     
     - name: Test binary
       run: |
-        cd unix
+        cd src
         ./clawsec -h || true
         test -f clawsec
     
@@ -70,7 +70,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: clawsec-macos
-        path: unix/clawsec
+        path: src/clawsec
 
   docker-build:
     runs-on: ubuntu-latest
