@@ -97,14 +97,17 @@ sudo systemctl start clawsec
 ### Is ClawSec secure?
 ClawSec uses:
 - AES-256-GCM (NIST approved)
+- X25519 ECDHE (Perfect Forward Secrecy)
 - PBKDF2 with 100k iterations
 - Cryptographically secure random IVs
 - GCM authentication tags
+- Replay protection (sequence counters)
+- TLS 1.3 camouflage (`--obfs tls`)
+- Packet padding and timing jitter (`--pad`, `--jitter`)
 
-However, it lacks:
-- Perfect forward secrecy
-- Replay protection
-- PKI/certificate infrastructure
+It lacks:
+- PKI/certificate infrastructure (uses password-based auth)
+- Independent security audit
 
 ### How strong should my password be?
 Minimum 12 characters with mix of:
@@ -117,7 +120,7 @@ Minimum 12 characters with mix of:
 Without the password, intercepted data is encrypted and authenticated. An attacker would see random bytes and cannot decrypt or modify the data.
 
 ### Does ClawSec work over HTTPS?
-No. ClawSec operates at the TCP/UDP level, not HTTP. It creates its own encrypted channel.
+No. ClawSec operates at the TCP/UDP level, not HTTP. It creates its own encrypted channel. However, `--obfs tls` wraps traffic in a real TLS 1.3 session, making it look like HTTPS to network observers.
 
 ## Troubleshooting
 

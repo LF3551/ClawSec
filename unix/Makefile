@@ -140,7 +140,7 @@ util.o: util.c util.h farm9crypt.h
 net.o: net.c net.h util.h
 		${CC} $(DFLAGS) $(XFLAGS) -c net.c
 
-relay.o: relay.c relay.h util.h farm9crypt.h
+relay.o: relay.c relay.h util.h farm9crypt.h obfs.h
 		${CC} $(DFLAGS) $(XFLAGS) -c relay.c
 
 exec.o: exec.c exec.h util.h farm9crypt.h

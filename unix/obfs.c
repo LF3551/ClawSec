@@ -329,6 +329,9 @@ void obfs_jitter(int max_ms) {
     if (max_ms <= 0) return;
     unsigned int rnd;
     RAND_bytes((unsigned char *)&rnd, sizeof(rnd));
-    int delay_us = (int)((rnd % (unsigned int)max_ms) * 1000);
-    usleep((useconds_t)delay_us);
+    int delay_ms = (int)(rnd % (unsigned int)max_ms);
+    struct timespec ts;
+    ts.tv_sec  = delay_ms / 1000;
+    ts.tv_nsec = (delay_ms % 1000) * 1000000L;
+    nanosleep(&ts, NULL);
 }

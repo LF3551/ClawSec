@@ -2,6 +2,33 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [2.5.0] - 2026-05-03
+
+### Added — Stealth Mode (Anti-DPI / Anti-Fingerprint)
+- `--obfs tls` — TLS 1.3 camouflage: wraps connection in a real TLS session
+  with auto-generated EC P-256 certificate and randomized CDN-like SNI hostname.
+  Traffic is indistinguishable from HTTPS to any DPI system.
+- `--pad` — Uniform packet padding: all packets padded to 1400 bytes with
+  cryptographically random data. Defeats traffic analysis based on packet sizes.
+- `--jitter N` — Timing jitter: random 0-N ms delay between packets.
+  Defeats timing correlation attacks.
+
+### Added — Production Features
+- `-K` keep-open mode: accept multiple clients (fork per connection)
+- `-L host:port` port forwarding: encrypted tunnel without SSH
+- `--obfs http` HTTP obfuscation: wrap packets as HTTP POST requests
+- `-z` zlib compression before encryption
+- `-P` transfer progress bar with speed display
+- `-V` SHA-256 end-to-end file verification
+- `-n name` custom chat nicknames
+- Chat mode enhancements: session fingerprints (emoji + hex), read receipts,
+  `/file`, `/ping`, `/clear`, `/whoami`, `/help` slash commands
+
+### Added — Security
+- X25519 ECDHE for Perfect Forward Secrecy
+- Replay protection with sequence counters
+- 38 integration tests covering crypto, protocol, obfuscation, stealth
+
 ## [2.3.0] - 2025-11-23
 
 ### Changed
