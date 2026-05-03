@@ -29,6 +29,7 @@ extern "C"
 #include "obfs.h"
 #include "tofu.h"
 #include "pqkem.h"
+#include "argon2kdf.h"
 }
 
 static int debug = false;
@@ -128,10 +129,9 @@ static int derive_session_key(const unsigned char *secret1,
     EVP_DigestFinal_ex(mdctx, salt, &md_len);
     EVP_MD_CTX_free(mdctx);
 
-    /* password_key = PBKDF2(password, salt[0:16], 100k) */
+    /* password_key = Argon2id(password, salt) */
     unsigned char password_key[32];
-    if (PKCS5_PBKDF2_HMAC(password, pass_len, salt, 16, 100000,
-                           EVP_sha256(), 32, password_key) != 1) {
+    if (kdf_derive(password, pass_len, salt, 32, password_key, 32) != 0) {
         return -1;
     }
 

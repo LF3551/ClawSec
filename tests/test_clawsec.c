@@ -117,6 +117,15 @@ extern void test_pq_tampered_ct(void);
 extern void test_pq_ecdhe_roundtrip(void);
 extern void test_pq_tofu_ecdhe_roundtrip(void);
 
+/* test_argon2.c */
+extern void test_argon2_available(void);
+extern void test_argon2_derive(void);
+extern void test_argon2_deterministic(void);
+extern void test_argon2_different_passwords(void);
+extern void test_argon2_different_salts(void);
+extern void test_argon2_rejects_bad_input(void);
+extern void test_argon2_roundtrip_encrypt(void);
+
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
 
@@ -216,6 +225,15 @@ int main(void) {
     test_pq_tampered_ct();
     test_pq_ecdhe_roundtrip();
     test_pq_tofu_ecdhe_roundtrip();
+
+    /* Argon2id KDF tests */
+    test_argon2_available();
+    test_argon2_derive();
+    test_argon2_deterministic();
+    test_argon2_different_passwords();
+    test_argon2_different_salts();
+    test_argon2_rejects_bad_input();
+    test_argon2_roundtrip_encrypt();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

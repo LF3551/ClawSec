@@ -39,6 +39,7 @@ extern "C"
 {
 #include "farm9crypt.h"
 #include "obfs.h"
+#include "argon2kdf.h"
 }
 
 #include "aesgcm.h"
@@ -96,16 +97,9 @@ extern "C" int farm9crypt_init_password_with_salt(const char* password, size_t p
         if (debug) fprintf(stderr, "[CRYPT] Warning: Password should be at least 8 characters\n");
     }
 
-    /* Derive 256-bit key using PBKDF2-HMAC-SHA256 with 100,000 iterations */
-    if (PKCS5_PBKDF2_HMAC(
-            password, pass_len,
-            salt, salt_len,
-            100000,  /* iteration count - OWASP recommended minimum */
-            EVP_sha256(),
-            32,      /* key length */
-            derived_key
-        ) != 1) {
-        if (debug) fprintf(stderr, "[CRYPT] Error: PBKDF2 key derivation failed\n");
+    /* Derive 256-bit key using Argon2id (PBKDF2 fallback) */
+    if (kdf_derive(password, pass_len, salt, salt_len, derived_key, 32) != 0) {
+        if (debug) fprintf(stderr, "[CRYPT] Error: Key derivation failed\n");
         return -1;
     }
 
