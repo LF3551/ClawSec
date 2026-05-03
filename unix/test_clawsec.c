@@ -11,6 +11,9 @@
 int tests_run = 0;
 int tests_passed = 0;
 
+/* Globals needed by util.o */
+int g_verbose = 0;
+
 /* test_crypto.c */
 extern void test_basic_roundtrip(void);
 extern void test_multiple_messages(void);
@@ -45,6 +48,10 @@ extern void test_sha256_known_vector(void);
 extern void test_sha256_incremental(void);
 extern void test_fingerprint_deterministic(void);
 extern void test_ctrl_msg_build(void);
+extern void test_initialized_flag(void);
+extern void test_raw_key_init(void);
+extern void test_fingerprint_uninitialized(void);
+extern void test_write_all_basic(void);
 
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
@@ -91,6 +98,12 @@ int main(void) {
     /* Chat features */
     test_fingerprint_deterministic();
     test_ctrl_msg_build();
+
+    /* State & utility tests */
+    test_initialized_flag();
+    test_raw_key_init();
+    test_fingerprint_uninitialized();
+    test_write_all_basic();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

@@ -98,14 +98,14 @@ osf:
 # virtually the same as netbsd/bsd44lite/whatever
 freebsd:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DFREEBSD' STATIC=-static \
-	XLIBS='-lstdc++'
+	XLIBS='-lssl -lcrypto -lstdc++ -lz'
 
 bsdi:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DBSDI' STATIC=-Bstatic
 
 netbsd:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DNETBSD' STATIC=-static \
-	XLIBS='-lstdc++'
+	XLIBS='-lssl -lcrypto -lstdc++ -lz'
 openbsd:
 	@echo "use: make netbsd"
 # finally got to an hpux box, which turns out to be *really* warped. 
@@ -156,7 +156,7 @@ generic:
 
 alpine:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX -DGENERIC' \
-	XLIBS='-lssl -lcrypto -lutil -lstdc++' STATIC=
+	XLIBS='-lssl -lcrypto -lutil -lstdc++ -lz' STATIC=
 
 
 # Still at large: dgux dynix ???
@@ -166,8 +166,8 @@ alpine:
 clean:
 	rm -f clawsec cryptcat test_clawsec *.o *.obj
 
-test: farm9crypt.o aesgcm.o obfs.o test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test.h
-	$(LD) $(XFLAGS) -o test_clawsec test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c farm9crypt.o aesgcm.o obfs.o $(XLIBS)
+test: farm9crypt.o aesgcm.o obfs.o util.o test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test.h
+	$(LD) $(XFLAGS) -o test_clawsec test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c farm9crypt.o aesgcm.o obfs.o util.o $(XLIBS)
 	./test_clawsec
 
 test-macos:

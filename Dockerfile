@@ -2,6 +2,7 @@ FROM alpine:latest
 
 RUN apk add --no-cache \
     openssl-dev \
+    zlib-dev \
     gcc \
     g++ \
     make \

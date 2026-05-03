@@ -386,7 +386,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ## Testing
 
 ```bash
-# Run integration test suite (27 tests)
+# Run integration test suite (31 tests)
 cd unix
 make macos    # or: make linux
 make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
@@ -413,6 +413,10 @@ Test coverage:
 - SHA-256 known vector and incremental hashing
 - Session fingerprint determinism
 - Control message protocol format
+- farm9crypt_initialized state tracking
+- Raw 32-byte key initialization
+- Fingerprint error when uninitialized
+- write_all full buffer correctness
 
 ```bash
 # Manual connection test (two terminals)

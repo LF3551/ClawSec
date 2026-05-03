@@ -15,7 +15,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libssl-dev build-essential
+        sudo apt-get install -y libssl-dev zlib1g-dev build-essential
     
     - name: Build
       run: |
@@ -58,7 +58,7 @@ jobs:
     - name: Run tests
       run: |
         cd unix
-        make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
+        make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++ -lz'
     
     - name: Test binary
       run: |
