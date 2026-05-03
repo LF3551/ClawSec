@@ -16,20 +16,32 @@ ClawSec implements modern authenticated encryption using **AES-256-GCM** (Galois
 ### Key Derivation
 - **Algorithm**: PBKDF2-HMAC-SHA256
 - **Iterations**: 100,000 (OWASP recommended minimum)
-- **Salt**: Fixed 16-byte salt (for session compatibility)
+- **Salt**: 16-byte random salt generated per session (CSPRNG)
+- **Salt Exchange**: Server generates salt, sends to client in plaintext after TCP connect
 - **Output**: 256-bit derived key
 
 ### Protocol Format
 
 ```
-[MAGIC:4][VERSION:2][FLAGS:2][LENGTH:4][IV:12][TAG:16][CIPHERTEXT:variable]
+[MAGIC:4][VERSION:2][FLAGS:2][SEQ:4][LENGTH:4][IV:12][TAG:16][CIPHERTEXT:variable]
 
 MAGIC    = 0x434C4157 ("CLAW")
 VERSION  = 0x0001 (protocol version 1)
 FLAGS    = 0x0000 (reserved for future use)
+SEQ      = message sequence number (network byte order, replay protection)
 LENGTH   = ciphertext length in bytes (network byte order)
 IV       = random initialization vector (unique per message)
 TAG      = GCM authentication tag
+```
+
+### Session Handshake
+
+```
+1. TCP connection established
+2. Server generates 16-byte random salt (RAND_bytes)
+3. Server sends salt to client (plaintext, 16 bytes)
+4. Both sides: key = PBKDF2(password, salt, 100000, SHA-256)
+5. Encrypted communication begins (seq counters start at 0)
 ```
 
 ## Security Properties
@@ -40,14 +52,14 @@ TAG      = GCM authentication tag
 2. **Integrity**: GCM authentication tag detects tampering
 3. **Authentication**: Both endpoints verify message authenticity
 4. **IV Uniqueness**: Cryptographically secure random IV per message
-5. **Forward Secrecy**: Different IV for each message (partial forward secrecy)
+5. **Replay Protection**: Monotonic sequence counters reject duplicated/reordered messages
+6. **Session Isolation**: Random salt per session ensures unique keys even with same password
 
 ### ⚠️ Current Limitations
 
 1. **No Key Exchange**: Both parties must share password out-of-band
-2. **Replay Protection**: Not fully implemented (no sequence numbers)
-3. **MITM Protection**: Requires pre-shared password (no PKI/certificates)
-4. **Perfect Forward Secrecy**: Not provided (same derived key for session)
+2. **MITM Protection**: Requires pre-shared password (no PKI/certificates)
+3. **Perfect Forward Secrecy**: Not provided (compromised password exposes past sessions if salt was captured)
 
 ## Usage Guidelines
 
@@ -113,8 +125,8 @@ admin                # Too short and common
 
 ### 2. Replay Attacks
 **Threat**: Attacker captures and resends encrypted messages
-**Current Status**: Partial protection (unique IVs per message)
-**Future**: Add sequence numbers and timestamps
+**Mitigation**: Monotonic sequence counter per session; receiver rejects any message with unexpected sequence number
+**Status**: ✅ Implemented (v2.4.0)
 
 ### 3. Brute Force
 **Threat**: Attacker tries to guess password
@@ -178,7 +190,7 @@ Found a security issue? Please report to:
 
 ### Planned Security Features
 1. **Key Exchange**: Implement ECDHE for perfect forward secrecy
-2. **Replay Protection**: Add sequence numbers and timestamps
+2. ~~**Replay Protection**: Add sequence numbers and timestamps~~ ✅ Done (v2.4.0)
 3. **Certificate Support**: Optional PKI for endpoint authentication
 4. **Password Hashing**: Consider Argon2 instead of PBKDF2
 5. **Rate Limiting**: Protect against brute force
@@ -204,6 +216,6 @@ For production environments, consider professionally audited solutions like:
 
 ---
 
-**Last Updated**: November 22, 2025  
+**Last Updated**: May 3, 2026  
 **Protocol Version**: 1  
 **Maintainer**: ClawSec Project
