@@ -63,14 +63,15 @@ password is compromised later, recorded traffic cannot be decrypted.
 6. **Session Isolation**: Ephemeral X25519 keys ensure unique session keys
 7. **Perfect Forward Secrecy**: Compromised password cannot decrypt past sessions
 8. **TOFU Identity Verification**: `--tofu` provides SSH-like server identity with Ed25519 signing and `known_hosts` — detects MITM on reconnection
+9. **Post-Quantum Resistance**: `--pq` adds ML-KEM-768 (CRYSTALS-Kyber) hybrid key exchange on top of X25519, protecting against quantum adversaries
 
 ### ⚠️ Current Limitations
 
 1. **No PKI/certificate infrastructure**: Without `--tofu`, authentication relies solely on pre-shared password. With `--tofu`, MITM is detectable on reconnection but first contact requires out-of-band fingerprint verification
-2. **No post-quantum cryptography**: X25519 and AES-256 are secure against classical computers but not against future quantum attacks (Harvest Now, Decrypt Later)
-3. **PBKDF2 (not Argon2)**: PBKDF2 is resistant to CPU brute-force but not GPU/ASIC-optimized attacks. Argon2id would provide memory-hard protection
-4. **No certificate pinning**: `--tofu` provides first-use trust, but not CA-signed certificate validation
-5. **Single password per session**: No per-user authentication; all clients share the same password
+2. **PBKDF2 (not Argon2)**: PBKDF2 is resistant to CPU brute-force but not GPU/ASIC-optimized attacks. Argon2id would provide memory-hard protection
+3. **No certificate pinning**: `--tofu` provides first-use trust, but not CA-signed certificate validation
+4. **Single password per session**: No per-user authentication; all clients share the same password
+5. **Post-quantum requires OpenSSL >= 3.5**: `--pq` hybrid key exchange needs ML-KEM support (OpenSSL 3.5+)
 
 ## Usage Guidelines
 
@@ -201,9 +202,8 @@ Found a security issue? Please report to:
 
 ### Planned Security Features
 1. **Argon2id KDF**: Replace PBKDF2 with memory-hard key derivation (GPU/ASIC resistance)
-2. **Post-quantum hybrid**: X25519 + ML-KEM (Kyber) hybrid key exchange for quantum resistance
-3. **Per-user authentication**: Support multiple passwords/keys for multi-client deployments
-4. **Key rotation**: Automatic session key renegotiation for long-lived connections
+2. **Per-user authentication**: Support multiple passwords/keys for multi-client deployments
+3. **Key rotation**: Automatic session key renegotiation for long-lived connections
 
 ## Anti-Censorship / Anti-DPI
 

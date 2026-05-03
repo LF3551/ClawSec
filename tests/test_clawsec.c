@@ -18,6 +18,7 @@ int g_verbose = 0;
 int g_jitter = 0;
 int g_udp_mode = 0;
 int g_af_family = 0;
+int g_pq = 0;
 
 /* test_crypto.c */
 extern void test_basic_roundtrip(void);
@@ -106,6 +107,15 @@ extern void test_tofu_sign_verify(void);
 extern void test_tofu_known_hosts(void);
 extern void test_tofu_ecdhe_roundtrip(void);
 extern void test_tofu_fingerprint_format(void);
+
+/* test_pqkem.c */
+extern void test_pq_available(void);
+extern void test_pq_keygen(void);
+extern void test_pq_encap_decap(void);
+extern void test_pq_different_secrets(void);
+extern void test_pq_tampered_ct(void);
+extern void test_pq_ecdhe_roundtrip(void);
+extern void test_pq_tofu_ecdhe_roundtrip(void);
 
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
@@ -197,6 +207,15 @@ int main(void) {
     test_tofu_known_hosts();
     test_tofu_ecdhe_roundtrip();
     test_tofu_fingerprint_format();
+
+    /* Post-Quantum KEM tests */
+    test_pq_available();
+    test_pq_keygen();
+    test_pq_encap_decap();
+    test_pq_different_secrets();
+    test_pq_tampered_ct();
+    test_pq_ecdhe_roundtrip();
+    test_pq_tofu_ecdhe_roundtrip();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

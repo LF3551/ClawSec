@@ -32,6 +32,13 @@ int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pass_len, int
 int farm9crypt_init_ecdhe_tofu(int sockfd, const char* password, size_t pass_len,
                                 int server_mode, const char *peer_host, const char *peer_port);
 
+/* Post-Quantum Hybrid ECDHE: X25519 + ML-KEM-768 (+ optional TOFU).
+ * Uses both classical ECDHE and quantum-resistant KEM so the session key
+ * is secure against both classical and quantum adversaries.
+ * If g_tofu is set, X25519 phase includes Ed25519 identity signing. */
+int farm9crypt_init_ecdhe_pq(int sockfd, const char* password, size_t pass_len,
+                              int server_mode, const char *peer_host, const char *peer_port);
+
 /* Set UDP datagram mode (must be called before read/write) */
 void farm9crypt_set_udp_mode(int enabled);
 

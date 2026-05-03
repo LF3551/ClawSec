@@ -21,12 +21,14 @@
 #include "fallback.h"
 #include "fingerprint.h"
 #include "tofu.h"
+#include "pqkem.h"
 
 /* Global config */
 int g_verbose = 0;
 int g_chat_mode = 0;
 int g_udp_mode = 0;
 int g_af_family; /* AF_UNSPEC */
+int g_pq = 0;    /* --pq: post-quantum hybrid */
 
 static volatile sig_atomic_t g_child_exited = 0;
 static const char *s_mux_port = NULL;
@@ -95,7 +97,18 @@ static void handle_client(int sockfd, const char *password, int is_server,
         }
     }
 
-    if (g_tofu) {
+    if (g_pq) {
+        if (farm9crypt_init_ecdhe_pq(sockfd, password, strlen(password),
+                                     send_first, peer_host, peer_port) != 0) {
+            fprintf(stderr, "ERROR: Post-quantum hybrid handshake failed\n");
+            close(sockfd);
+            return;
+        }
+        if (g_tofu)
+            log_msg(1, "PFS session established (X25519 + ML-KEM-768 + Ed25519 TOFU + PBKDF2)");
+        else
+            log_msg(1, "PFS session established (X25519 + ML-KEM-768 + PBKDF2)");
+    } else if (g_tofu) {
         if (farm9crypt_init_ecdhe_tofu(sockfd, password, strlen(password),
                                        send_first, peer_host, peer_port) != 0) {
             fprintf(stderr, "ERROR: ECDHE+TOFU handshake failed\n");
@@ -172,6 +185,7 @@ static void usage(const char *prog) {
             "  --mux              Multiplex streams over one tunnel (with -L)\n"            "  --fallback <h:p>  Proxy non-ClawSec probes to real site (REALITY-like)\n"
             "  --fingerprint <p> Mimic browser TLS (chrome, firefox, safari)\n"
             "  --tofu            Trust On First Use (SSH-like server identity)\n"
+            "  --pq              Post-quantum hybrid (X25519 + ML-KEM-768)\n"
             "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
             "  --jitter <ms>     Add random 0-N ms delay between packets (anti-timing)\n"
             "  -z                Compress data with zlib before encryption\n"
@@ -237,6 +251,7 @@ int main(int argc, char **argv) {
         {"fallback",    required_argument, NULL, 'F'},
         {"fingerprint", required_argument, NULL, 'T'},
         {"tofu",        no_argument,       NULL, 'U'},
+        {"pq",          no_argument,       NULL, 'Q'},
         {"help",        no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -321,6 +336,9 @@ int main(int argc, char **argv) {
             break;
         case 'U':
             g_tofu = 1;
+            break;
+        case 'Q':
+            g_pq = 1;
             break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;

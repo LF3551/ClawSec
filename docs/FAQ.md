@@ -197,10 +197,10 @@ Multiplexes up to 64 connections over a single encrypted tunnel. Think of it as 
 Yes. Maximum stealth configuration:
 ```bash
 # Server
-./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu
+./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu --pq
 
-# Client (looks exactly like Chrome connecting to a real site, with MITM detection)
-./clawsec -k "Pass" --fingerprint chrome --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu server 443
+# Client (looks exactly like Chrome connecting to a real site, with MITM detection + quantum resistance)
+./clawsec -k "Pass" --fingerprint chrome --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu --pq server 443
 ```
 
 ### What is `--tofu`?
@@ -208,6 +208,12 @@ Trust On First Use — like SSH's `known_hosts`. The server generates a persiste
 
 ### Do I need `--tofu` on both sides?
 Yes. The server signs its ephemeral key, the client verifies. Both must use `--tofu`.
+
+### What is `--pq`?
+Post-quantum hybrid key exchange. Adds ML-KEM-768 (CRYSTALS-Kyber) on top of X25519 ECDHE. Both classical and quantum-resistant shared secrets are combined, so the session key is secure against both classical and quantum adversaries ("Harvest Now, Decrypt Later" protection). Requires OpenSSL >= 3.5.
+
+### Do I need `--pq` on both sides?
+Yes. Both sides must use `--pq` for the ML-KEM key encapsulation exchange to work. You can combine `--pq` with `--tofu` for identity verification + quantum resistance.
 
 ### What's the difference between `--obfs tls` and `--fingerprint`?
 - `--obfs tls` wraps traffic in a real TLS 1.3 session (required for all stealth features)

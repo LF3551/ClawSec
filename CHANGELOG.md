@@ -5,6 +5,10 @@ All notable changes to ClawSec will be documented in this file.
 ## [2.5.0] - 2026-05-03
 
 ### Added — Stealth Mode (Anti-DPI / Anti-Fingerprint)
+- `--pq` — Post-quantum hybrid key exchange: X25519 + ML-KEM-768 (CRYSTALS-Kyber).
+  Both classical ECDHE and quantum-resistant KEM shared secrets are combined,
+  so the session key is secure against both classical and quantum adversaries.
+  Requires OpenSSL >= 3.5. Combinable with `--tofu`.
 - `--tofu` — Trust On First Use: SSH-like server identity verification with
   persistent Ed25519 keypair. Server signs ephemeral ECDHE keys; client verifies
   signature and checks `~/.clawsec/known_hosts`. Detects MITM on reconnection.
@@ -42,7 +46,7 @@ All notable changes to ClawSec will be documented in this file.
 ### Added — Security
 - X25519 ECDHE for Perfect Forward Secrecy
 - Replay protection with sequence counters
-- 58 integration tests covering crypto, protocol, obfuscation, stealth, ECH, mux, fallback, fingerprint, TOFU
+- 65 integration tests covering crypto, protocol, obfuscation, stealth, ECH, mux, fallback, fingerprint, TOFU, post-quantum
 
 ## [2.3.0] - 2025-11-23
 

@@ -34,8 +34,8 @@ bogus:
 
 ### HARD TARGETS
 
-clawsec:	clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o farm9crypt.o aesgcm.o
-	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o farm9crypt.o aesgcm.o $(XLIBS)
+clawsec:	clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o farm9crypt.o aesgcm.o
+	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o farm9crypt.o aesgcm.o $(XLIBS)
 
 
 nc-dos:
@@ -161,6 +161,9 @@ fingerprint.o: fingerprint.c fingerprint.h
 tofu.o: tofu.c tofu.h
 		${CC} $(DFLAGS) $(XFLAGS) -c tofu.c
 
+pqkem.o: pqkem.c pqkem.h
+		${CC} $(DFLAGS) $(XFLAGS) -c pqkem.c
+
 
 generic:
 	make -e $(ALL) $(MFLAGS) XFLAGS='$(XFLAGS) -DGENERIC' \
@@ -185,10 +188,10 @@ TEST_SRC = $(TESTDIR)/test_clawsec.c $(TESTDIR)/test_crypto.c $(TESTDIR)/test_pr
 	$(TESTDIR)/test_zlib.c $(TESTDIR)/test_sha256.c $(TESTDIR)/test_chat.c \
 	$(TESTDIR)/test_util.c $(TESTDIR)/test_stealth.c $(TESTDIR)/test_ech.c \
 	$(TESTDIR)/test_mux.c $(TESTDIR)/test_fallback.c $(TESTDIR)/test_fingerprint.c \
-	$(TESTDIR)/test_tofu.c
+	$(TESTDIR)/test_tofu.c $(TESTDIR)/test_pqkem.c
 
-test: farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o tofu.o net.o util.o $(TEST_SRC) $(TESTDIR)/test.h
-	$(LD) $(XFLAGS) -I. -I$(TESTDIR) -o test_clawsec $(TEST_SRC) farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o tofu.o net.o util.o $(XLIBS)
+test: farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o net.o util.o $(TEST_SRC) $(TESTDIR)/test.h
+	$(LD) $(XFLAGS) -I. -I$(TESTDIR) -o test_clawsec $(TEST_SRC) farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o net.o util.o $(XLIBS)
 	./test_clawsec
 
 test-macos:

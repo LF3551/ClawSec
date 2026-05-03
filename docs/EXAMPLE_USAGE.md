@@ -220,13 +220,13 @@ exit            # Close connection
 # curl https://server.example.com  → nginx welcome page
 ```
 
-### Ultimate stealth: fallback + fingerprint + ECH + pad + jitter + TOFU
+### Ultimate stealth: fallback + fingerprint + ECH + pad + jitter + TOFU + PQ
 ```bash
-# Server: real site fallback + maximum anti-fingerprint + identity verification
-./clawsec -l -p 443 -k "MaxPass" --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu
+# Server: real site fallback + maximum anti-fingerprint + PQ + identity
+./clawsec -l -p 443 -k "MaxPass" --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu --pq
 
-# Client: looks exactly like Chrome to DPI, with TOFU identity verification
-./clawsec -k "MaxPass" --fallback 127.0.0.1:80 --fingerprint chrome --ech --pad --jitter 100 --tofu server.example.com 443
+# Client: looks exactly like Chrome to DPI, with TOFU + quantum-resistant key exchange
+./clawsec -k "MaxPass" --fallback 127.0.0.1:80 --fingerprint chrome --ech --pad --jitter 100 --tofu --pq server.example.com 443
 ```
 
 ### TOFU (Trust On First Use — SSH-like identity)
@@ -242,6 +242,19 @@ exit            # Close connection
 # Client: subsequent connections verify identity
 ./clawsec -k "Pass" --tofu server.example.com 9999
 # If server key changed: WARNING: SERVER IDENTITY HAS CHANGED!
+```
+
+### Post-Quantum Hybrid (X25519 + ML-KEM-768)
+```bash
+# Server: quantum-resistant key exchange (requires OpenSSL >= 3.5)
+./clawsec -l -p 9999 -k "Pass" --pq
+
+# Client: hybrid X25519 + ML-KEM-768 handshake
+./clawsec -k "Pass" --pq server.example.com 9999
+
+# Combine with TOFU for maximum security:
+./clawsec -l -p 9999 -k "Pass" --pq --tofu
+./clawsec -k "Pass" --pq --tofu server.example.com 9999
 ```
 
 ### TLS fingerprinting (browser mimicry)

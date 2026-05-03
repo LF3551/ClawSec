@@ -45,6 +45,7 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | **TLS Camouflage** | ✅ `--obfs tls` (TLS 1.3) | ❌ No | ❌ No | ❌ No |
 | **TLS Fingerprinting** | ✅ `--fingerprint` (Chrome/FF/Safari) | ❌ No | ❌ No | ❌ No |
 | **TOFU Identity** | ✅ `--tofu` (SSH-like known_hosts) | ❌ No | ❌ No | ❌ No |
+| **Post-Quantum** | ✅ `--pq` (X25519 + ML-KEM-768) | ❌ No | ❌ No | ❌ No |
 | **Encrypted Client Hello** | ✅ `--ech` (GREASE ECH) | ❌ No | ❌ No | ❌ No |
 | **Active Probing Resistance** | ✅ `--fallback` (REALITY-like) | ❌ No | ❌ No | ❌ No |
 | **Stream Multiplexing** | ✅ `--mux` (64 streams) | ❌ No | ❌ No | ❌ No |
@@ -72,6 +73,7 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 | Feature | Flag | What it does |
 |---------|------|--------------|
 | TOFU Identity | `--tofu` | SSH-like Ed25519 server identity + known_hosts |
+| Post-Quantum | `--pq` | Hybrid X25519 + ML-KEM-768 (quantum-resistant) |
 | TLS Camouflage | `--obfs tls` | Wraps connection in a real TLS 1.3 session |
 | Browser Mimicry | `--fingerprint chrome\|firefox\|safari` | Shapes ClientHello to match a real browser (JA3/JA4) |
 | Encrypted Client Hello | `--ech` | Hides SNI from DPI with GREASE ECH extension |
@@ -260,6 +262,7 @@ Options:
   --mux             Multiplex streams over one tunnel (with -L)
   --fallback h:p    Proxy non-ClawSec probes to real site (REALITY-like)
   --tofu            Trust On First Use (SSH-like server identity)
+  --pq              Post-quantum hybrid (X25519 + ML-KEM-768)
   --fingerprint p   Mimic browser TLS (chrome, firefox, safari)
   --pad             Pad packets to uniform 1400 bytes
   --jitter ms       Random delay 0-N ms between packets
@@ -413,7 +416,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ## Testing
 
 ```bash
-# Run integration test suite (58 tests)
+# Run integration test suite (65 tests)
 cd src
 make macos    # or: make linux
 make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
@@ -483,6 +486,7 @@ make clean && make linux
 
 ### Version 2.5.0 (May 2026) - Stealth Mode & PFS
 - **TOFU (Trust On First Use)**: `--tofu` SSH-like server identity with Ed25519 + known_hosts
+- **Post-Quantum Hybrid**: `--pq` quantum-resistant key exchange (X25519 + ML-KEM-768)
 - **TLS Fingerprinting**: `--fingerprint chrome|firefox|safari` shapes ClientHello to match real browsers
 - **Fallback (REALITY-like)**: `--fallback host:port` proxies DPI probes to a real website
 - **Encrypted Client Hello**: `--ech` adds GREASE ECH extension, hides SNI from DPI
@@ -501,7 +505,7 @@ make clean && make linux
 - **Chat Enhancements**: Fingerprints, receipts, `/file`, `/ping`, nicknames
 - **Man page**: Added `clawsec.1` for `man clawsec`
 - **Shell completions**: Bash, Zsh, and Fish autocompletion scripts
-- **Test Suite**: 58 integration tests covering crypto, protocol, stealth, ECH, mux, fallback, fingerprint, TOFU, and more
+- **Test Suite**: 65 integration tests covering crypto, protocol, stealth, ECH, mux, fallback, fingerprint, TOFU, post-quantum, and more
 
 ### Version 2.4.0 (May 2026) - Security Hardening
 - **Random Session Salt**: Per-session CSPRNG salt exchange replaces fixed salt

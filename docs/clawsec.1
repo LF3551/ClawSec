@@ -18,6 +18,7 @@ clawsec \- encrypted network tool with AES-256-GCM and Perfect Forward Secrecy
 .RB [ \-\-fingerprint
 .IR chrome | firefox | safari ]
 .RB [ \-\-tofu ]
+.RB [ \-\-pq ]
 .RB [ \-\-ech ]
 .RB [ \-\-mux ]
 .RB [ \-\-fallback
@@ -124,6 +125,14 @@ its ephemeral X25519 key. The client verifies the signature and checks
 \fB~/.clawsec/known_hosts\fR. If the server identity changes, the
 connection is aborted with a warning (like SSH). Both client and server
 must use \fB\-\-tofu\fR.
+.TP
+.B \-\-pq
+Post-quantum hybrid key exchange. Adds ML-KEM-768 (CRYSTALS-Kyber)
+on top of X25519 ECDHE. Both classical and quantum-resistant shared
+secrets are combined, so the session key is secure against both
+classical and quantum adversaries. Requires OpenSSL >= 3.5.
+Both client and server must use \fB\-\-pq\fR.
+Can be combined with \fB\-\-tofu\fR.
 .TP
 .BI \-\-fingerprint " profile"
 Shape the TLS ClientHello to match a real browser. Supported profiles:
@@ -262,6 +271,20 @@ Client: clawsec \-k "pass" \-\-tofu server 443
 .PP
 First connection saves the server fingerprint. Subsequent connections
 verify it. If the server key changes, the connection is aborted.
+.SS Post-Quantum Hybrid Key Exchange
+Quantum-resistant key exchange with ML-KEM-768:
+.PP
+.nf
+Server: clawsec \-l \-p 443 \-k "pass" \-\-pq
+Client: clawsec \-k "pass" \-\-pq server 443
+.fi
+.PP
+Combine with TOFU for maximum security:
+.PP
+.nf
+Server: clawsec \-l \-p 443 \-k "pass" \-\-pq \-\-tofu
+Client: clawsec \-k "pass" \-\-pq \-\-tofu server 443
+.fi
 .SS Compressed Transfer with Verification
 Transfer files with zlib compression, progress, and SHA-256 verification:
 .PP
