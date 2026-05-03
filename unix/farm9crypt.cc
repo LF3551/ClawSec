@@ -70,10 +70,16 @@ extern "C" int farm9crypt_initialized() {
     return initialized;
 }
 
-/* Initialize with PBKDF2 key derivation from password */
-extern "C" int farm9crypt_init_password(const char* password, size_t pass_len) {
+/* Initialize with PBKDF2 key derivation from password + salt */
+extern "C" int farm9crypt_init_password_with_salt(const char* password, size_t pass_len,
+                                                   const unsigned char* salt, size_t salt_len) {
     if (!password || pass_len == 0) {
         if (debug) fprintf(stderr, "[CRYPT] Error: Empty password\n");
+        return -1;
+    }
+
+    if (!salt || salt_len < FARM9_SALT_LEN) {
+        if (debug) fprintf(stderr, "[CRYPT] Error: Invalid salt\n");
         return -1;
     }
 
@@ -81,17 +87,10 @@ extern "C" int farm9crypt_init_password(const char* password, size_t pass_len) {
         if (debug) fprintf(stderr, "[CRYPT] Warning: Password should be at least 8 characters\n");
     }
 
-    /* Fixed salt for same password -> same key (session compatibility)
-     * In production, consider exchanging salt or using pre-shared salt */
-    const unsigned char salt[FARM9_SALT_LEN] = {
-        0x43, 0x4c, 0x41, 0x57, 0x53, 0x45, 0x43, 0x32,
-        0x30, 0x32, 0x35, 0x41, 0x45, 0x53, 0x47, 0x43
-    }; /* "CLAWSEC2025AESGC" */
-
     /* Derive 256-bit key using PBKDF2-HMAC-SHA256 with 100,000 iterations */
     if (PKCS5_PBKDF2_HMAC(
             password, pass_len,
-            salt, FARM9_SALT_LEN,
+            salt, salt_len,
             100000,  /* iteration count - OWASP recommended minimum */
             EVP_sha256(),
             32,      /* key length */
@@ -114,7 +113,26 @@ extern "C" int farm9crypt_init_password(const char* password, size_t pass_len) {
     }
 
     initialized = true;
-    if (debug) fprintf(stderr, "[CRYPT] Initialized with PBKDF2-derived key (100k iterations)\n");
+    if (debug) fprintf(stderr, "[CRYPT] Initialized with PBKDF2-derived key (100k iterations, random salt)\n");
+    return 0;
+}
+
+/* Initialize with PBKDF2 key derivation from password (legacy fixed salt) */
+extern "C" int farm9crypt_init_password(const char* password, size_t pass_len) {
+    const unsigned char salt[FARM9_SALT_LEN] = {
+        0x43, 0x4c, 0x41, 0x57, 0x53, 0x45, 0x43, 0x32,
+        0x30, 0x32, 0x35, 0x41, 0x45, 0x53, 0x47, 0x43
+    }; /* "CLAWSEC2025AESGC" - fallback only */
+    return farm9crypt_init_password_with_salt(password, pass_len, salt, FARM9_SALT_LEN);
+}
+
+/* Generate random salt for handshake */
+extern "C" int farm9crypt_generate_salt(unsigned char* salt_out, size_t len) {
+    if (!salt_out || len < FARM9_SALT_LEN) return -1;
+    if (RAND_bytes(salt_out, (int)len) != 1) {
+        if (debug) fprintf(stderr, "[CRYPT] Error: Failed to generate random salt\n");
+        return -1;
+    }
     return 0;
 }
 

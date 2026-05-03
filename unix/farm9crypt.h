@@ -15,6 +15,13 @@
 /* Initialize encryption with password-based key derivation */
 int farm9crypt_init_password(const char* password, size_t pass_len);
 
+/* Initialize encryption with password + explicit salt (used after handshake) */
+int farm9crypt_init_password_with_salt(const char* password, size_t pass_len,
+                                       const unsigned char* salt, size_t salt_len);
+
+/* Generate random salt for session handshake */
+int farm9crypt_generate_salt(unsigned char* salt_out, size_t len);
+
 /* Initialize with raw 32-byte key (for advanced usage) */
 void farm9crypt_init(char* inkey);
 

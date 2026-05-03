@@ -473,13 +473,6 @@ int main(int argc, char **argv) {
                 "Warning: password should be at least 8 characters for security");
     }
 
-    if (farm9crypt_init_password(password, strlen(password)) != 0) {
-        fatal("Encryption initialization failed");
-    }
-    if (!farm9crypt_initialized()) {
-        fatal("Encryption not initialized");
-    }
-
     ignore_sigpipe();
 
     int sockfd = -1;
@@ -487,7 +480,6 @@ int main(int argc, char **argv) {
     if (listen_mode) {
         if (!bind_port) {
             fprintf(stderr, "ERROR: -p <port> is required in listen mode.\n");
-            farm9crypt_cleanup();
             return 1;
         }
 
@@ -495,6 +487,18 @@ int main(int argc, char **argv) {
         log_msg(1, "listening on *:%s", bind_port);
         sockfd = accept_one(listen_fd);
         close(listen_fd);
+
+        /* Salt handshake: server generates and sends random salt */
+        unsigned char session_salt[16];
+        if (farm9crypt_generate_salt(session_salt, sizeof(session_salt)) != 0)
+            fatal("Failed to generate session salt");
+        if (write_all(sockfd, session_salt, sizeof(session_salt)) < 0)
+            fatal("Failed to send session salt");
+        log_msg(1, "session salt sent to client");
+
+        if (farm9crypt_init_password_with_salt(password, strlen(password),
+                                               session_salt, sizeof(session_salt)) != 0)
+            fatal("Encryption initialization failed");
 
 #ifdef GAPING_SECURITY_HOLE
         if (exec_prog) {
@@ -516,6 +520,21 @@ int main(int argc, char **argv) {
 
         sockfd = connect_with_timeout(host, port, timeout_sec);
         log_msg(1, "connected to %s:%s", host, port);
+
+        /* Salt handshake: client receives salt from server */
+        unsigned char session_salt[16];
+        ssize_t salt_read = 0;
+        while (salt_read < 16) {
+            ssize_t n = read(sockfd, session_salt + salt_read, 16 - salt_read);
+            if (n <= 0) fatal("Failed to receive session salt");
+            salt_read += n;
+        }
+        log_msg(1, "session salt received from server");
+
+        if (farm9crypt_init_password_with_salt(password, strlen(password),
+                                               session_salt, sizeof(session_salt)) != 0)
+            fatal("Encryption initialization failed");
+
         relay_socket_stdio(sockfd, 0, g_chat_mode);
     }
 
