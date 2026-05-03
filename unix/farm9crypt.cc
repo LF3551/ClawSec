@@ -47,6 +47,7 @@ struct __attribute__((packed)) farm9_header {
     uint32_t magic;      /* FARM9_MAGIC */
     uint16_t version;    /* FARM9_VERSION */
     uint16_t flags;      /* Reserved for future use */
+    uint32_t seq_num;    /* Message sequence number (replay protection) */
     uint32_t length;     /* Ciphertext length */
 };
 
@@ -55,6 +56,8 @@ static int initialized = false;
 static AESGCM* decryptor = NULL;
 static AESGCM* encryptor = NULL;
 static unsigned char derived_key[32];
+static uint64_t send_seq = 0;    /* Outgoing message sequence counter */
+static uint64_t recv_seq = 0;    /* Expected incoming sequence counter */
 
 /* Secure memory cleanup */
 static void secure_zero(void* ptr, size_t len) {
@@ -113,6 +116,8 @@ extern "C" int farm9crypt_init_password_with_salt(const char* password, size_t p
     }
 
     initialized = true;
+    send_seq = 0;
+    recv_seq = 0;
     if (debug) fprintf(stderr, "[CRYPT] Initialized with PBKDF2-derived key (100k iterations, random salt)\n");
     return 0;
 }
@@ -163,6 +168,8 @@ extern "C" void farm9crypt_cleanup() {
         decryptor = NULL;
     }
     secure_zero(derived_key, sizeof(derived_key));
+    send_seq = 0;
+    recv_seq = 0;
     initialized = false;
     if (debug) fprintf(stderr, "[CRYPT] Cleanup complete\n");
 }
@@ -222,6 +229,16 @@ extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
         errno = EPROTONOSUPPORT;
         return -1;
     }
+
+    /* Validate sequence number (replay protection) */
+    uint32_t msg_seq = ntohl(header.seq_num);
+    if (msg_seq != (uint32_t)recv_seq) {
+        if (debug) fprintf(stderr, "[CRYPT] Error: Sequence mismatch - got %u, expected %u (replay attack?)\n",
+                          msg_seq, (uint32_t)recv_seq);
+        errno = EPROTO;
+        return -1;
+    }
+    recv_seq++;
 
     /* Get ciphertext length */
     uint32_t ct_len = ntohl(header.length);
@@ -332,7 +349,9 @@ extern "C" int farm9crypt_write(int sockfd, char* buf, int size) {
     header.magic = htonl(FARM9_MAGIC);
     header.version = htons(FARM9_VERSION);
     header.flags = htons(0);
+    header.seq_num = htonl((uint32_t)send_seq);
     header.length = htonl(ciphertext_len);
+    send_seq++;
 
     /* Send header */
     if (send_exact(sockfd, &header, sizeof(header)) < 0) {
