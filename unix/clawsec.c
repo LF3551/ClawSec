@@ -20,6 +20,7 @@
 #include "mux.h"
 #include "fallback.h"
 #include "fingerprint.h"
+#include "tofu.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -54,7 +55,8 @@ static void install_sigchld(void) {
 /* Handle one client connection (used by keep-open and normal mode) */
 static void handle_client(int sockfd, const char *password, int is_server,
                           int send_first, const char *exec_prog,
-                          const char *fwd_host, const char *fwd_port) {
+                          const char *fwd_host, const char *fwd_port,
+                          const char *peer_host, const char *peer_port) {
     /* TLS camouflage: wrap socket in TLS before any crypto handshake */
     if (obfs_get_mode() == OBFS_TLS) {
         int tls_rc = is_server ? obfs_tls_accept(sockfd) : obfs_tls_connect(sockfd);
@@ -93,12 +95,22 @@ static void handle_client(int sockfd, const char *password, int is_server,
         }
     }
 
-    if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), send_first) != 0) {
-        fprintf(stderr, "ERROR: ECDHE handshake failed\n");
-        close(sockfd);
-        return;
+    if (g_tofu) {
+        if (farm9crypt_init_ecdhe_tofu(sockfd, password, strlen(password),
+                                       send_first, peer_host, peer_port) != 0) {
+            fprintf(stderr, "ERROR: ECDHE+TOFU handshake failed\n");
+            close(sockfd);
+            return;
+        }
+        log_msg(1, "PFS session established (X25519 + Ed25519 TOFU + PBKDF2)");
+    } else {
+        if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), send_first) != 0) {
+            fprintf(stderr, "ERROR: ECDHE handshake failed\n");
+            close(sockfd);
+            return;
+        }
+        log_msg(1, "PFS session established (X25519 + PBKDF2)");
     }
-    log_msg(1, "PFS session established (X25519 + PBKDF2)");
 
     /* Mux mode: multiplex streams over single tunnel */
     if (g_mux) {
@@ -159,6 +171,7 @@ static void usage(const char *prog) {
             "  --obfs tls        Wrap connection in real TLS 1.3 (stealth mode)\n"            "  --ech              Encrypted Client Hello (hide SNI from DPI)\n"
             "  --mux              Multiplex streams over one tunnel (with -L)\n"            "  --fallback <h:p>  Proxy non-ClawSec probes to real site (REALITY-like)\n"
             "  --fingerprint <p> Mimic browser TLS (chrome, firefox, safari)\n"
+            "  --tofu            Trust On First Use (SSH-like server identity)\n"
             "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
             "  --jitter <ms>     Add random 0-N ms delay between packets (anti-timing)\n"
             "  -z                Compress data with zlib before encryption\n"
@@ -216,14 +229,15 @@ int main(int argc, char **argv) {
 #endif
 
     static struct option long_opts[] = {
-        {"obfs",     required_argument, NULL, 'O'},
-        {"pad",      no_argument,       NULL, 'D'},
-        {"jitter",   required_argument, NULL, 'J'},
-        {"ech",      no_argument,       NULL, 'E'},
-        {"mux",      no_argument,       NULL, 'M'},
-        {"fallback",     required_argument, NULL, 'F'},
-        {"fingerprint",  required_argument, NULL, 'T'},
-        {"help",         no_argument,       NULL, 'h'},
+        {"obfs",        required_argument, NULL, 'O'},
+        {"pad",         no_argument,       NULL, 'D'},
+        {"jitter",      required_argument, NULL, 'J'},
+        {"ech",         no_argument,       NULL, 'E'},
+        {"mux",         no_argument,       NULL, 'M'},
+        {"fallback",    required_argument, NULL, 'F'},
+        {"fingerprint", required_argument, NULL, 'T'},
+        {"tofu",        no_argument,       NULL, 'U'},
+        {"help",        no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
 
@@ -305,6 +319,9 @@ int main(int argc, char **argv) {
             if (obfs_get_mode() == OBFS_NONE)
                 obfs_set_mode(OBFS_TLS);
             break;
+        case 'U':
+            g_tofu = 1;
+            break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;
 #endif
@@ -351,6 +368,14 @@ int main(int argc, char **argv) {
     if (g_udp_mode)
         farm9crypt_set_udp_mode(1);
 
+    /* TOFU: server must initialize identity key before accepting clients */
+    if (g_tofu && listen_mode) {
+        if (tofu_server_init() < 0) {
+            fprintf(stderr, "ERROR: Failed to initialize TOFU identity key\n");
+            return 1;
+        }
+    }
+
     if (listen_mode) {
         if (!bind_port) {
             fprintf(stderr, "ERROR: -p <port> is required in listen mode.\n");
@@ -381,11 +406,13 @@ int main(int argc, char **argv) {
 #ifdef GAPING_SECURITY_HOLE
                     handle_client(client_fd, password, 1, 1, exec_prog,
                                   fwd_spec ? fwd_host : NULL,
-                                  fwd_spec ? fwd_port : NULL);
+                                  fwd_spec ? fwd_port : NULL,
+                                  NULL, NULL);
 #else
                     handle_client(client_fd, password, 1, 1, NULL,
                                   fwd_spec ? fwd_host : NULL,
-                                  fwd_spec ? fwd_port : NULL);
+                                  fwd_spec ? fwd_port : NULL,
+                                  NULL, NULL);
 #endif
                     _exit(0);
                 }
@@ -407,11 +434,13 @@ int main(int argc, char **argv) {
 #ifdef GAPING_SECURITY_HOLE
             handle_client(sockfd, password, 1, send_first, exec_prog,
                           fwd_spec ? fwd_host : NULL,
-                          fwd_spec ? fwd_port : NULL);
+                          fwd_spec ? fwd_port : NULL,
+                          NULL, NULL);
 #else
             handle_client(sockfd, password, 1, send_first, NULL,
                           fwd_spec ? fwd_host : NULL,
-                          fwd_spec ? fwd_port : NULL);
+                          fwd_spec ? fwd_port : NULL,
+                          NULL, NULL);
 #endif
         }
     } else {
@@ -430,7 +459,8 @@ int main(int argc, char **argv) {
         int send_first = g_udp_mode ? 1 : 0;
         handle_client(sockfd, password, 0, send_first, NULL,
                       fwd_spec ? fwd_host : NULL,
-                      fwd_spec ? fwd_port : NULL);
+                      fwd_spec ? fwd_port : NULL,
+                      host, port);
     }
 
     return 0;

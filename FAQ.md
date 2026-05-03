@@ -197,11 +197,17 @@ Multiplexes up to 64 connections over a single encrypted tunnel. Think of it as 
 Yes. Maximum stealth configuration:
 ```bash
 # Server
-./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80 --ech --pad --jitter 100
+./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu
 
-# Client (looks exactly like Chrome connecting to a real site)
-./clawsec -k "Pass" --fingerprint chrome --fallback 127.0.0.1:80 --ech --pad --jitter 100 server 443
+# Client (looks exactly like Chrome connecting to a real site, with MITM detection)
+./clawsec -k "Pass" --fingerprint chrome --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu server 443
 ```
+
+### What is `--tofu`?
+Trust On First Use — like SSH's `known_hosts`. The server generates a persistent Ed25519 identity key. On first connection, the client saves the server's fingerprint. On reconnection, it verifies the fingerprint hasn't changed. If it has — you get a big warning (possible MITM).
+
+### Do I need `--tofu` on both sides?
+Yes. The server signs its ephemeral key, the client verifies. Both must use `--tofu`.
 
 ### What's the difference between `--obfs tls` and `--fingerprint`?
 - `--obfs tls` wraps traffic in a real TLS 1.3 session (required for all stealth features)

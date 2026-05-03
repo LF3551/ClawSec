@@ -25,6 +25,13 @@ int farm9crypt_init_password_with_salt(const char* password, size_t pass_len,
 /*              0 = read peer pubkey from sockfd, generate keypair and write pubkey */
 int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pass_len, int server_mode);
 
+/* ECDHE with TOFU: same as above but with server identity verification.
+ * Server: signs ephemeral pubkey with Ed25519 identity key.
+ * Client: verifies signature and checks known_hosts for host:port.
+ * peer_host/peer_port: remote address (used by client for known_hosts lookup). */
+int farm9crypt_init_ecdhe_tofu(int sockfd, const char* password, size_t pass_len,
+                                int server_mode, const char *peer_host, const char *peer_port);
+
 /* Set UDP datagram mode (must be called before read/write) */
 void farm9crypt_set_udp_mode(int enabled);
 

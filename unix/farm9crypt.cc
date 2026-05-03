@@ -39,6 +39,7 @@ extern "C"
 {
 #include "farm9crypt.h"
 #include "obfs.h"
+#include "tofu.h"
 }
 
 #include "aesgcm.h"
@@ -340,6 +341,188 @@ extern "C" int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pa
     send_seq = 0;
     recv_seq = 0;
     if (debug) fprintf(stderr, "[ECDHE] PFS session established (X25519 + PBKDF2)\n");
+    return 0;
+}
+
+/*
+ * ECDHE with TOFU (Trust On First Use)
+ *
+ * Enhanced handshake:
+ *   Server sends: [ed25519_pubkey(32)][x25519_pubkey(32)][ed25519_sig(64)] = 128 bytes
+ *   Client verifies signature, checks known_hosts, sends [x25519_pubkey(32)]
+ *   Rest of key derivation identical to plain ECDHE.
+ */
+extern "C" int farm9crypt_init_ecdhe_tofu(int sockfd, const char* password, size_t pass_len,
+                                           int server_mode, const char *peer_host, const char *peer_port) {
+    if (!password || pass_len == 0) {
+        if (debug) fprintf(stderr, "[ECDHE-TOFU] Error: Empty password\n");
+        return -1;
+    }
+
+    /* Generate ephemeral X25519 keypair */
+    EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, NULL);
+    if (!pctx) return -1;
+
+    EVP_PKEY* my_key = NULL;
+    if (EVP_PKEY_keygen_init(pctx) <= 0 || EVP_PKEY_keygen(pctx, &my_key) <= 0) {
+        EVP_PKEY_CTX_free(pctx);
+        return -1;
+    }
+    EVP_PKEY_CTX_free(pctx);
+
+    unsigned char my_pubkey[32];
+    size_t pubkey_len = 32;
+    if (EVP_PKEY_get_raw_public_key(my_key, my_pubkey, &pubkey_len) != 1) {
+        EVP_PKEY_free(my_key);
+        return -1;
+    }
+
+    unsigned char peer_pubkey[32];
+
+    if (server_mode) {
+        /* Server: send [identity_pubkey(32)][x25519_pubkey(32)][signature(64)] */
+        const unsigned char *id_pub = tofu_server_get_pubkey();
+        if (!id_pub) {
+            fprintf(stderr, "[ECDHE-TOFU] Error: Identity key not loaded\n");
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+
+        /* Sign the ephemeral X25519 pubkey with Ed25519 identity key */
+        unsigned char sig[TOFU_ED25519_SIGLEN];
+        if (tofu_server_sign(my_pubkey, 32, sig) < 0) {
+            fprintf(stderr, "[ECDHE-TOFU] Error: Signing failed\n");
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+
+        /* Send: identity(32) + ephemeral(32) + signature(64) = 128 bytes */
+        unsigned char tofu_msg[128];
+        memcpy(tofu_msg, id_pub, 32);
+        memcpy(tofu_msg + 32, my_pubkey, 32);
+        memcpy(tofu_msg + 64, sig, 64);
+
+        if (ecdhe_send(sockfd, tofu_msg, 128) < 0) {
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+
+        /* Receive client's ephemeral pubkey */
+        if (ecdhe_recv(sockfd, peer_pubkey, 32) < 0) {
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+    } else {
+        /* Client: receive [identity(32)][ephemeral(32)][signature(64)] */
+        unsigned char tofu_msg[128];
+        if (ecdhe_recv(sockfd, tofu_msg, 128) < 0) {
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+
+        unsigned char server_id_pub[32];
+        unsigned char server_sig[64];
+        memcpy(server_id_pub, tofu_msg, 32);
+        memcpy(peer_pubkey, tofu_msg + 32, 32);
+        memcpy(server_sig, tofu_msg + 64, 64);
+
+        /* Verify: Ed25519 signature of ephemeral pubkey */
+        if (!tofu_verify_signature(server_id_pub, peer_pubkey, 32,
+                                   server_sig, TOFU_ED25519_SIGLEN)) {
+            fprintf(stderr, "[ECDHE-TOFU] Error: Invalid server signature (possible MITM)\n");
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+
+        /* Check known_hosts */
+        if (peer_host && peer_port) {
+            int kh = tofu_check_known_host(peer_host, peer_port, server_id_pub);
+            if (kh == -1) {
+                /* Identity changed — abort */
+                EVP_PKEY_free(my_key);
+                return -1;
+            }
+            if (kh == -2) {
+                fprintf(stderr, "[ECDHE-TOFU] Warning: Could not access known_hosts\n");
+            }
+            /* kh == 0: new host (saved), kh == 1: known host (verified) */
+        }
+
+        /* Send client ephemeral pubkey */
+        if (ecdhe_send(sockfd, my_pubkey, 32) < 0) {
+            EVP_PKEY_free(my_key);
+            return -1;
+        }
+    }
+
+    /* ECDH shared secret (same as plain ECDHE from here) */
+    EVP_PKEY* peer_key = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, NULL, peer_pubkey, 32);
+    if (!peer_key) { EVP_PKEY_free(my_key); return -1; }
+
+    EVP_PKEY_CTX* dctx = EVP_PKEY_CTX_new(my_key, NULL);
+    if (!dctx || EVP_PKEY_derive_init(dctx) <= 0 || EVP_PKEY_derive_set_peer(dctx, peer_key) <= 0) {
+        if (dctx) EVP_PKEY_CTX_free(dctx);
+        EVP_PKEY_free(my_key);
+        EVP_PKEY_free(peer_key);
+        return -1;
+    }
+
+    size_t secret_len = 32;
+    unsigned char shared_secret[32];
+    if (EVP_PKEY_derive(dctx, shared_secret, &secret_len) <= 0) {
+        EVP_PKEY_CTX_free(dctx);
+        EVP_PKEY_free(my_key);
+        EVP_PKEY_free(peer_key);
+        return -1;
+    }
+
+    EVP_PKEY_CTX_free(dctx);
+    EVP_PKEY_free(my_key);
+    EVP_PKEY_free(peer_key);
+
+    /* Key derivation: SHA256(server_pub || client_pub) for salt */
+    unsigned char salt[32];
+    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
+    if (server_mode) {
+        EVP_DigestUpdate(mdctx, my_pubkey, 32);
+        EVP_DigestUpdate(mdctx, peer_pubkey, 32);
+    } else {
+        EVP_DigestUpdate(mdctx, peer_pubkey, 32);
+        EVP_DigestUpdate(mdctx, my_pubkey, 32);
+    }
+    unsigned int md_len;
+    EVP_DigestFinal_ex(mdctx, salt, &md_len);
+    EVP_MD_CTX_free(mdctx);
+
+    unsigned char password_key[32];
+    if (PKCS5_PBKDF2_HMAC(password, pass_len, salt, 16, 100000,
+                           EVP_sha256(), 32, password_key) != 1) {
+        secure_zero(shared_secret, 32);
+        return -1;
+    }
+
+    /* Final key = SHA256(shared_secret || password_key) */
+    mdctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
+    EVP_DigestUpdate(mdctx, shared_secret, 32);
+    EVP_DigestUpdate(mdctx, password_key, 32);
+    EVP_DigestFinal_ex(mdctx, derived_key, &md_len);
+    EVP_MD_CTX_free(mdctx);
+
+    secure_zero(shared_secret, 32);
+    secure_zero(password_key, 32);
+
+    if (encryptor) delete encryptor;
+    if (decryptor) delete decryptor;
+    encryptor = new AESGCM(derived_key, 32);
+    decryptor = new AESGCM(derived_key, 32);
+    if (!encryptor || !decryptor) return -1;
+
+    initialized = true;
+    send_seq = 0;
+    recv_seq = 0;
+    if (debug) fprintf(stderr, "[ECDHE-TOFU] PFS session established (X25519 + Ed25519 + PBKDF2)\n");
     return 0;
 }
 

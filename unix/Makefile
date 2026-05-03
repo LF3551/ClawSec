@@ -34,8 +34,8 @@ bogus:
 
 ### HARD TARGETS
 
-clawsec:	clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o farm9crypt.o aesgcm.o
-	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o farm9crypt.o aesgcm.o $(XLIBS)
+clawsec:	clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o farm9crypt.o aesgcm.o
+	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o farm9crypt.o aesgcm.o $(XLIBS)
 
 
 nc-dos:
@@ -158,6 +158,9 @@ fallback.o: fallback.c fallback.h obfs.h net.h util.h
 fingerprint.o: fingerprint.c fingerprint.h
 		${CC} $(DFLAGS) $(XFLAGS) -c fingerprint.c
 
+tofu.o: tofu.c tofu.h
+		${CC} $(DFLAGS) $(XFLAGS) -c tofu.c
+
 
 generic:
 	make -e $(ALL) $(MFLAGS) XFLAGS='$(XFLAGS) -DGENERIC' \
@@ -175,8 +178,8 @@ alpine:
 clean:
 	rm -f clawsec cryptcat test_clawsec *.o *.obj
 
-test: farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o net.o util.o test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test_parse.c test_zlib.c test_sha256.c test_chat.c test_util.c test_stealth.c test_ech.c test_mux.c test_fallback.c test_fingerprint.c test.h
-	$(LD) $(XFLAGS) -o test_clawsec test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test_parse.c test_zlib.c test_sha256.c test_chat.c test_util.c test_stealth.c test_ech.c test_mux.c test_fallback.c test_fingerprint.c farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o net.o util.o $(XLIBS)
+test: farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o tofu.o net.o util.o test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test_parse.c test_zlib.c test_sha256.c test_chat.c test_util.c test_stealth.c test_ech.c test_mux.c test_fallback.c test_fingerprint.c test_tofu.c test.h
+	$(LD) $(XFLAGS) -o test_clawsec test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test_parse.c test_zlib.c test_sha256.c test_chat.c test_util.c test_stealth.c test_ech.c test_mux.c test_fallback.c test_fingerprint.c test_tofu.c farm9crypt.o aesgcm.o obfs.o mux.o fallback.o fingerprint.o tofu.o net.o util.o $(XLIBS)
 	./test_clawsec
 
 test-macos:

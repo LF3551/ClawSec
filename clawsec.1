@@ -17,6 +17,7 @@ clawsec \- encrypted network tool with AES-256-GCM and Perfect Forward Secrecy
 .IR http | tls ]
 .RB [ \-\-fingerprint
 .IR chrome | firefox | safari ]
+.RB [ \-\-tofu ]
 .RB [ \-\-ech ]
 .RB [ \-\-mux ]
 .RB [ \-\-fallback
@@ -115,6 +116,14 @@ connection is transparently proxied to a real website running at
 \fIhost:port\fR. Only ClawSec clients that send the correct knock
 sequence proceed to the encrypted tunnel. Automatically enables
 TLS mode. Both client and server must use \fB\-\-fallback\fR.
+.TP
+.B \-\-tofu
+Trust On First Use. The server maintains a persistent Ed25519 identity
+keypair in \fB~/.clawsec/identity\fR. During handshake, the server signs
+its ephemeral X25519 key. The client verifies the signature and checks
+\fB~/.clawsec/known_hosts\fR. If the server identity changes, the
+connection is aborted with a warning (like SSH). Both client and server
+must use \fB\-\-tofu\fR.
 .TP
 .BI \-\-fingerprint " profile"
 Shape the TLS ClientHello to match a real browser. Supported profiles:
@@ -243,6 +252,16 @@ Client: clawsec \-k "pass" \-\-fingerprint chrome \-\-fallback nginx:80 server 4
 .fi
 .PP
 DPI sees a Chrome-like TLS ClientHello connecting to a real website.
+.SS TOFU (Trust On First Use)
+SSH-like server identity verification:
+.PP
+.nf
+Server: clawsec \-l \-p 443 \-k "pass" \-\-tofu
+Client: clawsec \-k "pass" \-\-tofu server 443
+.fi
+.PP
+First connection saves the server fingerprint. Subsequent connections
+verify it. If the server key changes, the connection is aborted.
 .SS Compressed Transfer with Verification
 Transfer files with zlib compression, progress, and SHA-256 verification:
 .PP

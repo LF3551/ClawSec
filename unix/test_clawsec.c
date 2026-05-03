@@ -99,6 +99,14 @@ extern void test_fp_chrome_tls_roundtrip(void);
 extern void test_fp_chrome_compress_cert(void);
 extern void test_fp_auto_enables_tls(void);
 
+/* test_tofu.c */
+extern void test_tofu_server_init_generates_key(void);
+extern void test_tofu_server_persistent_key(void);
+extern void test_tofu_sign_verify(void);
+extern void test_tofu_known_hosts(void);
+extern void test_tofu_ecdhe_roundtrip(void);
+extern void test_tofu_fingerprint_format(void);
+
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
 
@@ -181,6 +189,14 @@ int main(void) {
     test_fp_chrome_tls_roundtrip();
     test_fp_chrome_compress_cert();
     test_fp_auto_enables_tls();
+
+    /* TOFU tests */
+    test_tofu_server_init_generates_key();
+    test_tofu_server_persistent_key();
+    test_tofu_sign_verify();
+    test_tofu_known_hosts();
+    test_tofu_ecdhe_roundtrip();
+    test_tofu_fingerprint_format();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
