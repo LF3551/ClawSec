@@ -38,6 +38,7 @@
 extern "C"
 {
 #include "farm9crypt.h"
+#include "obfs.h"
 }
 
 #include "aesgcm.h"
@@ -161,8 +162,11 @@ extern "C" int farm9crypt_generate_salt(unsigned char* salt_out, size_t len) {
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
 
-/* Send exactly len bytes */
+/* Send exactly len bytes (obfs-aware) */
 static int ecdhe_send(int sockfd, const void* buf, size_t len) {
+    if (obfs_get_mode() != OBFS_NONE) {
+        return obfs_send(sockfd, buf, len) < 0 ? -1 : 0;
+    }
     size_t total = 0;
     const unsigned char* ptr = (const unsigned char*)buf;
     while (total < len) {
@@ -176,8 +180,11 @@ static int ecdhe_send(int sockfd, const void* buf, size_t len) {
     return 0;
 }
 
-/* Receive exactly len bytes */
+/* Receive exactly len bytes (obfs-aware) */
 static int ecdhe_recv(int sockfd, void* buf, size_t len) {
+    if (obfs_get_mode() != OBFS_NONE) {
+        return obfs_recv(sockfd, buf, len) <= 0 ? -1 : 0;
+    }
     size_t total = 0;
     unsigned char* ptr = (unsigned char*)buf;
     while (total < len) {
@@ -427,6 +434,20 @@ extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
         ct_len = ntohl(header.length);
         if (ct_len == 0 || ct_len > FARM9_MAX_MSG || off + ct_len > (size_t)n) { errno = EMSGSIZE; return -1; }
         memcpy(ciphertext, dgram + off, ct_len);
+    } else if (obfs_get_mode() != OBFS_NONE) {
+        /* Obfuscated TCP: entire frame arrives in one HTTP body */
+        unsigned char frame[sizeof(struct farm9_header) + FARM9_IV_LEN + FARM9_TAG_LEN + FARM9_MAX_MSG];
+        int flen = obfs_recv(sockfd, frame, sizeof(frame));
+        if (flen <= 0) return flen;
+        size_t off = 0;
+        if ((size_t)flen < sizeof(header)) { errno = EPROTO; return -1; }
+        memcpy(&header, frame + off, sizeof(header)); off += sizeof(header);
+        if ((size_t)flen < off + FARM9_IV_LEN + FARM9_TAG_LEN) { errno = EPROTO; return -1; }
+        memcpy(iv, frame + off, FARM9_IV_LEN); off += FARM9_IV_LEN;
+        memcpy(tag, frame + off, FARM9_TAG_LEN); off += FARM9_TAG_LEN;
+        ct_len = ntohl(header.length);
+        if (ct_len == 0 || ct_len > FARM9_MAX_MSG || off + ct_len > (size_t)flen) { errno = EMSGSIZE; return -1; }
+        memcpy(ciphertext, frame + off, ct_len);
     } else {
         /* TCP: read header, then payload */
         int ret = recv_exact(sockfd, &header, sizeof(header));
@@ -578,6 +599,16 @@ extern "C" int farm9crypt_write(int sockfd, char* buf, int size) {
             if (debug) fprintf(stderr, "[CRYPT] Error: Failed to send UDP datagram\n");
             return -1;
         }
+    } else if (obfs_get_mode() != OBFS_NONE) {
+        /* Obfuscated TCP: pack entire frame and send as one HTTP body */
+        size_t total = sizeof(header) + FARM9_IV_LEN + FARM9_TAG_LEN + ciphertext_len;
+        unsigned char frame[sizeof(struct farm9_header) + FARM9_IV_LEN + FARM9_TAG_LEN + FARM9_MAX_MSG];
+        size_t off = 0;
+        memcpy(frame + off, &header, sizeof(header)); off += sizeof(header);
+        memcpy(frame + off, iv, FARM9_IV_LEN); off += FARM9_IV_LEN;
+        memcpy(frame + off, tag, FARM9_TAG_LEN); off += FARM9_TAG_LEN;
+        memcpy(frame + off, ciphertext, ciphertext_len);
+        if (obfs_send(sockfd, frame, total) < 0) return -1;
     } else {
         /* TCP: send header, IV, tag, ciphertext separately */
         if (send_exact(sockfd, &header, sizeof(header)) < 0) return -1;

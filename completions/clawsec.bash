@@ -4,7 +4,7 @@ _clawsec() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="-l -p -k -u -4 -6 -c -v -w -e -h"
+    opts="-l -p -k -K -L -u -4 -6 -c -v -w -e -h --obfs"
 
     case "${prev}" in
         -p|-w)
@@ -18,6 +18,14 @@ _clawsec() {
         -e)
             # Program path
             COMPREPLY=( $(compgen -c -- "${cur}") )
+            return 0
+            ;;
+        -L)
+            # host:port - no completion
+            return 0
+            ;;
+        --obfs)
+            COMPREPLY=( $(compgen -W "http" -- "${cur}") )
             return 0
             ;;
     esac

@@ -4,12 +4,17 @@ clawsec \- encrypted network tool with AES-256-GCM and Perfect Forward Secrecy
 .SH SYNOPSIS
 .B clawsec
 .RB [ \-l ]
+.RB [ \-K ]
 .RB [ \-u ]
 .RB [ \-4 | \-6 ]
 .RB [ \-p
 .IR port ]
 .B \-k
 .I password
+.RB [ \-L
+.IR host:port ]
+.RB [ \-\-obfs
+.IR http ]
 .RB [ \-c ]
 .RB [ \-v ]
 .RB [ \-w
@@ -39,6 +44,22 @@ Listen mode. Wait for inbound connections.
 .TP
 .BI \-p " port"
 Local port number for listen mode.
+.TP
+.B \-K
+Keep-open mode. In listen mode, accept multiple clients by forking
+a new process per connection. Each child performs its own ECDHE
+handshake. TCP only.
+.TP
+.BI \-L " host:port"
+Port forwarding mode. After establishing the encrypted tunnel,
+forward all decrypted traffic to the specified host:port.
+Replaces \fBssh \-L\fR without requiring SSH. Supports IPv6
+with bracket notation: \fB[::1]:8080\fR.
+.TP
+.BI \-\-obfs " http"
+Traffic obfuscation. Wrap encrypted frames in HTTP POST requests
+with realistic headers to evade deep packet inspection (DPI).
+Currently supported modes: \fBhttp\fR.
 .TP
 .B \-u
 UDP mode. Use datagrams instead of TCP stream. ECDHE handshake
@@ -87,6 +108,27 @@ Encrypted remote command execution:
 .nf
 Server: clawsec \-l \-p 8888 \-k "pass" \-e /bin/bash
 Client: clawsec \-k "pass" host 8888
+.fi
+.SS Keep-Open (Multi-Client)
+Accept multiple clients on one port:
+.PP
+.nf
+Server: clawsec \-l \-K \-p 8888 \-k "pass"
+Client: clawsec \-k "pass" host 8888
+.fi
+.SS Port Forwarding
+Encrypted tunnel to internal service (replaces ssh \-L):
+.PP
+.nf
+Server: clawsec \-l \-p 8888 \-k "pass" \-L 127.0.0.1:3306
+Client: clawsec \-k "pass" server 8888
+.fi
+.SS Traffic Obfuscation
+Hide encrypted traffic as HTTP requests:
+.PP
+.nf
+Server: clawsec \-l \-p 443 \-k "pass" \-\-obfs http
+Client: clawsec \-k "pass" \-\-obfs http host 443
 .fi
 .SS UDP Mode
 Encrypted UDP datagrams:

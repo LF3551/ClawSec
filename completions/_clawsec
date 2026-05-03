@@ -11,6 +11,9 @@ _clawsec() {
         '-c[Chat mode with timestamps and colors]' \
         '-v[Verbose output]' \
         '-w[Connection timeout in seconds]:seconds:' \
+        '-K[Keep-open: accept multiple clients (fork per client)]' \
+        '-L[Port forwarding target]:host\:port:' \
+        '--obfs[Traffic obfuscation mode]:mode:(http)' \
         '-e[Execute program after connect]:program:_command_names' \
         '-h[Display usage information]' \
         '*:host:_hosts'

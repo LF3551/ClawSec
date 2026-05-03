@@ -110,3 +110,44 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
     }
     return 0;
 }
+
+int relay_encrypted_plain(int enc_fd, int plain_fd) {
+    char buf[BUFSIZE];
+    ssize_t n;
+    size_t sent = 0, received = 0;
+
+    for (;;) {
+        fd_set rfds;
+        int nfds = enc_fd > plain_fd ? enc_fd : plain_fd;
+
+        FD_ZERO(&rfds);
+        FD_SET(enc_fd, &rfds);
+        FD_SET(plain_fd, &rfds);
+
+        int ret = select(nfds + 1, &rfds, NULL, NULL, NULL);
+        if (ret < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+
+        /* Encrypted -> plaintext */
+        if (FD_ISSET(enc_fd, &rfds)) {
+            n = farm9crypt_read(enc_fd, buf, sizeof(buf));
+            if (n <= 0) break;
+            received += (size_t)n;
+            if (write_all(plain_fd, buf, (size_t)n) < 0) break;
+        }
+
+        /* Plaintext -> encrypted */
+        if (FD_ISSET(plain_fd, &rfds)) {
+            n = read(plain_fd, buf, sizeof(buf));
+            if (n <= 0) break;
+            sent += (size_t)n;
+            if (farm9crypt_write(enc_fd, buf, (size_t)n) != n) break;
+        }
+    }
+
+    if (g_verbose)
+        log_msg(1, "[Forwarding done] sent=%zu recv=%zu", sent, received);
+    return 0;
+}

@@ -34,8 +34,8 @@ bogus:
 
 ### HARD TARGETS
 
-clawsec:	clawsec.c net.o relay.o exec.o util.o farm9crypt.o aesgcm.o
-	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o farm9crypt.o aesgcm.o $(XLIBS)
+clawsec:	clawsec.c net.o relay.o exec.o util.o obfs.o farm9crypt.o aesgcm.o
+	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o obfs.o farm9crypt.o aesgcm.o $(XLIBS)
 
 
 nc-dos:
@@ -146,6 +146,9 @@ relay.o: relay.c relay.h util.h farm9crypt.h
 exec.o: exec.c exec.h util.h farm9crypt.h
 		${CC} $(DFLAGS) $(XFLAGS) -c exec.c
 
+obfs.o: obfs.c obfs.h
+		${CC} $(DFLAGS) $(XFLAGS) -c obfs.c
+
 
 generic:
 	make -e $(ALL) $(MFLAGS) XFLAGS='$(XFLAGS) -DGENERIC' \
@@ -163,7 +166,12 @@ alpine:
 clean:
 	rm -f clawsec cryptcat test_clawsec *.o *.obj
 
-test: farm9crypt.o aesgcm.o test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test.h
-	$(LD) $(XFLAGS) -o test_clawsec test_clawsec.c test_crypto.c test_protocol.c test_handshake.c farm9crypt.o aesgcm.o $(XLIBS)
+test: farm9crypt.o aesgcm.o obfs.o test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c test.h
+	$(LD) $(XFLAGS) -o test_clawsec test_clawsec.c test_crypto.c test_protocol.c test_handshake.c test_obfs.c farm9crypt.o aesgcm.o obfs.o $(XLIBS)
 	./test_clawsec
+
+test-macos:
+	make -e test \
+		XFLAGS='-I/opt/homebrew/opt/openssl@3/include' \
+		XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
 
