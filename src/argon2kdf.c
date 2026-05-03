@@ -14,6 +14,17 @@
 #include <openssl/params.h>
 #include <openssl/core_names.h>
 
+/* OpenSSL < 3.2 lacks Argon2 parameter names */
+#ifndef OSSL_KDF_PARAM_ARGON2_MEMCOST
+#define OSSL_KDF_PARAM_ARGON2_MEMCOST "memcost"
+#endif
+#ifndef OSSL_KDF_PARAM_ARGON2_LANES
+#define OSSL_KDF_PARAM_ARGON2_LANES "lanes"
+#endif
+#ifndef OSSL_KDF_PARAM_THREADS
+#define OSSL_KDF_PARAM_THREADS "threads"
+#endif
+
 int argon2_available(void) {
     EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
     if (!kdf) return 0;
