@@ -376,6 +376,22 @@ extern "C" void farm9crypt_cleanup() {
     if (debug) fprintf(stderr, "[CRYPT] Cleanup complete\n");
 }
 
+/* Get session fingerprint: SHA-256(derived_key) truncated to len bytes */
+extern "C" int farm9crypt_get_fingerprint(unsigned char *out, size_t len) {
+    if (!initialized) return -1;
+    unsigned char hash[32];
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    if (!ctx) return -1;
+    EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
+    EVP_DigestUpdate(ctx, derived_key, sizeof(derived_key));
+    unsigned int hlen = 32;
+    EVP_DigestFinal_ex(ctx, hash, &hlen);
+    EVP_MD_CTX_free(ctx);
+    size_t copy = len < 32 ? len : 32;
+    memcpy(out, hash, copy);
+    return (int)copy;
+}
+
 /* Secure receive with timeout and exact length validation */
 static int recv_exact(int sockfd, void* buf, size_t len) {
     size_t total = 0;

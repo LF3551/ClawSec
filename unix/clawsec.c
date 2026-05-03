@@ -105,6 +105,7 @@ static void usage(const char *prog) {
             "  -z                Compress data with zlib before encryption\n"
             "  -P                Show transfer progress bar\n"
             "  -V                SHA-256 end-to-end file verification\n"
+            "  -n <name>         Chat nickname (default: Server/Client)\n"
             "  -u                UDP mode (default: TCP)\n"
             "  -4                Force IPv4 only\n"
             "  -6                Force IPv6 only\n"
@@ -162,9 +163,9 @@ int main(int argc, char **argv) {
     };
 
 #ifdef GAPING_SECURITY_HOLE
-    const char *optstring = "hlKu46ck:p:w:ve:L:zPV";
+    const char *optstring = "hlKu46ck:p:w:ve:L:zPVn:";
 #else
-    const char *optstring = "hlKu46ck:p:w:vL:zPV";
+    const char *optstring = "hlKu46ck:p:w:vL:zPVn:";
 #endif
 
     int opt;
@@ -196,6 +197,7 @@ int main(int argc, char **argv) {
         case 'z': g_compress = 1; break;
         case 'P': g_progress = 1; break;
         case 'V': g_verify = 1; break;
+        case 'n': g_nickname = optarg; break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;
 #endif

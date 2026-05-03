@@ -17,6 +17,7 @@ _clawsec() {
         '-z[Compress data with zlib before encryption]' \
         '-P[Show transfer progress bar]' \
         '-V[SHA-256 end-to-end file verification]' \
+        '-n[Chat nickname]:name:' \
         '-e[Execute program after connect]:program:_command_names' \
         '-h[Display usage information]' \
         '*:host:_hosts'

@@ -43,6 +43,8 @@ extern void test_zlib_roundtrip(void);
 extern void test_zlib_binary_data(void);
 extern void test_sha256_known_vector(void);
 extern void test_sha256_incremental(void);
+extern void test_fingerprint_deterministic(void);
+extern void test_ctrl_msg_build(void);
 
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
@@ -85,6 +87,10 @@ int main(void) {
     /* SHA-256 verification tests */
     test_sha256_known_vector();
     test_sha256_incremental();
+
+    /* Chat features */
+    test_fingerprint_deterministic();
+    test_ctrl_msg_build();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

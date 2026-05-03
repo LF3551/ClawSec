@@ -74,6 +74,11 @@ SHA-256 end-to-end file verification. After the sender finishes,
 a SHA-256 hash of all transmitted data is sent and verified by
 the receiver. Both sides must use \fB\-V\fR.
 .TP
+.BI \-n " name"
+Set custom chat nickname. Displayed to the peer instead of
+Server/Client. The nickname is exchanged encrypted after ECDHE
+handshake. Used in chat mode (\fB\-c\fR).
+.TP
 .B \-u
 UDP mode. Use datagrams instead of TCP stream. ECDHE handshake
 is performed over UDP before encrypted communication begins.

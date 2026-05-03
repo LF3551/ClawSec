@@ -49,6 +49,10 @@ int farm9crypt_write(int sockfd, char* buf, int size);
 /* Clean up and free resources */
 void farm9crypt_cleanup();
 
+/* Get session fingerprint hash (SHA-256 of derived key, truncated to len) */
+/* Returns bytes written, or -1 on error */
+int farm9crypt_get_fingerprint(unsigned char *out, size_t len);
+
 /* Protocol constants */
 #define FARM9_MAGIC 0x434C4157     /* "CLAW" */
 #define FARM9_VERSION 0x0001       /* Protocol version 1 */

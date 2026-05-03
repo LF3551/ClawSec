@@ -104,25 +104,28 @@ ClawSec supports three main modes: **Chat Mode**, **Reverse Shell Mode**, and **
 
 #### 1. Chat Mode (Encrypted Communication)
 
-Secure encrypted chat between two machines with timestamps and colored output (server side only).
+Secure encrypted chat with session fingerprints, read receipts, inline file sharing, and slash commands.
 
 **Server:**
 ```bash
-cd ~/ClawSec/unix
-./clawsec -l -p 8888 -k "TestPass123" -c
+./clawsec -l -p 8888 -k "TestPass123" -c -n "Alice"
 ```
 
 **Client:**
 ```bash
-./clawsec -k "TestPass123" -c server-ip 8888
+./clawsec -k "TestPass123" -c -n "Bob" server-ip 8888
 ```
 
 **Features:**
-- Interactive chat with timestamps: `[HH:MM:SS Server/Client]`
-- Colored output: green for you, cyan for remote
-- All communication encrypted with AES-256-GCM
-- Type messages on either side in real-time
-- Use `-c` flag to enable chat mode on both sides
+- 🔐 **Session fingerprint**: emoji + hex fingerprint shown at connect — verify both sides match to confirm no MITM
+- 📛 **Custom nicknames** (`-n`): display names instead of Server/Client
+- ✓✓ **Read receipts**: automatic delivery confirmations
+- 📎 **Inline file sharing**: `/file path` sends files up to 4MB through the chat
+- 🏓 **Encrypted ping**: `/ping` measures RTT through the encrypted tunnel
+- Slash commands: `/file`, `/ping`, `/clear`, `/whoami`, `/help`
+- Colored timestamps: green for local, cyan for remote
+- Session duration shown on disconnect
+- All communication encrypted with AES-256-GCM + PFS
 
 #### 2. Reverse Shell Mode (Encrypted Remote Access)
 
@@ -229,6 +232,7 @@ Options:
   -z                Compress data with zlib before encryption
   -P                Show transfer progress bar
   -V                SHA-256 end-to-end file verification
+  -n name           Chat nickname (default: Server/Client)
   -K                Keep-open: accept multiple clients
   -L host:port      Port forwarding (encrypted tunnel)
   --obfs http       Traffic obfuscation (anti-DPI)
@@ -240,17 +244,28 @@ Options:
 
 ### Chat Mode
 ```bash
-# Server: Listen for encrypted chat (shows timestamps)
-./clawsec -l -p 8888 -k "TestPass123" -c
+# Server: Listen for encrypted chat
+./clawsec -l -p 8888 -k "TestPass123" -c -n "Alice"
 
 # Client: Connect to server for chat
-./clawsec -k "TestPass123" -c server-ip 8888
+./clawsec -k "TestPass123" -c -n "Bob" server-ip 8888
 ```
 
 Both sides see:
 ```
-[10:30:15 Server] Hello!
-[10:30:18 Client] Hi there!
+╔══════════════════════════════════════╗
+║    🔐 ClawSec Encrypted Chat         ║
+╚══════════════════════════════════════╝
+  🔐 Session: a3f2-81bc-44de-9f71  🔒🌟💎🚀🍀🌸
+  Verify this matches on both sides to confirm no MITM.
+  Type /help for commands
+
+  📛 Peer identified as: Bob
+[10:30:15 Alice] Hello!
+  ✓✓ delivered
+[10:30:18 Bob] Hi! Check /ping
+  ✓✓ delivered
+  🏓 Pong: 12 ms RTT
 ```
 
 ### Reverse Shell Mode
@@ -371,7 +386,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ## Testing
 
 ```bash
-# Run integration test suite (25 tests)
+# Run integration test suite (27 tests)
 cd unix
 make macos    # or: make linux
 make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
@@ -396,6 +411,8 @@ Test coverage:
 - Host:port parsing (IPv4, IPv6, hostname, invalid)
 - Zlib compress/decompress roundtrip
 - SHA-256 known vector and incremental hashing
+- Session fingerprint determinism
+- Control message protocol format
 
 ```bash
 # Manual connection test (two terminals)
