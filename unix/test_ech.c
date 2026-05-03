@@ -5,6 +5,7 @@
 #include "test.h"
 #include "obfs.h"
 
+#include <signal.h>
 #include <openssl/ssl.h>
 #include <openssl/rand.h>
 
@@ -102,6 +103,9 @@ void test_ech_extension_present(void) {
 
         /* Server side: set up custom parse callback for ext 0xfe0d */
         close(fds[1]);
+
+        /* Suppress SIGPIPE — child may exit before SSL_accept finishes */
+        signal(SIGPIPE, SIG_IGN);
 
         SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
         ASSERT(ctx != NULL, "SSL_CTX_new failed");

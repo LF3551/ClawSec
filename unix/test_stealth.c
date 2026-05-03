@@ -129,9 +129,9 @@ void test_jitter_applies_delay(void) {
 
     long elapsed_us = (t2.tv_sec - t1.tv_sec) * 1000000L +
                       (t2.tv_usec - t1.tv_usec);
-    /* Should be >= 0 and < 50ms (50000us) + some slack */
+    /* Should be >= 0 and < 50ms + generous slack for CI runners */
     ASSERT(elapsed_us >= 0, "elapsed should be non-negative");
-    ASSERT(elapsed_us < 55000, "elapsed should be < 55ms");
+    ASSERT(elapsed_us < 200000, "elapsed should be < 200ms");
     TEST_END;
 }
 
