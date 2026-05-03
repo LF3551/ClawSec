@@ -102,6 +102,13 @@ connection is transparently proxied to a real website running at
 sequence proceed to the encrypted tunnel. Automatically enables
 TLS mode. Both client and server must use \fB\-\-fallback\fR.
 .TP
+.BI \-\-fingerprint " profile"
+Shape the TLS ClientHello to match a real browser. Supported profiles:
+\fBchrome\fR (Chrome 124+), \fBfirefox\fR (Firefox 125+),
+\fBsafari\fR (Safari 17+). Sets cipher suites, supported groups,
+signature algorithms, ALPN, and browser-specific extensions (ALPS
+for Chrome). Automatically enables TLS mode.
+.TP
 .B \-z
 Compress data with zlib (deflate) before encryption. Reduces
 bandwidth for text and compressible files. Both sides must use \fB\-z\fR.
@@ -213,6 +220,15 @@ Client: clawsec \-k "pass" \-\-fallback nginx.local:80 server 443
 .PP
 When curl or a browser connects to port 443, they see the real nginx site.
 Only ClawSec clients get the encrypted tunnel.
+.SS TLS Fingerprinting
+Disguise traffic as a specific browser:
+.PP
+.nf
+Server: clawsec \-l \-p 443 \-k "pass" \-\-fallback nginx:80
+Client: clawsec \-k "pass" \-\-fingerprint chrome \-\-fallback nginx:80 server 443
+.fi
+.PP
+DPI sees a Chrome-like TLS ClientHello connecting to a real website.
 .SS Compressed Transfer with Verification
 Transfer files with zlib compression, progress, and SHA-256 verification:
 .PP

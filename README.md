@@ -242,6 +242,7 @@ Options:
   --ech             Encrypted Client Hello (hide SNI from DPI)
   --mux             Multiplex streams over one tunnel (with -L)
   --fallback h:p    Proxy non-ClawSec probes to real site (REALITY-like)
+  --fingerprint p   Mimic browser TLS (chrome, firefox, safari)
   --pad             Pad packets to uniform 1400 bytes
   --jitter ms       Random delay 0-N ms between packets
   -w secs           Timeout for connects
@@ -394,7 +395,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ## Testing
 
 ```bash
-# Run integration test suite (48 tests)
+# Run integration test suite (52 tests)
 cd unix
 make macos    # or: make linux
 make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
@@ -471,6 +472,7 @@ make clean && make linux
 - **Shell completions**: Bash, Zsh, and Fish autocompletion scripts
 
 ### Version 2.5.0 (May 2026) - Stealth Mode
+- **TLS Fingerprinting**: `--fingerprint chrome|firefox|safari` shapes ClientHello to match real browsers
 - **Fallback (REALITY-like)**: `--fallback host:port` proxies DPI probes to a real website
 - **Encrypted Client Hello**: `--ech` adds GREASE ECH extension, hides SNI from DPI
 - **Stream Multiplexer**: `--mux` — 64 concurrent streams over one encrypted tunnel
@@ -482,7 +484,7 @@ make clean && make linux
 - **HTTP Obfuscation**: `--obfs http` anti-DPI packet wrapping
 - **Compression**: `-z` zlib, `-P` progress bar, `-V` SHA-256 verification
 - **Chat Enhancements**: Fingerprints, receipts, `/file`, `/ping`, nicknames
-- **Test Suite**: 48 integration tests covering crypto, protocol, stealth, ECH, mux, fallback, and more
+- **Test Suite**: 52 integration tests covering crypto, protocol, stealth, ECH, mux, fallback, fingerprint, and more
 
 ### Version 2.4.0 (May 2026) - Security Hardening
 - **Random Session Salt**: Per-session CSPRNG salt exchange replaces fixed salt

@@ -19,6 +19,7 @@ _clawsec() {
         '--ech[Encrypted Client Hello (hide SNI from DPI)]' \
         '--mux[Multiplex streams over one encrypted tunnel]' \
         '--fallback[Proxy non-ClawSec probes to real site]:host\:port:' \
+        '--fingerprint[Mimic browser TLS fingerprint]:profile:(chrome firefox safari)' \
         '-z[Compress data with zlib before encryption]' \
         '-P[Show transfer progress bar]' \
         '-V[SHA-256 end-to-end file verification]' \

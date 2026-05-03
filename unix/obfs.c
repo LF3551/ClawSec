@@ -31,6 +31,7 @@
 #include <openssl/pem.h>
 
 #include "obfs.h"
+#include "fingerprint.h"
 
 static int g_obfs_mode = OBFS_NONE;
 static int g_ech       = 0;
@@ -332,6 +333,10 @@ int obfs_tls_connect(int fd) {
     SSL_CTX_set_min_proto_version(g_ssl_ctx, TLS1_3_VERSION);
     /* No cert verification — the inner ECDHE+PBKDF2 layer provides authentication */
     SSL_CTX_set_verify(g_ssl_ctx, SSL_VERIFY_NONE, NULL);
+
+    /* Browser fingerprint: reshape ClientHello to match a real browser */
+    if (fp_get_profile() != FP_NONE)
+        fp_apply_ctx(g_ssl_ctx);
 
     /* Encrypted Client Hello: add GREASE ECH extension to ClientHello */
     if (g_ech) {

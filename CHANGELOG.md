@@ -5,6 +5,10 @@ All notable changes to ClawSec will be documented in this file.
 ## [2.5.0] - 2026-05-03
 
 ### Added — Stealth Mode (Anti-DPI / Anti-Fingerprint)
+- `--fingerprint chrome|firefox|safari` — TLS ClientHello shaping: cipher suite
+  order, supported groups, signature algorithms, ALPN, and Chrome-specific
+  extensions (ALPS 0x4469) are set to match a real browser’s JA3/JA4
+  fingerprint. DPI cannot distinguish ClawSec from normal browser traffic.
 - `--fallback host:port` — REALITY-like active probing resistance: when DPI or a
   browser connects, traffic is proxied to a real website. Only ClawSec clients
   that send the correct knock sequence get the encrypted tunnel.
@@ -35,7 +39,7 @@ All notable changes to ClawSec will be documented in this file.
 ### Added — Security
 - X25519 ECDHE for Perfect Forward Secrecy
 - Replay protection with sequence counters
-- 48 integration tests covering crypto, protocol, obfuscation, stealth, ECH, mux, fallback
+- 52 integration tests covering crypto, protocol, obfuscation, stealth, ECH, mux, fallback, fingerprint
 
 ## [2.3.0] - 2025-11-23
 

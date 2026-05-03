@@ -19,6 +19,7 @@
 #include "obfs.h"
 #include "mux.h"
 #include "fallback.h"
+#include "fingerprint.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -157,6 +158,7 @@ static void usage(const char *prog) {
             "  --obfs http       Obfuscate traffic as HTTP requests (anti-DPI)\n"
             "  --obfs tls        Wrap connection in real TLS 1.3 (stealth mode)\n"            "  --ech              Encrypted Client Hello (hide SNI from DPI)\n"
             "  --mux              Multiplex streams over one tunnel (with -L)\n"            "  --fallback <h:p>  Proxy non-ClawSec probes to real site (REALITY-like)\n"
+            "  --fingerprint <p> Mimic browser TLS (chrome, firefox, safari)\n"
             "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
             "  --jitter <ms>     Add random 0-N ms delay between packets (anti-timing)\n"
             "  -z                Compress data with zlib before encryption\n"
@@ -219,8 +221,9 @@ int main(int argc, char **argv) {
         {"jitter",   required_argument, NULL, 'J'},
         {"ech",      no_argument,       NULL, 'E'},
         {"mux",      no_argument,       NULL, 'M'},
-        {"fallback", required_argument, NULL, 'F'},
-        {"help",     no_argument,       NULL, 'h'},
+        {"fallback",     required_argument, NULL, 'F'},
+        {"fingerprint",  required_argument, NULL, 'T'},
+        {"help",         no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
 
@@ -284,6 +287,21 @@ int main(int argc, char **argv) {
                 return 1;
             }
             /* Fallback implies TLS mode */
+            if (obfs_get_mode() == OBFS_NONE)
+                obfs_set_mode(OBFS_TLS);
+            break;
+        case 'T':
+            if (strcmp(optarg, "chrome") == 0) {
+                fp_set_profile(FP_CHROME);
+            } else if (strcmp(optarg, "firefox") == 0) {
+                fp_set_profile(FP_FIREFOX);
+            } else if (strcmp(optarg, "safari") == 0) {
+                fp_set_profile(FP_SAFARI);
+            } else {
+                fprintf(stderr, "ERROR: Unknown fingerprint profile '%s' (supported: chrome, firefox, safari)\n", optarg);
+                return 1;
+            }
+            /* Fingerprint implies TLS mode */
             if (obfs_get_mode() == OBFS_NONE)
                 obfs_set_mode(OBFS_TLS);
             break;

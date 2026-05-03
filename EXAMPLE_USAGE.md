@@ -220,13 +220,25 @@ exit            # Close connection
 # curl https://server.example.com  → nginx welcome page
 ```
 
-### Ultimate stealth: fallback + ECH + pad + jitter
+### Ultimate stealth: fallback + fingerprint + ECH + pad + jitter
 ```bash
 # Server: real site fallback + maximum anti-fingerprint
 ./clawsec -l -p 443 -k "MaxPass" --fallback 127.0.0.1:80 --ech --pad --jitter 100
 
-# Client
-./clawsec -k "MaxPass" --fallback 127.0.0.1:80 --ech --pad --jitter 100 server.example.com 443
+# Client: looks exactly like Chrome to DPI
+./clawsec -k "MaxPass" --fallback 127.0.0.1:80 --fingerprint chrome --ech --pad --jitter 100 server.example.com 443
+```
+
+### TLS fingerprinting (browser mimicry)
+```bash
+# Client looks like Chrome 124+ to DPI (cipher suites, ALPN, extensions)
+./clawsec -k "Pass" --fingerprint chrome server.example.com 443
+
+# Client looks like Firefox 125+
+./clawsec -k "Pass" --fingerprint firefox server.example.com 443
+
+# Client looks like Safari 17+
+./clawsec -k "Pass" --fingerprint safari server.example.com 443
 ```
 
 ### Packet padding only (uniform packet sizes)

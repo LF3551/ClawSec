@@ -4,7 +4,7 @@ _clawsec() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="-l -p -k -K -L -u -4 -6 -c -v -w -e -z -P -V -n -h --obfs --pad --jitter --ech --mux --fallback"
+    opts="-l -p -k -K -L -u -4 -6 -c -v -w -e -z -P -V -n -h --obfs --pad --jitter --ech --mux --fallback --fingerprint"
 
     case "${prev}" in
         -p|-w)
@@ -34,6 +34,10 @@ _clawsec() {
             ;;
         --fallback)
             # host:port - no completion
+            return 0
+            ;;
+        --fingerprint)
+            COMPREPLY=( $(compgen -W "chrome firefox safari" -- "$cur") )
             return 0
             ;;
     esac

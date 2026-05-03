@@ -93,6 +93,12 @@ extern void test_fallback_knock_roundtrip(void);
 extern void test_fallback_detects_probe(void);
 extern void test_fallback_knock_magic(void);
 
+/* test_fingerprint.c */
+extern void test_fp_flag(void);
+extern void test_fp_chrome_tls_roundtrip(void);
+extern void test_fp_chrome_compress_cert(void);
+extern void test_fp_auto_enables_tls(void);
+
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
 
@@ -169,6 +175,12 @@ int main(void) {
     test_fallback_knock_roundtrip();
     test_fallback_detects_probe();
     test_fallback_knock_magic();
+
+    /* Fingerprint tests */
+    test_fp_flag();
+    test_fp_chrome_tls_roundtrip();
+    test_fp_chrome_compress_cert();
+    test_fp_auto_enables_tls();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
