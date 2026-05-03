@@ -34,8 +34,8 @@ bogus:
 
 ### HARD TARGETS
 
-clawsec:	clawsec.c farm9crypt.o aesgcm.o
-	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c farm9crypt.o aesgcm.o $(XLIBS)
+clawsec:	clawsec.c net.o relay.o exec.o util.o farm9crypt.o aesgcm.o
+	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o farm9crypt.o aesgcm.o $(XLIBS)
 
 
 nc-dos:
@@ -133,6 +133,18 @@ farm9crypt.o: farm9crypt.cc farm9crypt.h
 
 aesgcm.o: aesgcm.cc aesgcm.h
 		${CC} $(XFLAGS) -c aesgcm.cc
+
+util.o: util.c util.h farm9crypt.h
+		${CC} $(DFLAGS) $(XFLAGS) -c util.c
+
+net.o: net.c net.h util.h
+		${CC} $(DFLAGS) $(XFLAGS) -c net.c
+
+relay.o: relay.c relay.h util.h farm9crypt.h
+		${CC} $(DFLAGS) $(XFLAGS) -c relay.c
+
+exec.o: exec.c exec.h util.h farm9crypt.h
+		${CC} $(DFLAGS) $(XFLAGS) -c exec.c
 
 
 generic:
