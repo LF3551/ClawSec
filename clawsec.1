@@ -61,6 +61,19 @@ Traffic obfuscation. Wrap encrypted frames in HTTP POST requests
 with realistic headers to evade deep packet inspection (DPI).
 Currently supported modes: \fBhttp\fR.
 .TP
+.B \-z
+Compress data with zlib (deflate) before encryption. Reduces
+bandwidth for text and compressible files. Both sides must use \fB\-z\fR.
+.TP
+.B \-P
+Show a transfer progress bar on stderr with speed and bytes
+transferred. Built-in alternative to piping through \fBpv\fR.
+.TP
+.B \-V
+SHA-256 end-to-end file verification. After the sender finishes,
+a SHA-256 hash of all transmitted data is sent and verified by
+the receiver. Both sides must use \fB\-V\fR.
+.TP
 .B \-u
 UDP mode. Use datagrams instead of TCP stream. ECDHE handshake
 is performed over UDP before encrypted communication begins.
@@ -129,6 +142,13 @@ Hide encrypted traffic as HTTP requests:
 .nf
 Server: clawsec \-l \-p 443 \-k "pass" \-\-obfs http
 Client: clawsec \-k "pass" \-\-obfs http host 443
+.fi
+.SS Compressed Transfer with Verification
+Transfer files with zlib compression, progress, and SHA-256 verification:
+.PP
+.nf
+Send:   clawsec \-z \-P \-V \-k "pass" server 9999 < bigfile.tar
+Recv:   clawsec \-l \-p 9999 \-z \-P \-V \-k "pass" > bigfile.tar
 .fi
 .SS UDP Mode
 Encrypted UDP datagrams:

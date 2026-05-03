@@ -39,6 +39,12 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | **Lightweight** | ✅ ~50KB | ✅ Small | ❌ ~3MB (nmap) | ❌ ~400KB |
 | **Drop-in Netcat** | ✅ Yes | ✅ Yes | ⚠️ Partial | ❌ No |
 | **Shell Completions** | ✅ bash/zsh/fish | ❌ No | ❌ No | ❌ No |
+| **Keep-Open** | ✅ `-K` multi-client | ❌ No | ✅ Yes | ✅ Yes |
+| **Port Forwarding** | ✅ `-L` (no SSH) | ❌ No | ❌ No | ✅ Yes |
+| **Traffic Obfuscation** | ✅ `--obfs http` | ❌ No | ❌ No | ❌ No |
+| **Compression** | ✅ `-z` zlib | ❌ No | ❌ No | ❌ No |
+| **Progress Bar** | ✅ `-P` built-in | ❌ No | ❌ No | ❌ No |
+| **File Verification** | ✅ `-V` SHA-256 | ❌ No | ❌ No | ❌ No |
 | **Zero Dependencies** | ✅ libssl only | ✅ | ❌ nmap suite | ❌ |
 
 Perfect for: Secure file transfers, reverse shells, encrypted tunnels without certificate management.
@@ -143,7 +149,7 @@ cd ~/ClawSec/unix
 
 #### 3. File Transfer Mode (Secure File Transmission)
 
-Transfer files with automatic connection close and transfer statistics.
+Transfer files with compression, progress bar, and SHA-256 verification.
 
 **Server (receiving machine):**
 ```bash
@@ -155,7 +161,19 @@ Transfer files with automatic connection close and transfer statistics.
 ./clawsec -v -k "FilePass123" server-ip 8888 < file_to_send.py
 ```
 
+**With compression, progress & verification:**
+```bash
+# Server
+./clawsec -l -p 8888 -k "FilePass123" -z -P -V > received.tar.gz
+
+# Client
+./clawsec -k "FilePass123" -z -P -V server-ip 8888 < archive.tar.gz
+```
+
 **Features:**
+- `-z` zlib compression: reduces bandwidth 3-5x for text files
+- `-P` built-in progress bar with speed and bytes (no external `pv` needed)
+- `-V` SHA-256 end-to-end verification: hash sent after transfer, receiver verifies
 - Automatic connection close after transfer
 - Transfer statistics: `[Transfer complete] Sent/Received X bytes`
 - Files transferred with full AES-256-GCM encryption
@@ -208,6 +226,12 @@ Connection:
 Options:
   -c                Chat mode with timestamps and colors
   -v                Verbose mode
+  -z                Compress data with zlib before encryption
+  -P                Show transfer progress bar
+  -V                SHA-256 end-to-end file verification
+  -K                Keep-open: accept multiple clients
+  -L host:port      Port forwarding (encrypted tunnel)
+  --obfs http       Traffic obfuscation (anti-DPI)
   -w secs           Timeout for connects
   -e prog           Execute program after connect (requires GAPING_SECURITY_HOLE)
 ```
@@ -248,12 +272,17 @@ whoami
 
 # Client: Send file
 ./clawsec -v -k "FilePass123" server-ip 8888 < file.py
+
+# With compression + progress + verification
+./clawsec -z -P -V -l -p 8888 -k "FilePass123" > received.iso
+./clawsec -z -P -V -k "FilePass123" server-ip 8888 < file.iso
 ```
 
 Output:
 ```
-[Transfer complete] Sent 245 bytes      # Client
-[Transfer complete] Received 245 bytes  # Server
+[Sent] 42.3 MB  (12.5 MB/s)
+[Transfer complete] Sent 88000000→42300000 bytes (compressed)
+[Verify] SHA-256 OK: ba7816bf8f01cfea...
 ```
 
 ### Advanced Examples
@@ -342,7 +371,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ## Testing
 
 ```bash
-# Run integration test suite (12 tests)
+# Run integration test suite (25 tests)
 cd unix
 make macos    # or: make linux
 make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
@@ -363,6 +392,10 @@ Test coverage:
 - Protocol magic validation
 - Full handshake simulation
 - Bidirectional communication
+- Obfuscation (HTTP mode send/recv, multi-message, large payload)
+- Host:port parsing (IPv4, IPv6, hostname, invalid)
+- Zlib compress/decompress roundtrip
+- SHA-256 known vector and incremental hashing
 
 ```bash
 # Manual connection test (two terminals)

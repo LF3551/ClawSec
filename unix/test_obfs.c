@@ -8,6 +8,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <zlib.h>
+#include <openssl/evp.h>
 
 #include "test.h"
 #include "obfs.h"
@@ -208,5 +210,112 @@ void test_parse_forward_spec_invalid(void) {
     ASSERT(test_parse_host_port(NULL, host, sizeof(host), port, sizeof(port)) == -1, "NULL not rejected");
     ASSERT(test_parse_host_port(":80", host, sizeof(host), port, sizeof(port)) == -1, ":80 not rejected");
     ASSERT(test_parse_host_port("[bad", host, sizeof(host), port, sizeof(port)) == -1, "[bad not rejected");
+    TEST_END;
+}
+
+/* ---- zlib compress/decompress tests ---- */
+
+void test_zlib_roundtrip(void) {
+    TEST_BEGIN("zlib compress/decompress roundtrip");
+    const char *data = "Hello, this is a test string for compression! "
+                       "It should compress well because it has repetition. "
+                       "Hello, this is a test string for compression!";
+    size_t data_len = strlen(data);
+
+    char compressed[4096];
+    uLongf comp_len = sizeof(compressed);
+    int rc = compress2((Bytef*)compressed, &comp_len,
+                       (const Bytef*)data, (uLong)data_len,
+                       Z_DEFAULT_COMPRESSION);
+    ASSERT(rc == Z_OK, "compress2 failed");
+    ASSERT(comp_len < data_len, "compressed should be smaller");
+
+    char decompressed[4096];
+    uLongf decomp_len = sizeof(decompressed);
+    rc = uncompress((Bytef*)decompressed, &decomp_len,
+                    (const Bytef*)compressed, comp_len);
+    ASSERT(rc == Z_OK, "uncompress failed");
+    ASSERT(decomp_len == data_len, "decompressed size mismatch");
+    ASSERT(memcmp(decompressed, data, data_len) == 0, "data mismatch");
+    TEST_END;
+}
+
+void test_zlib_binary_data(void) {
+    TEST_BEGIN("zlib binary data roundtrip");
+    char data[2048];
+    for (int i = 0; i < 2048; i++)
+        data[i] = (char)(i & 0xFF);
+
+    char compressed[4096];
+    uLongf comp_len = sizeof(compressed);
+    int rc = compress2((Bytef*)compressed, &comp_len,
+                       (const Bytef*)data, 2048, Z_DEFAULT_COMPRESSION);
+    ASSERT(rc == Z_OK, "compress2 failed");
+
+    char decompressed[4096];
+    uLongf decomp_len = sizeof(decompressed);
+    rc = uncompress((Bytef*)decompressed, &decomp_len,
+                    (const Bytef*)compressed, comp_len);
+    ASSERT(rc == Z_OK, "uncompress failed");
+    ASSERT(decomp_len == 2048, "size mismatch");
+    ASSERT(memcmp(decompressed, data, 2048) == 0, "data mismatch");
+    TEST_END;
+}
+
+/* ---- SHA-256 verification tests ---- */
+
+static void sha256_hex_test(const unsigned char *hash, char *hex) {
+    static const char hx[] = "0123456789abcdef";
+    for (int i = 0; i < 32; i++) {
+        hex[i*2]   = hx[hash[i] >> 4];
+        hex[i*2+1] = hx[hash[i] & 0x0f];
+    }
+    hex[64] = '\0';
+}
+
+void test_sha256_known_vector(void) {
+    TEST_BEGIN("SHA-256 known test vector");
+    /* SHA-256("abc") = ba7816bf... */
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    ASSERT(ctx != NULL, "EVP_MD_CTX_new failed");
+    EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
+    EVP_DigestUpdate(ctx, "abc", 3);
+    unsigned char hash[32];
+    unsigned int hlen = 32;
+    EVP_DigestFinal_ex(ctx, hash, &hlen);
+    EVP_MD_CTX_free(ctx);
+
+    char hex[65];
+    sha256_hex_test(hash, hex);
+    ASSERT_STR_EQ(hex, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+                  "SHA-256(abc) mismatch");
+    TEST_END;
+}
+
+void test_sha256_incremental(void) {
+    TEST_BEGIN("SHA-256 incremental vs single-shot");
+    const char *data = "Hello, World! This is a test of incremental hashing.";
+    size_t len = strlen(data);
+
+    /* Single shot */
+    EVP_MD_CTX *ctx1 = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(ctx1, EVP_sha256(), NULL);
+    EVP_DigestUpdate(ctx1, data, len);
+    unsigned char hash1[32];
+    unsigned int hlen = 32;
+    EVP_DigestFinal_ex(ctx1, hash1, &hlen);
+    EVP_MD_CTX_free(ctx1);
+
+    /* Incremental (byte by byte) */
+    EVP_MD_CTX *ctx2 = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(ctx2, EVP_sha256(), NULL);
+    for (size_t i = 0; i < len; i++)
+        EVP_DigestUpdate(ctx2, data + i, 1);
+    unsigned char hash2[32];
+    hlen = 32;
+    EVP_DigestFinal_ex(ctx2, hash2, &hlen);
+    EVP_MD_CTX_free(ctx2);
+
+    ASSERT(memcmp(hash1, hash2, 32) == 0, "hashes should match");
     TEST_END;
 }

@@ -16,7 +16,7 @@
 DFLAGS = -DGAPING_SECURITY_HOLE
 CFLAGS = -O
 XFLAGS =
-XLIBS = -lssl -lcrypto -lstdc++
+XLIBS = -lssl -lcrypto -lstdc++ -lz
 
 
 # -Bstatic for sunos,  -static for gcc, etc.  You want this, trust me.
@@ -76,12 +76,12 @@ aix:
 
 linux:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX' \
-	XLIBS='-lssl -lcrypto -lutil -lstdc++' STATIC=
+	XLIBS='-lssl -lcrypto -lutil -lstdc++ -lz' STATIC=
 
 macos:
 	make -e $(ALL) $(MFLAGS) \
 	XFLAGS='-I/opt/homebrew/opt/openssl@3/include' \
-	XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++' STATIC=
+	XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++ -lz' STATIC=
 
 
 
@@ -173,5 +173,5 @@ test: farm9crypt.o aesgcm.o obfs.o test_clawsec.c test_crypto.c test_protocol.c 
 test-macos:
 	make -e test \
 		XFLAGS='-I/opt/homebrew/opt/openssl@3/include' \
-		XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
+		XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++ -lz'
 

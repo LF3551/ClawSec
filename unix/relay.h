@@ -13,5 +13,8 @@ int relay_encrypted_plain(int enc_fd, int plain_fd);
 /* Globals needed by relay */
 extern int g_verbose;
 extern int g_chat_mode;
+extern int g_compress;   /* -z: zlib compression */
+extern int g_progress;   /* -P: progress bar */
+extern int g_verify;     /* -V: SHA-256 end-to-end verify */
 
 #endif

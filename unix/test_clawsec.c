@@ -39,6 +39,10 @@ extern void test_parse_forward_spec_ipv4(void);
 extern void test_parse_forward_spec_ipv6(void);
 extern void test_parse_forward_spec_hostname(void);
 extern void test_parse_forward_spec_invalid(void);
+extern void test_zlib_roundtrip(void);
+extern void test_zlib_binary_data(void);
+extern void test_sha256_known_vector(void);
+extern void test_sha256_incremental(void);
 
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
@@ -73,6 +77,14 @@ int main(void) {
     test_parse_forward_spec_ipv6();
     test_parse_forward_spec_hostname();
     test_parse_forward_spec_invalid();
+
+    /* Compression tests */
+    test_zlib_roundtrip();
+    test_zlib_binary_data();
+
+    /* SHA-256 verification tests */
+    test_sha256_known_vector();
+    test_sha256_incremental();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
