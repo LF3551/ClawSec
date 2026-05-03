@@ -149,6 +149,66 @@ Make sure both sides use `-c` flag:
 ./clawsec -k "Pass" -c server-ip 4444
 ```
 
+## Anti-DPI / Stealth
+
+### How do I hide ClawSec traffic from DPI?
+Combine `--obfs tls` for TLS 1.3 camouflage with `--fingerprint chrome` to look like real browser traffic:
+```bash
+# Server
+./clawsec -l -p 443 -k "Pass" --obfs tls
+
+# Client (looks like Chrome to DPI)
+./clawsec -k "Pass" --fingerprint chrome server 443
+```
+
+### What is TLS fingerprinting?
+DPI systems identify tools by their TLS ClientHello pattern (JA3/JA4 hash). OpenSSL's default ClientHello stands out as a non-browser client. `--fingerprint chrome|firefox|safari` shapes ClawSec's ClientHello to match a real browser — cipher suites, curves, ALPN, extensions.
+
+### Do I need `--fingerprint` on both sides?
+No. `--fingerprint` is **client-side only** — it shapes the outgoing ClientHello. The server doesn't need it.
+
+### What is `--fallback`?
+REALITY-like active probing resistance. When a browser/DPI probe connects to your port, they see a real website. Only ClawSec clients that send the correct knock sequence get the encrypted tunnel:
+```bash
+# Server: DPI probes see real nginx
+./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80
+
+# Client: sends knock, gets tunnel
+./clawsec -k "Pass" --fallback 127.0.0.1:80 server 443
+
+# DPI probe: sees real nginx
+curl https://server:443  # → nginx welcome page
+```
+
+### What is `--ech`?
+Encrypted Client Hello — adds a GREASE ECH extension to the TLS ClientHello, hiding the SNI (server name) from DPI. Automatically enables TLS mode.
+
+### What does `--mux` do?
+Multiplexes up to 64 connections over a single encrypted tunnel. Think of it as encrypted port forwarding with connection pooling:
+```bash
+# Server: forward to internal web server
+./clawsec -l -p 4430 -k "Pass" -L internal:80 --mux
+
+# Client: 64 concurrent connections on localhost:8080
+./clawsec -k "Pass" -p 8080 --mux server 4430
+```
+
+### Can I combine stealth features?
+Yes. Maximum stealth configuration:
+```bash
+# Server
+./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80 --ech --pad --jitter 100
+
+# Client (looks exactly like Chrome connecting to a real site)
+./clawsec -k "Pass" --fingerprint chrome --fallback 127.0.0.1:80 --ech --pad --jitter 100 server 443
+```
+
+### What's the difference between `--obfs tls` and `--fingerprint`?
+- `--obfs tls` wraps traffic in a real TLS 1.3 session (required for all stealth features)
+- `--fingerprint` additionally shapes the TLS ClientHello to look like a specific browser
+- `--obfs tls` is needed on **both sides**, `--fingerprint` is **client-only**
+- `--fingerprint` auto-enables `--obfs tls`
+
 ### "Connection refused"
 - Check server is running
 - Verify correct port number

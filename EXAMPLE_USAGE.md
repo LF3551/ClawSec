@@ -230,6 +230,10 @@ exit            # Close connection
 ```
 
 ### TLS fingerprinting (browser mimicry)
+
+> **Note:** `--fingerprint` is **client-side only** — it shapes the outgoing TLS ClientHello.  
+> The server does NOT need `--fingerprint`.
+
 ```bash
 # Client looks like Chrome 124+ to DPI (cipher suites, ALPN, extensions)
 ./clawsec -k "Pass" --fingerprint chrome server.example.com 443

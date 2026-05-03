@@ -43,7 +43,11 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | **Port Forwarding** | ✅ `-L` (no SSH) | ❌ No | ❌ No | ✅ Yes |
 | **Traffic Obfuscation** | ✅ `--obfs http/tls` | ❌ No | ❌ No | ❌ No |
 | **TLS Camouflage** | ✅ `--obfs tls` (TLS 1.3) | ❌ No | ❌ No | ❌ No |
-| **Anti-Fingerprint** | ✅ `--pad` + `--jitter` | ❌ No | ❌ No | ❌ No |
+| **TLS Fingerprinting** | ✅ `--fingerprint` (Chrome/FF/Safari) | ❌ No | ❌ No | ❌ No |
+| **Encrypted Client Hello** | ✅ `--ech` (GREASE ECH) | ❌ No | ❌ No | ❌ No |
+| **Active Probing Resistance** | ✅ `--fallback` (REALITY-like) | ❌ No | ❌ No | ❌ No |
+| **Stream Multiplexing** | ✅ `--mux` (64 streams) | ❌ No | ❌ No | ❌ No |
+| **Anti-Traffic-Analysis** | ✅ `--pad` + `--jitter` | ❌ No | ❌ No | ❌ No |
 | **Compression** | ✅ `-z` zlib | ❌ No | ❌ No | ❌ No |
 | **Progress Bar** | ✅ `-P` built-in | ❌ No | ❌ No | ❌ No |
 | **File Verification** | ✅ `-V` SHA-256 | ❌ No | ❌ No | ❌ No |
@@ -61,6 +65,17 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 - **Secure Random IV**: Cryptographically strong per-message randomization
 - **Protocol Versioning**: Future-proof binary message format
 - **Memory Safety**: Secure key wiping and resource cleanup
+
+### Anti-Censorship / Anti-DPI
+
+| Feature | Flag | What it does |
+|---------|------|--------------|
+| TLS Camouflage | `--obfs tls` | Wraps connection in a real TLS 1.3 session |
+| Browser Mimicry | `--fingerprint chrome\|firefox\|safari` | Shapes ClientHello to match a real browser (JA3/JA4) |
+| Encrypted Client Hello | `--ech` | Hides SNI from DPI with GREASE ECH extension |
+| Active Probing Resistance | `--fallback host:port` | DPI probes see a real website; only ClawSec gets the tunnel |
+| Packet Padding | `--pad` | All packets become uniform 1400 bytes |
+| Timing Jitter | `--jitter N` | Random 0-N ms delay defeats timing correlation |
 
 ## Quick Start
 
@@ -463,27 +478,25 @@ make clean && make linux
 
 ## Changelog
 
-### Version 2.5.0 (May 2026) - Perfect Forward Secrecy
-- **ECDHE (X25519)**: Ephemeral key exchange provides Perfect Forward Secrecy
-- **Password-authenticated ECDHE**: Password binds to key exchange, preventing MITM
-- **UDP mode** (`-u`): Encrypted datagrams over UDP with full AEAD protection
-- **IPv6 support** (`-4`/`-6`): Explicit address family selection; dual-stack by default
-- **Man page**: Added `clawsec.1` for `man clawsec`
-- **Shell completions**: Bash, Zsh, and Fish autocompletion scripts
-
-### Version 2.5.0 (May 2026) - Stealth Mode
+### Version 2.5.0 (May 2026) - Stealth Mode & PFS
 - **TLS Fingerprinting**: `--fingerprint chrome|firefox|safari` shapes ClientHello to match real browsers
 - **Fallback (REALITY-like)**: `--fallback host:port` proxies DPI probes to a real website
 - **Encrypted Client Hello**: `--ech` adds GREASE ECH extension, hides SNI from DPI
 - **Stream Multiplexer**: `--mux` — 64 concurrent streams over one encrypted tunnel
+- **ECDHE (X25519)**: Ephemeral key exchange provides Perfect Forward Secrecy
+- **Password-authenticated ECDHE**: Password binds to key exchange, preventing MITM
 - **TLS 1.3 Camouflage**: `--obfs tls` wraps connections in real TLS 1.3 sessions
 - **Packet Padding**: `--pad` makes all packets uniform 1400 bytes
 - **Timing Jitter**: `--jitter N` adds random 0-N ms delays between packets
 - **Keep-Open**: `-K` multi-client server with fork per connection
 - **Port Forwarding**: `-L host:port` encrypted tunnel without SSH
 - **HTTP Obfuscation**: `--obfs http` anti-DPI packet wrapping
+- **UDP mode** (`-u`): Encrypted datagrams over UDP with full AEAD protection
+- **IPv6 support** (`-4`/`-6`): Explicit address family selection; dual-stack by default
 - **Compression**: `-z` zlib, `-P` progress bar, `-V` SHA-256 verification
 - **Chat Enhancements**: Fingerprints, receipts, `/file`, `/ping`, nicknames
+- **Man page**: Added `clawsec.1` for `man clawsec`
+- **Shell completions**: Bash, Zsh, and Fish autocompletion scripts
 - **Test Suite**: 52 integration tests covering crypto, protocol, stealth, ECH, mux, fallback, fingerprint, and more
 
 ### Version 2.4.0 (May 2026) - Security Hardening

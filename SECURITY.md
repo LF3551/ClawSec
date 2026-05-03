@@ -154,7 +154,7 @@ admin                # Too short and common
 | Encryption | AES-256-GCM | None | Twofish (deprecated) | TLS 1.3 |
 | Authentication | HMAC (via GCM) | None | None | PKI Certificates |
 | Key Derivation | PBKDF2 | N/A | Direct key | TLS handshake |
-| Forward Secrecy | Partial | N/A | No | Full (ECDHE) |
+| Forward Secrecy | Full (X25519 ECDHE) | N/A | No | Full (ECDHE) |
 | Ease of Use | High | High | High | Medium |
 
 ## Compliance & Standards
@@ -198,6 +198,31 @@ Found a security issue? Please report to:
 ### Planned Security Features
 1. ~~**Key Exchange**: Implement ECDHE for perfect forward secrecy~~ ✅ Done (v2.5.0)
 2. ~~**Replay Protection**: Add sequence numbers and timestamps~~ ✅ Done (v2.4.0)
+
+## Anti-Censorship / Anti-DPI
+
+ClawSec includes multiple layers to resist Deep Packet Inspection and active probing:
+
+| Layer | Flag | Protection |
+|-------|------|-----------|
+| TLS Camouflage | `--obfs tls` | Wraps connection in real TLS 1.3 session |
+| Browser Mimicry | `--fingerprint chrome\|firefox\|safari` | ClientHello matches real browser JA3/JA4 |
+| Encrypted Client Hello | `--ech` | Hides SNI from DPI with GREASE ECH extension |
+| Active Probing Resistance | `--fallback host:port` | Non-ClawSec probes proxied to a real website |
+| Packet Padding | `--pad` | Uniform 1400-byte packets defeat size analysis |
+| Timing Jitter | `--jitter N` | Random 0-N ms delays defeat timing correlation |
+
+**Maximum stealth** (all layers combined):
+```bash
+# Server
+clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80 --ech --pad --jitter 100
+
+# Client
+clawsec -k "Pass" --fingerprint chrome --fallback 127.0.0.1:80 --ech --pad --jitter 100 server 443
+```
+
+Note: `--fingerprint` is client-side only (shapes outgoing ClientHello).
+The server does not need it.
 3. **Certificate Support**: Optional PKI for endpoint authentication
 4. **Password Hashing**: Consider Argon2 instead of PBKDF2
 5. **Rate Limiting**: Protect against brute force

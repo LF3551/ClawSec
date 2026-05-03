@@ -14,13 +14,27 @@ clawsec \- encrypted network tool with AES-256-GCM and Perfect Forward Secrecy
 .RB [ \-L
 .IR host:port ]
 .RB [ \-\-obfs
-.IR http ]
+.IR http | tls ]
+.RB [ \-\-fingerprint
+.IR chrome | firefox | safari ]
+.RB [ \-\-ech ]
+.RB [ \-\-mux ]
+.RB [ \-\-fallback
+.IR host:port ]
+.RB [ \-\-pad ]
+.RB [ \-\-jitter
+.IR ms ]
+.RB [ \-z ]
+.RB [ \-P ]
+.RB [ \-V ]
 .RB [ \-c ]
 .RB [ \-v ]
 .RB [ \-w
 .IR secs ]
 .RB [ \-e
 .IR program ]
+.RB [ \-n
+.IR name ]
 .RI [ hostname ]
 .RI [ port ]
 .SH DESCRIPTION
@@ -298,6 +312,15 @@ Transfer a directory:
 $ tar czf \- /data | clawsec \-k "pass" host 9999
 $ clawsec \-l \-p 9999 \-k "pass" | tar xzf \-
 .fi
+.PP
+Maximum stealth (looks like Chrome connecting to a real website):
+.PP
+.nf
+Server:  clawsec \-l \-p 443 \-k "pass" \-\-fallback 127.0.0.1:80 \-\-ech \-\-pad
+Client:  clawsec \-k "pass" \-\-fingerprint chrome \-\-fallback 127.0.0.1:80 \-\-ech \-\-pad server 443
+.fi
+.PP
+Note: \fB\-\-fingerprint\fR is client-side only (shapes outgoing ClientHello).
 .SH SEE ALSO
 .BR nc (1),
 .BR ncat (1),
