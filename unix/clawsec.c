@@ -18,6 +18,7 @@
 #include "exec.h"
 #include "obfs.h"
 #include "mux.h"
+#include "fallback.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -62,6 +63,33 @@ static void handle_client(int sockfd, const char *password, int is_server,
             return;
         }
         log_msg(1, "TLS 1.3 camouflage established");
+    }
+
+    /* Fallback: knock protocol for active probing resistance */
+    if (g_fallback && obfs_get_mode() == OBFS_TLS) {
+        if (is_server) {
+            int knock = fallback_check_knock(sockfd);
+            if (knock == 0) {
+                /* Not a ClawSec client — proxy to fallback site */
+                log_msg(1, "fallback: non-ClawSec probe detected, proxying");
+                fallback_proxy(sockfd, g_fallback_host, g_fallback_port,
+                               NULL, 0);
+                close(sockfd);
+                return;
+            } else if (knock < 0) {
+                log_msg(1, "fallback: connection error during knock");
+                close(sockfd);
+                return;
+            }
+            log_msg(1, "knock verified — ClawSec client");
+        } else {
+            /* Client sends knock before ECDHE */
+            if (fallback_send_knock(sockfd) < 0) {
+                fprintf(stderr, "ERROR: Failed to send knock\n");
+                close(sockfd);
+                return;
+            }
+        }
     }
 
     if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), send_first) != 0) {
@@ -128,7 +156,8 @@ static void usage(const char *prog) {
             "  -L <host:port>    Port forwarding: forward decrypted traffic to host:port\n"
             "  --obfs http       Obfuscate traffic as HTTP requests (anti-DPI)\n"
             "  --obfs tls        Wrap connection in real TLS 1.3 (stealth mode)\n"            "  --ech              Encrypted Client Hello (hide SNI from DPI)\n"
-            "  --mux              Multiplex streams over one tunnel (with -L)\n"            "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
+            "  --mux              Multiplex streams over one tunnel (with -L)\n"            "  --fallback <h:p>  Proxy non-ClawSec probes to real site (REALITY-like)\n"
+            "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
             "  --jitter <ms>     Add random 0-N ms delay between packets (anti-timing)\n"
             "  -z                Compress data with zlib before encryption\n"
             "  -P                Show transfer progress bar\n"
@@ -185,12 +214,13 @@ int main(int argc, char **argv) {
 #endif
 
     static struct option long_opts[] = {
-        {"obfs",   required_argument, NULL, 'O'},
-        {"pad",    no_argument,       NULL, 'D'},
-        {"jitter", required_argument, NULL, 'J'},
-        {"ech",    no_argument,       NULL, 'E'},
-        {"mux",    no_argument,       NULL, 'M'},
-        {"help",   no_argument,       NULL, 'h'},
+        {"obfs",     required_argument, NULL, 'O'},
+        {"pad",      no_argument,       NULL, 'D'},
+        {"jitter",   required_argument, NULL, 'J'},
+        {"ech",      no_argument,       NULL, 'E'},
+        {"mux",      no_argument,       NULL, 'M'},
+        {"fallback", required_argument, NULL, 'F'},
+        {"help",     no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
 
@@ -245,6 +275,17 @@ int main(int argc, char **argv) {
             break;
         case 'M':
             g_mux = 1;
+            break;
+        case 'F':
+            g_fallback = 1;
+            if (parse_host_port(optarg, g_fallback_host, sizeof(g_fallback_host),
+                                g_fallback_port, sizeof(g_fallback_port)) < 0) {
+                fprintf(stderr, "ERROR: Invalid fallback target '%s' (use host:port)\n", optarg);
+                return 1;
+            }
+            /* Fallback implies TLS mode */
+            if (obfs_get_mode() == OBFS_NONE)
+                obfs_set_mode(OBFS_TLS);
             break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;

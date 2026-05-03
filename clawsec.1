@@ -94,6 +94,14 @@ single encrypted tunnel. In server mode, requires \fB\-L host:port\fR
 to specify the target. In client mode, requires \fB\-p port\fR to
 specify the local listening port. Supports up to 64 concurrent streams.
 .TP
+.BI \-\-fallback " host:port"
+REALITY-like active probing resistance. When a non-ClawSec client
+(browser, DPI probe, scanner) connects to the TLS port, the
+connection is transparently proxied to a real website running at
+\fIhost:port\fR. Only ClawSec clients that send the correct knock
+sequence proceed to the encrypted tunnel. Automatically enables
+TLS mode. Both client and server must use \fB\-\-fallback\fR.
+.TP
 .B \-z
 Compress data with zlib (deflate) before encryption. Reduces
 bandwidth for text and compressible files. Both sides must use \fB\-z\fR.
@@ -195,6 +203,16 @@ Multiple connections over one encrypted link:
 Server: clawsec \-l \-p 4430 \-k "pass" \-L internal:80 \-\-mux
 Client: clawsec \-k "pass" \-p 8080 \-\-mux server 4430
 .fi
+.SS Fallback (REALITY-like)
+Proxy DPI probes to a real website:
+.PP
+.nf
+Server: clawsec \-l \-p 443 \-k "pass" \-\-fallback nginx.local:80
+Client: clawsec \-k "pass" \-\-fallback nginx.local:80 server 443
+.fi
+.PP
+When curl or a browser connects to port 443, they see the real nginx site.
+Only ClawSec clients get the encrypted tunnel.
 .SS Compressed Transfer with Verification
 Transfer files with zlib compression, progress, and SHA-256 verification:
 .PP

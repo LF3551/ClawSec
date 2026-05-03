@@ -208,6 +208,27 @@ exit            # Close connection
 ./clawsec -k "Pass" -p 5432 --mux --ech server.example.com 443
 ```
 
+### Fallback (REALITY-like active probing resistance)
+```bash
+# Server: DPI probes see a real nginx website
+./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80
+
+# Client: sends knock before ECDHE handshake
+./clawsec -k "Pass" --fallback 127.0.0.1:80 server.example.com 443
+
+# Test: curl sees the real site, not ClawSec
+# curl https://server.example.com  → nginx welcome page
+```
+
+### Ultimate stealth: fallback + ECH + pad + jitter
+```bash
+# Server: real site fallback + maximum anti-fingerprint
+./clawsec -l -p 443 -k "MaxPass" --fallback 127.0.0.1:80 --ech --pad --jitter 100
+
+# Client
+./clawsec -k "MaxPass" --fallback 127.0.0.1:80 --ech --pad --jitter 100 server.example.com 443
+```
+
 ### Packet padding only (uniform packet sizes)
 ```bash
 # All packets become 1400 bytes — defeats size-based traffic analysis

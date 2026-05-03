@@ -5,6 +5,9 @@ All notable changes to ClawSec will be documented in this file.
 ## [2.5.0] - 2026-05-03
 
 ### Added — Stealth Mode (Anti-DPI / Anti-Fingerprint)
+- `--fallback host:port` — REALITY-like active probing resistance: when DPI or a
+  browser connects, traffic is proxied to a real website. Only ClawSec clients
+  that send the correct knock sequence get the encrypted tunnel.
 - `--ech` — Encrypted Client Hello: GREASE ECH extension in TLS ClientHello,
   hides SNI from DPI. Automatically enables TLS mode.
 - `--mux` — Stream multiplexer: multiple logical connections over one encrypted
@@ -32,7 +35,7 @@ All notable changes to ClawSec will be documented in this file.
 ### Added — Security
 - X25519 ECDHE for Perfect Forward Secrecy
 - Replay protection with sequence counters
-- 45 integration tests covering crypto, protocol, obfuscation, stealth, ECH, mux
+- 48 integration tests covering crypto, protocol, obfuscation, stealth, ECH, mux, fallback
 
 ## [2.3.0] - 2025-11-23
 

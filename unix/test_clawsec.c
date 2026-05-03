@@ -88,6 +88,11 @@ extern void test_mux_encode_decode(void);
 extern void test_mux_frame_types(void);
 extern void test_mux_max_payload(void);
 
+/* test_fallback.c */
+extern void test_fallback_knock_roundtrip(void);
+extern void test_fallback_detects_probe(void);
+extern void test_fallback_knock_magic(void);
+
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
 
@@ -159,6 +164,11 @@ int main(void) {
     test_mux_encode_decode();
     test_mux_frame_types();
     test_mux_max_payload();
+
+    /* Fallback tests */
+    test_fallback_knock_roundtrip();
+    test_fallback_detects_probe();
+    test_fallback_knock_magic();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
