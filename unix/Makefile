@@ -9,10 +9,14 @@
 # pick gcc if you'd rather , and/or do -g instead of -O if debugging
 # debugging
 # DFLAGS = -DTEST -DDEBUG
+#
+# WARNING: -DGAPING_SECURITY_HOLE enables the -e flag (execute program after
+# connect). This allows running arbitrary commands via encrypted reverse shell.
+# Remove this define to build without remote exec capability.
 DFLAGS = -DGAPING_SECURITY_HOLE
 CFLAGS = -O
-XFLAGS = -I/opt/homebrew/opt/openssl@3/include
-XLIBS = -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lutil
+XFLAGS =
+XLIBS = -lssl -lcrypto -lstdc++
 
 
 # -Bstatic for sunos,  -static for gcc, etc.  You want this, trust me.
@@ -71,8 +75,13 @@ aix:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DAIX'
 
 linux:
-	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX -I/opt/homebrew/opt/openssl@3/include' \
-	XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lutil -lstdc++' STATIC=
+	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX' \
+	XLIBS='-lssl -lcrypto -lutil -lstdc++' STATIC=
+
+macos:
+	make -e $(ALL) $(MFLAGS) \
+	XFLAGS='-I/opt/homebrew/opt/openssl@3/include' \
+	XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++' STATIC=
 
 
 
