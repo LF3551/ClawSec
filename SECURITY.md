@@ -65,8 +65,12 @@ password is compromised later, recorded traffic cannot be decrypted.
 
 ### ⚠️ Current Limitations
 
-1. **No Key Exchange without password**: Both parties must share password out-of-band
-2. **MITM Protection**: Relies on password authentication (no PKI/certificates)
+1. **No PKI/certificate infrastructure**: Authentication relies on pre-shared password; no identity verification of the endpoint beyond password knowledge
+2. **MITM on first contact**: If password is exchanged over a compromised channel, an attacker can MITM the session. Once password is shared securely, ECDHE prevents passive interception
+3. **No post-quantum cryptography**: X25519 and AES-256 are secure against classical computers but not against future quantum attacks (Harvest Now, Decrypt Later)
+4. **PBKDF2 (not Argon2)**: PBKDF2 is resistant to CPU brute-force but not GPU/ASIC-optimized attacks. Argon2id would provide memory-hard protection
+5. **No certificate pinning or TOFU**: No way to verify server identity on reconnection — each session is independent
+6. **Single password per session**: No per-user authentication; all clients share the same password
 
 ## Usage Guidelines
 
@@ -196,8 +200,11 @@ Found a security issue? Please report to:
 ## Future Enhancements
 
 ### Planned Security Features
-1. ~~**Key Exchange**: Implement ECDHE for perfect forward secrecy~~ ✅ Done (v2.5.0)
-2. ~~**Replay Protection**: Add sequence numbers and timestamps~~ ✅ Done (v2.4.0)
+1. **Argon2id KDF**: Replace PBKDF2 with memory-hard key derivation (GPU/ASIC resistance)
+2. **Post-quantum hybrid**: X25519 + ML-KEM (Kyber) hybrid key exchange for quantum resistance
+3. **TOFU (Trust On First Use)**: Remember server public key fingerprint for reconnection verification
+4. **Per-user authentication**: Support multiple passwords/keys for multi-client deployments
+5. **Key rotation**: Automatic session key renegotiation for long-lived connections
 
 ## Anti-Censorship / Anti-DPI
 
