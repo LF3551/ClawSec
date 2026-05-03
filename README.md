@@ -390,6 +390,8 @@ make clean && make linux
 ### Version 2.5.0 (May 2026) - Perfect Forward Secrecy
 - **ECDHE (X25519)**: Ephemeral key exchange provides Perfect Forward Secrecy
 - **Password-authenticated ECDHE**: Password binds to key exchange, preventing MITM
+- **UDP mode** (`-u`): Encrypted datagrams over UDP with full AEAD protection
+- **IPv6 support** (`-4`/`-6`): Explicit address family selection; dual-stack by default
 - **Man page**: Added `clawsec.1` for `man clawsec`
 - **Shell completions**: Bash, Zsh, and Fish autocompletion scripts
 

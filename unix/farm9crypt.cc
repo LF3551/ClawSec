@@ -53,6 +53,7 @@ struct __attribute__((packed)) farm9_header {
 
 static int debug = false;
 static int initialized = false;
+static int udp_mode = false;
 static AESGCM* decryptor = NULL;
 static AESGCM* encryptor = NULL;
 static unsigned char derived_key[32];
@@ -67,6 +68,10 @@ static void secure_zero(void* ptr, size_t len) {
 
 extern "C" void farm9crypt_debug() {
     debug = true;
+}
+
+extern "C" void farm9crypt_set_udp_mode(int enabled) {
+    udp_mode = enabled;
 }
 
 extern "C" int farm9crypt_initialized() {
@@ -398,10 +403,49 @@ extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
         return -1;
     }
 
-    /* Read protocol header */
     struct farm9_header header;
-    int ret = recv_exact(sockfd, &header, sizeof(header));
-    if (ret <= 0) return ret;
+    unsigned char iv[FARM9_IV_LEN];
+    unsigned char tag[FARM9_TAG_LEN];
+    unsigned char ciphertext[FARM9_MAX_MSG];
+    uint32_t ct_len;
+
+    if (udp_mode) {
+        /* UDP: receive entire datagram at once */
+        unsigned char dgram[sizeof(struct farm9_header) + FARM9_IV_LEN + FARM9_TAG_LEN + FARM9_MAX_MSG];
+        ssize_t n = recv(sockfd, dgram, sizeof(dgram), 0);
+        if (n <= 0) {
+            if (n == 0) return 0;
+            if (errno == EINTR) return -1;
+            return -1;
+        }
+        size_t off = 0;
+        if ((size_t)n < sizeof(header)) { errno = EPROTO; return -1; }
+        memcpy(&header, dgram + off, sizeof(header)); off += sizeof(header);
+        if ((size_t)n < off + FARM9_IV_LEN + FARM9_TAG_LEN) { errno = EPROTO; return -1; }
+        memcpy(iv, dgram + off, FARM9_IV_LEN); off += FARM9_IV_LEN;
+        memcpy(tag, dgram + off, FARM9_TAG_LEN); off += FARM9_TAG_LEN;
+        ct_len = ntohl(header.length);
+        if (ct_len == 0 || ct_len > FARM9_MAX_MSG || off + ct_len > (size_t)n) { errno = EMSGSIZE; return -1; }
+        memcpy(ciphertext, dgram + off, ct_len);
+    } else {
+        /* TCP: read header, then payload */
+        int ret = recv_exact(sockfd, &header, sizeof(header));
+        if (ret <= 0) return ret;
+
+        ct_len = ntohl(header.length);
+        if (ct_len == 0 || ct_len > FARM9_MAX_MSG) {
+            if (debug) fprintf(stderr, "[CRYPT] Error: Invalid message length %u\n", ct_len);
+            errno = EMSGSIZE;
+            return -1;
+        }
+
+        int r = recv_exact(sockfd, iv, FARM9_IV_LEN);
+        if (r <= 0) return r;
+        r = recv_exact(sockfd, tag, FARM9_TAG_LEN);
+        if (r <= 0) return r;
+        r = recv_exact(sockfd, ciphertext, ct_len);
+        if (r <= 0) return r;
+    }
 
     /* Validate magic number */
     uint32_t magic = ntohl(header.magic);
@@ -429,29 +473,6 @@ extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
         return -1;
     }
     recv_seq++;
-
-    /* Get ciphertext length */
-    uint32_t ct_len = ntohl(header.length);
-    if (ct_len == 0 || ct_len > FARM9_MAX_MSG) {
-        if (debug) fprintf(stderr, "[CRYPT] Error: Invalid message length %u\n", ct_len);
-        errno = EMSGSIZE;
-        return -1;
-    }
-
-    /* Read IV */
-    unsigned char iv[FARM9_IV_LEN];
-    ret = recv_exact(sockfd, iv, FARM9_IV_LEN);
-    if (ret <= 0) return ret;
-
-    /* Read authentication tag */
-    unsigned char tag[FARM9_TAG_LEN];
-    ret = recv_exact(sockfd, tag, FARM9_TAG_LEN);
-    if (ret <= 0) return ret;
-
-    /* Read ciphertext */
-    unsigned char ciphertext[FARM9_MAX_MSG];
-    ret = recv_exact(sockfd, ciphertext, ct_len);
-    if (ret <= 0) return ret;
 
     /* Decrypt and verify */
     int plaintext_len;
@@ -543,28 +564,26 @@ extern "C" int farm9crypt_write(int sockfd, char* buf, int size) {
     header.length = htonl(ciphertext_len);
     send_seq++;
 
-    /* Send header */
-    if (send_exact(sockfd, &header, sizeof(header)) < 0) {
-        if (debug) fprintf(stderr, "[CRYPT] Error: Failed to send header\n");
-        return -1;
-    }
-
-    /* Send IV */
-    if (send_exact(sockfd, iv, FARM9_IV_LEN) < 0) {
-        if (debug) fprintf(stderr, "[CRYPT] Error: Failed to send IV\n");
-        return -1;
-    }
-
-    /* Send authentication tag */
-    if (send_exact(sockfd, tag, FARM9_TAG_LEN) < 0) {
-        if (debug) fprintf(stderr, "[CRYPT] Error: Failed to send tag\n");
-        return -1;
-    }
-
-    /* Send ciphertext */
-    if (send_exact(sockfd, ciphertext, ciphertext_len) < 0) {
-        if (debug) fprintf(stderr, "[CRYPT] Error: Failed to send ciphertext\n");
-        return -1;
+    if (udp_mode) {
+        /* UDP: send everything as a single datagram */
+        size_t total = sizeof(header) + FARM9_IV_LEN + FARM9_TAG_LEN + ciphertext_len;
+        unsigned char dgram[sizeof(struct farm9_header) + FARM9_IV_LEN + FARM9_TAG_LEN + FARM9_MAX_MSG];
+        size_t off = 0;
+        memcpy(dgram + off, &header, sizeof(header)); off += sizeof(header);
+        memcpy(dgram + off, iv, FARM9_IV_LEN); off += FARM9_IV_LEN;
+        memcpy(dgram + off, tag, FARM9_TAG_LEN); off += FARM9_TAG_LEN;
+        memcpy(dgram + off, ciphertext, ciphertext_len);
+        ssize_t n = send(sockfd, dgram, total, 0);
+        if (n < 0 || (size_t)n != total) {
+            if (debug) fprintf(stderr, "[CRYPT] Error: Failed to send UDP datagram\n");
+            return -1;
+        }
+    } else {
+        /* TCP: send header, IV, tag, ciphertext separately */
+        if (send_exact(sockfd, &header, sizeof(header)) < 0) return -1;
+        if (send_exact(sockfd, iv, FARM9_IV_LEN) < 0) return -1;
+        if (send_exact(sockfd, tag, FARM9_TAG_LEN) < 0) return -1;
+        if (send_exact(sockfd, ciphertext, ciphertext_len) < 0) return -1;
     }
 
     if (debug) {

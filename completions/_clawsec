@@ -5,6 +5,9 @@ _clawsec() {
         '-l[Listen mode for inbound connections]' \
         '-p[Local port number]:port:' \
         '-k[Encryption password (required)]:password:' \
+        '-u[UDP mode (default: TCP)]' \
+        '-4[Force IPv4 only]' \
+        '-6[Force IPv6 only]' \
         '-c[Chat mode with timestamps and colors]' \
         '-v[Verbose output]' \
         '-w[Connection timeout in seconds]:seconds:' \

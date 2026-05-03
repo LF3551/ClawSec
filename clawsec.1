@@ -1,9 +1,11 @@
-.TH CLAWSEC 1 "May 2026" "ClawSec 2.4.0" "User Commands"
+.TH CLAWSEC 1 "May 2026" "ClawSec 2.5.0" "User Commands"
 .SH NAME
 clawsec \- encrypted network tool with AES-256-GCM and Perfect Forward Secrecy
 .SH SYNOPSIS
 .B clawsec
 .RB [ \-l ]
+.RB [ \-u ]
+.RB [ \-4 | \-6 ]
 .RB [ \-p
 .IR port ]
 .B \-k
@@ -37,6 +39,16 @@ Listen mode. Wait for inbound connections.
 .TP
 .BI \-p " port"
 Local port number for listen mode.
+.TP
+.B \-u
+UDP mode. Use datagrams instead of TCP stream. ECDHE handshake
+is performed over UDP before encrypted communication begins.
+.TP
+.B \-4
+Force IPv4 only.
+.TP
+.B \-6
+Force IPv6 only.
 .TP
 .B \-c
 Chat mode. Display messages with timestamps and colored roles
@@ -75,6 +87,20 @@ Encrypted remote command execution:
 .nf
 Server: clawsec \-l \-p 8888 \-k "pass" \-e /bin/bash
 Client: clawsec \-k "pass" host 8888
+.fi
+.SS UDP Mode
+Encrypted UDP datagrams:
+.PP
+.nf
+Server: clawsec \-l \-u \-p 9000 \-k "pass"
+Client: echo "data" | clawsec \-u \-k "pass" host 9000
+.fi
+.SS IPv6
+Force IPv6 transport:
+.PP
+.nf
+Server: clawsec \-l \-6 \-p 8888 \-k "pass"
+Client: clawsec \-6 \-k "pass" ::1 8888
 .fi
 .SH SECURITY
 .SS Cryptography

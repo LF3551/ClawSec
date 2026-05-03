@@ -25,6 +25,9 @@ int farm9crypt_init_password_with_salt(const char* password, size_t pass_len,
 /*              0 = read peer pubkey from sockfd, generate keypair and write pubkey */
 int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pass_len, int server_mode);
 
+/* Set UDP datagram mode (must be called before read/write) */
+void farm9crypt_set_udp_mode(int enabled);
+
 /* Generate random salt for session handshake */
 int farm9crypt_generate_salt(unsigned char* salt_out, size_t len);
 

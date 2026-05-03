@@ -34,6 +34,8 @@
 
 static int g_verbose = 0;
 static int g_chat_mode = 0;
+static int g_udp_mode = 0;
+static int g_af_family = AF_UNSPEC; /* AF_INET, AF_INET6, or AF_UNSPEC */
 
 static void vlogf(int level, const char *fmt, va_list ap) {
     if (g_verbose < level) return;
@@ -113,8 +115,8 @@ static int connect_with_timeout(const char *host,
     int ret;
 
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family   = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family   = g_af_family;
+    hints.ai_socktype = g_udp_mode ? SOCK_DGRAM : SOCK_STREAM;
 
     ret = getaddrinfo(host, port, &hints, &res);
     if (ret != 0) fatal("getaddrinfo(%s,%s): %s", host, port, gai_strerror(ret));
@@ -126,7 +128,7 @@ static int connect_with_timeout(const char *host,
         int yes = 1;
         setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
-        if (timeout_sec > 0) {
+        if (!g_udp_mode && timeout_sec > 0) {
             int flags = fcntl(sock, F_GETFL, 0);
             if (flags < 0) flags = 0;
             fcntl(sock, F_SETFL, flags | O_NONBLOCK);
@@ -134,14 +136,14 @@ static int connect_with_timeout(const char *host,
 
         ret = connect(sock, rp->ai_addr, rp->ai_addrlen);
         if (ret == 0) {
-            if (timeout_sec > 0) {
+            if (!g_udp_mode && timeout_sec > 0) {
                 int flags = fcntl(sock, F_GETFL, 0);
                 fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
             }
             break;
         }
 
-        if (timeout_sec > 0 && errno == EINPROGRESS) {
+        if (!g_udp_mode && timeout_sec > 0 && errno == EINPROGRESS) {
             fd_set wfds;
             struct timeval tv;
             FD_ZERO(&wfds);
@@ -179,8 +181,8 @@ static int listen_on(const char *port) {
     int ret;
 
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family   = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family   = g_af_family;
+    hints.ai_socktype = g_udp_mode ? SOCK_DGRAM : SOCK_STREAM;
     hints.ai_flags    = AI_PASSIVE;
 
     ret = getaddrinfo(NULL, port, &hints, &res);
@@ -193,15 +195,23 @@ static int listen_on(const char *port) {
         int yes = 1;
         setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
+        /* For IPv6, allow dual-stack if AF_UNSPEC */
+        if (rp->ai_family == AF_INET6 && g_af_family == AF_UNSPEC) {
+            int no = 0;
+            setsockopt(listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, &no, sizeof(no));
+        }
+
         if (bind(listen_fd, rp->ai_addr, rp->ai_addrlen) < 0) {
             close(listen_fd);
             listen_fd = -1;
             continue;
         }
-        if (listen(listen_fd, 1) < 0) {
-            close(listen_fd);
-            listen_fd = -1;
-            continue;
+        if (!g_udp_mode) {
+            if (listen(listen_fd, 1) < 0) {
+                close(listen_fd);
+                listen_fd = -1;
+                continue;
+            }
         }
         break;
     }
@@ -226,6 +236,33 @@ static int accept_one(int listen_fd) {
         log_msg(1, "connect from %s:%s", host, serv);
     }
     return fd;
+}
+
+/* UDP "accept": wait for first datagram, connect() to sender, push data back */
+static int udp_accept(int udp_fd) {
+    struct sockaddr_storage ss;
+    socklen_t slen = sizeof(ss);
+    unsigned char peek_buf[64];
+
+    /* Peek at first datagram to learn peer address (data stays in kernel buffer) */
+    ssize_t n = recvfrom(udp_fd, peek_buf, sizeof(peek_buf), MSG_PEEK,
+                         (struct sockaddr *)&ss, &slen);
+    if (n < 0)
+        fatal("recvfrom failed");
+
+    /* Connect UDP socket to peer — subsequent send/recv go to this peer only */
+    if (connect(udp_fd, (struct sockaddr *)&ss, slen) < 0)
+        fatal("connect UDP to peer failed");
+
+    char host[128];
+    char serv[32];
+    if (getnameinfo((struct sockaddr *)&ss, slen,
+                    host, sizeof(host),
+                    serv, sizeof(serv),
+                    NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
+        log_msg(1, "UDP peer: %s:%s", host, serv);
+    }
+    return udp_fd;
 }
 
 static int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
@@ -388,8 +425,8 @@ static void run_encrypted_exec(int sockfd, const char *prog) {
 static void usage(const char *prog) {
     fprintf(stderr,
             "Usage:\n"
-            "  %s -k <password> [-c] [-v] [-w sec] host port\n"
-            "  %s -l -k <password> -p port [-c] [-v]", prog, prog);
+            "  %s -k <password> [-u] [-4|-6] [-c] [-v] [-w sec] host port\n"
+            "  %s -l -k <password> -p port [-u] [-4|-6] [-c] [-v]", prog, prog);
 #ifdef GAPING_SECURITY_HOLE
     fprintf(stderr, " [-e program]\n\n");
 #else
@@ -400,6 +437,9 @@ static void usage(const char *prog) {
             "  -k <password>  Encryption password (required)\n"
             "  -l             Listen mode (server)\n"
             "  -p <port>      Local port in listen mode\n"
+            "  -u             UDP mode (default: TCP)\n"
+            "  -4             Force IPv4 only\n"
+            "  -6             Force IPv6 only\n"
             "  -c             Chat mode (timestamps, roles)\n"
             "  -w <sec>       Connect timeout in seconds\n"
             "  -v             Verbose output\n");
@@ -420,9 +460,9 @@ int main(int argc, char **argv) {
     int opt;
 
 #ifdef GAPING_SECURITY_HOLE
-    const char *optstring = "hlck:p:w:ve:";
+    const char *optstring = "hlu46ck:p:w:ve:";
 #else
-    const char *optstring = "hlck:p:w:v";
+    const char *optstring = "hlu46ck:p:w:v";
 #endif
 
 
@@ -433,6 +473,15 @@ int main(int argc, char **argv) {
             return 0;
         case 'l':
             listen_mode = 1;
+            break;
+        case 'u':
+            g_udp_mode = 1;
+            break;
+        case '4':
+            g_af_family = AF_INET;
+            break;
+        case '6':
+            g_af_family = AF_INET6;
             break;
         case 'c':
             g_chat_mode = 1;
@@ -475,6 +524,9 @@ int main(int argc, char **argv) {
 
     ignore_sigpipe();
 
+    if (g_udp_mode)
+        farm9crypt_set_udp_mode(1);
+
     int sockfd = -1;
 
     if (listen_mode) {
@@ -484,12 +536,20 @@ int main(int argc, char **argv) {
         }
 
         int listen_fd = listen_on(bind_port);
-        log_msg(1, "listening on *:%s", bind_port);
-        sockfd = accept_one(listen_fd);
-        close(listen_fd);
+        log_msg(1, "listening on *:%s%s", bind_port, g_udp_mode ? " (UDP)" : "");
 
-        /* ECDHE handshake: X25519 key exchange + password authentication (PFS) */
-        if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), 1) != 0)
+        if (g_udp_mode) {
+            sockfd = udp_accept(listen_fd);
+        } else {
+            sockfd = accept_one(listen_fd);
+            close(listen_fd);
+        }
+
+        /* ECDHE handshake: X25519 key exchange + password authentication (PFS)
+         * For UDP: client sends pubkey first (so server learns peer address via recvfrom),
+         * hence server receives first (send_first=0) */
+        int send_first = g_udp_mode ? 0 : 1;
+        if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), send_first) != 0)
             fatal("ECDHE handshake failed");
         log_msg(1, "PFS session established (X25519 + PBKDF2)");
 
@@ -512,10 +572,12 @@ int main(int argc, char **argv) {
         const char *port = argv[optind + 1];
 
         sockfd = connect_with_timeout(host, port, timeout_sec);
-        log_msg(1, "connected to %s:%s", host, port);
+        log_msg(1, "connected to %s:%s%s", host, port, g_udp_mode ? " (UDP)" : "");
 
-        /* ECDHE handshake: X25519 key exchange + password authentication (PFS) */
-        if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), 0) != 0)
+        /* ECDHE handshake: X25519 key exchange + password authentication (PFS)
+         * For UDP: client sends pubkey first so server can learn our address */
+        int send_first = g_udp_mode ? 1 : 0;
+        if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), send_first) != 0)
             fatal("ECDHE handshake failed");
         log_msg(1, "PFS session established (X25519 + PBKDF2)");
 
