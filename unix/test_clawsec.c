@@ -38,16 +38,26 @@ extern void test_obfs_mode_set_http(void);
 extern void test_obfs_http_roundtrip(void);
 extern void test_obfs_http_multiple_messages(void);
 extern void test_obfs_http_large_payload(void);
+
+/* test_parse.c */
 extern void test_parse_forward_spec_ipv4(void);
 extern void test_parse_forward_spec_ipv6(void);
 extern void test_parse_forward_spec_hostname(void);
 extern void test_parse_forward_spec_invalid(void);
+
+/* test_zlib.c */
 extern void test_zlib_roundtrip(void);
 extern void test_zlib_binary_data(void);
+
+/* test_sha256.c */
 extern void test_sha256_known_vector(void);
 extern void test_sha256_incremental(void);
+
+/* test_chat.c */
 extern void test_fingerprint_deterministic(void);
 extern void test_ctrl_msg_build(void);
+
+/* test_util.c */
 extern void test_initialized_flag(void);
 extern void test_raw_key_init(void);
 extern void test_fingerprint_uninitialized(void);
