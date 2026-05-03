@@ -29,10 +29,17 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | Feature | ClawSec | Cryptcat | Ncat (--ssl) | socat (openssl) |
 |---------|---------|----------|--------------|---------------|
 | **Encryption** | AES-256-GCM | Twofish (deprecated) | TLS 1.3 | TLS 1.3 |
-| **Authentication** | AEAD + PBKDF2 | None | Certificate | Certificate |
+| **Key Exchange** | X25519 ECDHE | None | TLS handshake | TLS handshake |
+| **Perfect Forward Secrecy** | ✅ Yes | ❌ No | ✅ Yes | ✅ Yes |
+| **Authentication** | Password-bound ECDHE | None | Certificate | Certificate |
 | **Setup** | Single password | Hardcoded key | Certificate required | Certificate required |
-| **Lightweight** | ✅ 37KB | ✅ Small | ❌ Large | ❌ Large |
+| **Replay Protection** | ✅ Sequence counters | ❌ No | ✅ TLS | ✅ TLS |
+| **UDP Support** | ✅ `-u` flag | ❌ No | ✅ Yes | ✅ Yes |
+| **IPv6** | ✅ `-4`/`-6` flags | ❌ No | ✅ Yes | ✅ Yes |
+| **Lightweight** | ✅ ~50KB | ✅ Small | ❌ ~3MB (nmap) | ❌ ~400KB |
 | **Drop-in Netcat** | ✅ Yes | ✅ Yes | ⚠️ Partial | ❌ No |
+| **Shell Completions** | ✅ bash/zsh/fish | ❌ No | ❌ No | ❌ No |
+| **Zero Dependencies** | ✅ libssl only | ✅ | ❌ nmap suite | ❌ |
 
 Perfect for: Secure file transfers, reverse shells, encrypted tunnels without certificate management.
 
