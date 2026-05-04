@@ -1,0 +1,100 @@
+name: Publish to AUR
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  aur:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Get source tarball SHA256
+        id: sha
+        run: |
+          url="https://github.com/${{ github.repository }}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+          sha=$(curl -sL "$url" | sha256sum | cut -d' ' -f1)
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Generate PKGBUILD and .SRCINFO
+        run: |
+          mkdir -p /tmp/aur-push
+          
+          cat > /tmp/aur-push/PKGBUILD << 'PKGEOF'
+          # Maintainer: Aleksei Aleinikov <alexey.aleynikov@telekom.com>
+          pkgname=clawsec
+          pkgver=${{ steps.ver.outputs.version }}
+          pkgrel=1
+          pkgdesc="Encrypted netcat with SOCKS5, reverse tunnels, port scanning, and post-quantum crypto"
+          arch=('x86_64' 'aarch64')
+          url="https://github.com/LF3551/ClawSec"
+          license=('BSD')
+          depends=('openssl')
+          makedepends=('gcc' 'make')
+          source=("${pkgname}-${pkgver}.tar.gz::https://github.com/LF3551/ClawSec/archive/refs/tags/v${pkgver}.tar.gz")
+          sha256sums=('${{ steps.sha.outputs.sha256 }}')
+
+          build() {
+              cd "ClawSec-${pkgver}/src"
+              make -e clawsec \
+                  XFLAGS="" \
+                  XLIBS="-lssl -lcrypto -lstdc++ -lz"
+          }
+
+          package() {
+              cd "ClawSec-${pkgver}"
+              install -Dm755 src/clawsec "${pkgdir}/usr/bin/clawsec"
+              install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+              install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+          }
+          PKGEOF
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' /tmp/aur-push/PKGBUILD
+
+          VER="${{ steps.ver.outputs.version }}"
+          SHA="${{ steps.sha.outputs.sha256 }}"
+          cat > /tmp/aur-push/.SRCINFO << EOF
+          pkgbase = clawsec
+          	pkgdesc = Encrypted netcat with SOCKS5, reverse tunnels, port scanning, and post-quantum crypto
+          	pkgver = ${VER}
+          	pkgrel = 1
+          	url = https://github.com/LF3551/ClawSec
+          	arch = x86_64
+          	arch = aarch64
+          	license = BSD
+          	makedepends = gcc
+          	makedepends = make
+          	depends = openssl
+          	source = clawsec-${VER}.tar.gz::https://github.com/LF3551/ClawSec/archive/refs/tags/v${VER}.tar.gz
+          	sha256sums = ${SHA}
+
+          pkgname = clawsec
+          EOF
+          sed -i 's/^          //' /tmp/aur-push/.SRCINFO
+
+      - name: Push to AUR
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$AUR_SSH_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          echo "Host aur.archlinux.org" >> ~/.ssh/config
+          echo "  IdentityFile ~/.ssh/aur" >> ~/.ssh/config
+          echo "  User aur" >> ~/.ssh/config
+          ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone ssh://aur@aur.archlinux.org/clawsec.git /tmp/aur-repo
+          cp /tmp/aur-push/PKGBUILD /tmp/aur-push/.SRCINFO /tmp/aur-repo/
+          cd /tmp/aur-repo
+          git config user.name "Aleksei Aleinikov"
+          git config user.email "alexey.aleynikov@telekom.com"
+          git add PKGBUILD .SRCINFO
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Update to ${{ steps.ver.outputs.version }}"
+          git push
