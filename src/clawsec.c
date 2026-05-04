@@ -189,6 +189,7 @@ static void usage(const char *prog) {
             "  --pq              Post-quantum hybrid (X25519 + ML-KEM-768)\n"
             "  --scan <range>    Stealth port scan (SYN/connect, randomized order)\n"
             "                    range: 1-1024, 22-443, all (default: 1-1024)\n"
+            "  -b                Banner grab (show service version on open ports)\n"
             "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
             "  --jitter <ms>     Add random 0-N ms delay between packets (anti-timing)\n"
             "  -z                Compress data with zlib before encryption\n"
@@ -243,6 +244,7 @@ int main(int argc, char **argv) {
     int keep_open = 0;
     int timeout_sec = 0;
     int scan_mode = 0;
+    int banner_grab = 0;
 #ifdef GAPING_SECURITY_HOLE
     const char *exec_prog = NULL;
 #endif
@@ -263,15 +265,16 @@ int main(int argc, char **argv) {
     };
 
 #ifdef GAPING_SECURITY_HOLE
-    const char *optstring = "hlKu46ck:p:w:ve:L:zPVn:";
+    const char *optstring = "hblKu46ck:p:w:ve:L:zPVn:";
 #else
-    const char *optstring = "hlKu46ck:p:w:vL:zPVn:";
+    const char *optstring = "hblKu46ck:p:w:vL:zPVn:";
 #endif
 
     int opt;
     while ((opt = getopt_long(argc, argv, optstring, long_opts, NULL)) != -1) {
         switch (opt) {
         case 'h': usage(argv[0]); return 0;
+        case 'b': banner_grab = 1; break;
         case 'l': listen_mode = 1; break;
         case 'K': keep_open = 1; break;
         case 'u': g_udp_mode = 1; break;
@@ -377,7 +380,7 @@ int main(int argc, char **argv) {
             }
         }
         int scan_timeout = timeout_sec > 0 ? timeout_sec * 1000 : 1500;
-        int ret = portscan_run(scan_host, sp, ep, g_jitter, scan_timeout);
+        int ret = portscan_run(scan_host, sp, ep, g_jitter, scan_timeout, banner_grab);
         return (ret >= 0) ? 0 : 1;
     }
 

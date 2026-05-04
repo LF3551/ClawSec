@@ -44,6 +44,71 @@ static void jitter_delay(int jitter_ms) {
     }
 }
 
+/* Banner grabbing: connect to port, read initial response.
+ * For services that wait for client input (HTTP, etc.) — send a probe. */
+#define BANNER_BUF 256
+#define BANNER_TIMEOUT_MS 2000
+
+static void grab_banner(const char *host, int port, int af,
+                        struct sockaddr_storage *addr, socklen_t addrlen) {
+    int sock = socket(af, SOCK_STREAM, 0);
+    if (sock < 0) return;
+
+    struct sockaddr_storage sa;
+    memcpy(&sa, addr, addrlen);
+    if (af == AF_INET)
+        ((struct sockaddr_in *)&sa)->sin_port = htons(port);
+    else
+        ((struct sockaddr_in6 *)&sa)->sin6_port = htons(port);
+
+    /* Blocking connect with short timeout */
+    struct timeval tv = {BANNER_TIMEOUT_MS / 1000, (BANNER_TIMEOUT_MS % 1000) * 1000};
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    struct linger lg = {1, 0};
+    setsockopt(sock, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg));
+
+    if (connect(sock, (struct sockaddr *)&sa, addrlen) < 0) {
+        close(sock);
+        return;
+    }
+
+    char buf[BANNER_BUF];
+    ssize_t n = 0;
+
+    /* Try reading first — many services send banner immediately (SSH, FTP, SMTP, MySQL) */
+    n = recv(sock, buf, sizeof(buf) - 1, 0);
+
+    /* If nothing received, try HTTP probe */
+    if (n <= 0) {
+        const char *http_probe = "HEAD / HTTP/1.0\r\nHost: ";
+        send(sock, http_probe, strlen(http_probe), 0);
+        send(sock, host, strlen(host), 0);
+        send(sock, "\r\n\r\n", 4, 0);
+        n = recv(sock, buf, sizeof(buf) - 1, 0);
+    }
+
+    close(sock);
+
+    if (n > 0) {
+        buf[n] = '\0';
+        /* Sanitize: replace control chars with dots, truncate at first newline */
+        for (int i = 0; i < n; i++) {
+            if (buf[i] == '\r' || buf[i] == '\n') {
+                buf[i] = '\0';
+                break;
+            }
+            if ((unsigned char)buf[i] < 0x20 && buf[i] != '\t')
+                buf[i] = '.';
+        }
+        if (buf[0] != '\0')
+            printf("         └─ %s\n", buf);
+    }
+
+    (void)host;
+}
+
 /*
  * SYN scan using raw socket (requires root/CAP_NET_RAW).
  * Returns 1 if raw socket available, 0 if not (fallback needed).
@@ -166,7 +231,8 @@ static int try_syn_scan(const char *host, int *ports, int nports,
 #define BATCH_SIZE 128
 
 static void connect_scan(const char *host, int *ports, int nports,
-                         int jitter_ms, int timeout_ms, int *open_count) {
+                         int jitter_ms, int timeout_ms, int *open_count,
+                         int banner_grab) {
     *open_count = 0;
 
     /* Raise fd limit for parallel sockets */
@@ -231,6 +297,8 @@ static void connect_scan(const char *host, int *ports, int nports,
                 (*open_count)++;
                 close(sock);
                 pfds[i].fd = -1;
+                if (banner_grab)
+                    grab_banner(host, port, af, &addr, addrlen);
             } else if (errno == EINPROGRESS) {
                 pfds[i].fd = sock;
                 pfds[i].events = POLLOUT;
@@ -261,6 +329,8 @@ static void connect_scan(const char *host, int *ports, int nports,
                         if (err == 0) {
                             printf("  %5d/tcp  open\n", batch_ports[i]);
                             (*open_count)++;
+                            if (banner_grab)
+                                grab_banner(host, batch_ports[i], af, &addr, addrlen);
                         }
                         close(pfds[i].fd);
                         pfds[i].fd = -1;
@@ -291,7 +361,7 @@ static void connect_scan(const char *host, int *ports, int nports,
 }
 
 int portscan_run(const char *host, int start_port, int end_port,
-                 int jitter_ms, int timeout_ms) {
+                 int jitter_ms, int timeout_ms, int banner_grab) {
     if (start_port < SCAN_PORT_MIN) start_port = SCAN_PORT_MIN;
     if (end_port > SCAN_PORT_MAX) end_port = SCAN_PORT_MAX;
     if (start_port > end_port) return 0;
@@ -317,13 +387,15 @@ int portscan_run(const char *host, int start_port, int end_port,
 
     int open_count = 0;
 
-    /* Try SYN scan first (stealth, needs root) */
-    int syn_ok = try_syn_scan(host, ports, nports, jitter_ms, timeout_ms, &open_count);
+    /* Try SYN scan first (stealth, needs root) — no banner grab with SYN */
+    int syn_ok = 0;
+    if (!banner_grab)
+        syn_ok = try_syn_scan(host, ports, nports, jitter_ms, timeout_ms, &open_count);
 
     if (!syn_ok) {
         if (g_verbose)
             log_msg(1, "SYN scan unavailable (need root), using stealth connect scan");
-        connect_scan(host, ports, nports, jitter_ms, timeout_ms, &open_count);
+        connect_scan(host, ports, nports, jitter_ms, timeout_ms, &open_count, banner_grab);
     } else {
         if (g_verbose)
             log_msg(1, "SYN scan (raw socket) — server will not log connections");

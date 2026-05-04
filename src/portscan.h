@@ -31,6 +31,6 @@ typedef struct {
  * Returns number of open ports found, prints results to stdout.
  */
 int portscan_run(const char *host, int start_port, int end_port,
-                 int jitter_ms, int timeout_ms);
+                 int jitter_ms, int timeout_ms, int banner_grab);
 
 #endif
