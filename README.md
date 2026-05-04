@@ -41,6 +41,8 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | **Shell Completions** | ✅ bash/zsh/fish | ❌ No | ❌ No | ❌ No |
 | **Keep-Open** | ✅ `-K` multi-client | ❌ No | ✅ Yes | ✅ Yes |
 | **Port Forwarding** | ✅ `-L` (no SSH) | ❌ No | ❌ No | ✅ Yes |
+| **Reverse Tunnel** | ✅ `-R` (SSH-like reverse forward) | ❌ No | ❌ No | ✅ Yes |
+| **Auto-Reconnect** | ✅ `--persistent` (exponential backoff) | ❌ No | ❌ No | ❌ No |
 | **Traffic Obfuscation** | ✅ `--obfs http/tls` | ❌ No | ❌ No | ❌ No |
 | **TLS Camouflage** | ✅ `--obfs tls` (TLS 1.3) | ❌ No | ❌ No | ❌ No |
 | **TLS Fingerprinting** | ✅ `--fingerprint` (Chrome/FF/Safari) | ❌ No | ❌ No | ❌ No |
@@ -419,8 +421,36 @@ curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 ./clawsec -k "pass" --send secret.pdf --pq --obfs tls server.com 4444
 ```
 
+### Reverse Tunnel (-R)
+```bash
+# Expose internal service (e.g. web app on :3000) to remote server
+# Server: listen on 9999, open public port 8080 for reverse
+./clawsec -l -k "strongpass" -p 9999 -R 0.0.0.0:8080 -v
 
-## Security Guidelines
+# Client (behind NAT/firewall): connect and forward to local :3000
+./clawsec -k "strongpass" -R 127.0.0.1:3000 -v server.com 9999
+
+# Now anyone can access server.com:8080 → tunneled to client's localhost:3000
+# Works like SSH -R but with AES-256-GCM encryption, no certificates needed
+
+# Combine with stealth features for covert channel:
+./clawsec -k "pass" -R 127.0.0.1:22 --pq --obfs tls --persistent server.com 443
+```
+
+### Persistent Auto-Reconnect
+```bash
+# Client auto-reconnects on disconnect (exponential backoff 1s→60s)
+./clawsec -k "pass" --persistent -R 127.0.0.1:22 server.com 9999
+
+# Keeps tunnel alive through network interruptions
+# Works with any mode: -L, -R, --socks, chat, etc.
+./clawsec -k "pass" --persistent --socks 1080 server.com 443
+
+# Ideal for:
+# - Unstable networks (mobile, satellite)
+# - Long-running tunnels that must survive reboots
+# - Pentest implant persistence (with --obfs tls --pq)
+```
 
 ### Password Requirements
 

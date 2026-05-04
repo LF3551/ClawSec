@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <errno.h>
+#include <time.h>
 
 #include "farm9crypt.h"
 #include "util.h"
@@ -25,6 +26,8 @@
 #include "portscan.h"
 #include "socks5.h"
 #include "filetx.h"
+#include "reverse.h"
+#include "persistent.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -39,6 +42,8 @@ static int g_socks = 0;
 static const char *s_socks_port = NULL;
 static const char *s_send_file = NULL;
 static const char *s_recv_dir = NULL;
+static const char *s_reverse_spec = NULL;  /* -R host:port (reverse tunnel) */
+static int g_persistent = 0;               /* --persistent auto-reconnect */
 
 static void sigchld_handler(int sig) {
     (void)sig;
@@ -60,6 +65,10 @@ static void install_sigchld(void) {
     sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
     sigaction(SIGCHLD, &sa, NULL);
 }
+
+/* Forward declaration */
+static int parse_host_port(const char *spec, char *host, size_t hlen,
+                           char *port, size_t plen);
 
 /* Handle one client connection (used by keep-open and normal mode) */
 static void handle_client(int sockfd, const char *password, int is_server,
@@ -158,6 +167,28 @@ static void handle_client(int sockfd, const char *password, int is_server,
         return;
     }
 
+    /* Reverse tunnel mode (-R) */
+    if (s_reverse_spec) {
+        if (is_server) {
+            /* Server: listen on reverse port, relay through tunnel */
+            char rev_host[256], rev_port[32];
+            if (parse_host_port(s_reverse_spec, rev_host, sizeof(rev_host),
+                                rev_port, sizeof(rev_port)) == 0) {
+                reverse_server(sockfd, rev_port);
+            }
+        } else {
+            /* Client: wait for ROPEN, connect to local target, relay back */
+            char rev_host[256], rev_port[32];
+            if (parse_host_port(s_reverse_spec, rev_host, sizeof(rev_host),
+                                rev_port, sizeof(rev_port)) == 0) {
+                reverse_client(sockfd, rev_host, rev_port);
+            }
+        }
+        close(sockfd);
+        farm9crypt_cleanup();
+        return;
+    }
+
     /* Mux mode: multiplex streams over single tunnel */
     if (g_mux) {
         if (is_server && fwd_host && fwd_port) {
@@ -213,6 +244,8 @@ static void usage(const char *prog) {
             "  -p <port>         Local port in listen mode\n"
             "  -K                Keep-open: accept multiple clients (fork per client)\n"
             "  -L <host:port>    Port forwarding: forward decrypted traffic to host:port\n"
+            "  -R <host:port>    Reverse tunnel: server listens, client connects to target\n"
+            "  --persistent      Auto-reconnect with exponential backoff (client mode)\n"
             "  --obfs http       Obfuscate traffic as HTTP requests (anti-DPI)\n"
             "  --obfs tls        Wrap connection in real TLS 1.3 (stealth mode)\n"            "  --ech              Encrypted Client Hello (hide SNI from DPI)\n"
             "  --mux              Multiplex streams over one tunnel (with -L)\n"            "  --fallback <h:p>  Proxy non-ClawSec probes to real site (REALITY-like)\n"
@@ -297,15 +330,16 @@ int main(int argc, char **argv) {
         {"scan",        required_argument, NULL, 'S'},
         {"socks",       required_argument, NULL, 'X'},
         {"send",        required_argument, NULL, 'W'},
-        {"recv",        required_argument, NULL, 'R'},
+        {"recv",        required_argument, NULL, 'Y'},
+        {"persistent",  no_argument,       NULL, 'Z'},
         {"help",        no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
 
 #ifdef GAPING_SECURITY_HOLE
-    const char *optstring = "hblKu46ck:p:w:ve:L:zPVn:";
+    const char *optstring = "hblKu46ck:p:w:ve:L:R:zPVn:";
 #else
-    const char *optstring = "hblKu46ck:p:w:vL:zPVn:";
+    const char *optstring = "hblKu46ck:p:w:vL:R:zPVn:";
 #endif
 
     int opt;
@@ -322,6 +356,7 @@ int main(int argc, char **argv) {
         case 'k': password = optarg; break;
         case 'p': bind_port = optarg; break;
         case 'L': fwd_spec = optarg; break;
+        case 'R': s_reverse_spec = optarg; break;
         case 'O':
             if (strcmp(optarg, "http") == 0) {
                 obfs_set_mode(OBFS_HTTP);
@@ -398,8 +433,11 @@ int main(int argc, char **argv) {
         case 'W':
             s_send_file = optarg;
             break;
-        case 'R':
+        case 'Y':
             s_recv_dir = optarg;
+            break;
+        case 'Z':
+            g_persistent = 1;
             break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;
@@ -564,14 +602,42 @@ int main(int argc, char **argv) {
         const char *host = argv[optind];
         const char *port = argv[optind + 1];
 
-        int sockfd = net_connect(host, port, timeout_sec);
-        log_msg(1, "connected to %s:%s%s", host, port, g_udp_mode ? " (UDP)" : "");
+        if (g_persistent) {
+            /* Auto-reconnect loop with exponential backoff */
+            int attempt = 0;
+            srand(time(NULL));
+            log_msg(1, "persistent mode: will auto-reconnect on disconnect");
+            for (;;) {
+                int sockfd = net_try_connect(host, port, timeout_sec > 0 ? timeout_sec : 10);
+                if (sockfd < 0) {
+                    int delay = persist_next_delay(attempt++);
+                    fprintf(stderr, "persistent: connection failed, retrying in %ds...\n", delay);
+                    sleep(delay);
+                    continue;
+                }
+                log_msg(1, "connected to %s:%s", host, port);
+                attempt = 0; /* reset on successful connect */
 
-        int send_first = g_udp_mode ? 1 : 0;
-        handle_client(sockfd, password, 0, send_first, NULL,
-                      fwd_spec ? fwd_host : NULL,
-                      fwd_spec ? fwd_port : NULL,
-                      host, port);
+                int send_first = g_udp_mode ? 1 : 0;
+                handle_client(sockfd, password, 0, send_first, NULL,
+                              fwd_spec ? fwd_host : NULL,
+                              fwd_spec ? fwd_port : NULL,
+                              host, port);
+
+                int delay = persist_next_delay(attempt++);
+                fprintf(stderr, "persistent: disconnected, reconnecting in %ds...\n", delay);
+                sleep(delay);
+            }
+        } else {
+            int sockfd = net_connect(host, port, timeout_sec);
+            log_msg(1, "connected to %s:%s%s", host, port, g_udp_mode ? " (UDP)" : "");
+
+            int send_first = g_udp_mode ? 1 : 0;
+            handle_client(sockfd, password, 0, send_first, NULL,
+                          fwd_spec ? fwd_host : NULL,
+                          fwd_spec ? fwd_port : NULL,
+                          host, port);
+        }
     }
 
     return 0;

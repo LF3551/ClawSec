@@ -147,6 +147,13 @@ extern void test_filetx_recv_bad_header(void);
 extern void test_filetx_filename_sanitize(void);
 extern void test_filetx_resume_offset(void);
 
+/* test_reverse.c */
+extern void test_persist_backoff_initial(void);
+extern void test_persist_backoff_exponential(void);
+extern void test_persist_backoff_max(void);
+extern void test_persist_heartbeat_detect(void);
+extern void test_reverse_signal_format(void);
+
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
 
@@ -276,6 +283,13 @@ int main(void) {
     test_filetx_recv_bad_header();
     test_filetx_filename_sanitize();
     test_filetx_resume_offset();
+
+    /* Reverse tunnel + persistent tests */
+    test_persist_backoff_initial();
+    test_persist_backoff_exponential();
+    test_persist_backoff_max();
+    test_persist_heartbeat_detect();
+    test_reverse_signal_format();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
