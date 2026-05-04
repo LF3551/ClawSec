@@ -126,6 +126,20 @@ extern void test_argon2_different_salts(void);
 extern void test_argon2_rejects_bad_input(void);
 extern void test_argon2_roundtrip_encrypt(void);
 
+/* test_portscan.c */
+extern void test_portscan_finds_open_port(void);
+extern void test_portscan_closed_port(void);
+extern void test_portscan_range_validation(void);
+extern void test_portscan_banner_grab(void);
+extern void test_portscan_multiple_ports(void);
+
+/* test_socks5.c */
+extern void test_socks5_wire_format(void);
+extern void test_socks5_wire_format_ipv4(void);
+extern void test_socks5_wire_format_long_host(void);
+extern void test_socks5_server_clean_exit(void);
+extern void test_socks5_client_binds(void);
+
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
 
@@ -234,6 +248,20 @@ int main(void) {
     test_argon2_different_salts();
     test_argon2_rejects_bad_input();
     test_argon2_roundtrip_encrypt();
+
+    /* Port scanner tests */
+    test_portscan_finds_open_port();
+    test_portscan_closed_port();
+    test_portscan_range_validation();
+    test_portscan_banner_grab();
+    test_portscan_multiple_ports();
+
+    /* SOCKS5 proxy tests */
+    test_socks5_wire_format();
+    test_socks5_wire_format_ipv4();
+    test_socks5_wire_format_long_host();
+    test_socks5_server_clean_exit();
+    test_socks5_client_binds();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

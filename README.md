@@ -51,6 +51,8 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | **Stream Multiplexing** | ✅ `--mux` (64 streams) | ❌ No | ❌ No | ❌ No |
 | **Anti-Traffic-Analysis** | ✅ `--pad` + `--jitter` | ❌ No | ❌ No | ❌ No |
 | **Stealth Port Scan** | ✅ `--scan` (SYN/connect, randomized) | ❌ No | ✅ nmap | ❌ No |
+| **Banner Grabbing** | ✅ `-b` (service version detection) | ❌ No | ✅ nmap | ❌ No |
+| **SOCKS5 Proxy** | ✅ `--socks` (encrypted tunnel) | ❌ No | ❌ No | ❌ No |
 | **Compression** | ✅ `-z` zlib | ❌ No | ❌ No | ❌ No |
 | **Progress Bar** | ✅ `-P` built-in | ❌ No | ❌ No | ❌ No |
 | **File Verification** | ✅ `-V` SHA-256 | ❌ No | ❌ No | ❌ No |
@@ -82,6 +84,8 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 | Packet Padding | `--pad` | All packets become uniform 1400 bytes |
 | Timing Jitter | `--jitter N` | Random 0-N ms delay defeats timing correlation |
 | Stealth Port Scan | `--scan range` | Parallel SYN/connect scan with randomized order and jitter |
+| Banner Grabbing | `-b` | Detect service versions on open ports (SSH, HTTP, etc.) |
+| SOCKS5 Proxy | `--socks port` | Route any app through encrypted tunnel (curl, browser, etc.) |
 
 ## Quick Start
 
@@ -267,6 +271,8 @@ Options:
   --pq              Post-quantum hybrid (X25519 + ML-KEM-768)
   --fingerprint p   Mimic browser TLS (chrome, firefox, safari)
   --scan range      Stealth port scan (1-1024, 22-443, all)
+  -b                Banner grab (show service version on open ports)
+  --socks port      SOCKS5 proxy through encrypted tunnel
   --pad             Pad packets to uniform 1400 bytes
   --jitter ms       Random delay 0-N ms between packets
   -w secs           Timeout for connects
@@ -360,6 +366,38 @@ tar -czf - /data | ./clawsec -k "pass" server 9999
 
 # Verbose — shows scan method
 ./clawsec --scan 22-443 -v target.com
+```
+
+### Banner Grabbing
+```bash
+# Scan with service version detection
+./clawsec --scan 1-1024 -b target.com
+
+# Example output:
+#    22/tcp  open
+#        └─ SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6
+#    80/tcp  open
+#        └─ HTTP/1.1 200 OK
+#   443/tcp  open
+#        └─ (TLS — no plaintext banner)
+```
+
+### SOCKS5 Proxy (Encrypted Tunnel)
+```bash
+# Server: accept connections and proxy outbound
+./clawsec -l -k "strongpass" -p 9999 --socks 0
+
+# Client: open local SOCKS5 proxy on port 1080
+./clawsec -k "strongpass" --socks 1080 server.com 9999
+
+# Now use any SOCKS5-aware application:
+curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
+# Firefox: Settings → Network → SOCKS5 → 127.0.0.1:1080
+# ssh: ssh -o ProxyCommand='nc -x 127.0.0.1:1080 %h %p' user@target
+
+# Combine with other features:
+./clawsec -k "pass" --socks 1080 --pq --tofu --obfs tls server.com 9999
+```
 
 
 ## Security Guidelines
@@ -506,7 +544,9 @@ make clean && make linux
 
 ## Changelog
 
-### Version 2.6.0 (May 2026) - Post-Quantum + Argon2id + Port Scan
+### Version 2.6.0 (May 2026) - Post-Quantum + Argon2id + Port Scan + SOCKS5
+- **SOCKS5 Proxy**: `--socks port` — route any app through encrypted tunnel (curl, browsers, SSH)
+- **Banner Grabbing**: `-b` — service version detection on open ports (SSH, HTTP, etc.)
 - **Argon2id KDF**: Memory-hard key derivation replaces PBKDF2 (with PBKDF2 fallback for OpenSSL < 3.2)
 - **Stealth Port Scan**: `--scan range` — parallel non-blocking scan with SYN (root) or connect (user) mode
   - Randomized port order defeats sequential scan detection
