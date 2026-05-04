@@ -153,6 +153,9 @@ extern void test_persist_backoff_exponential(void);
 extern void test_persist_backoff_max(void);
 extern void test_persist_heartbeat_detect(void);
 extern void test_reverse_signal_format(void);
+extern void test_persist_backoff_jitter(void);
+extern void test_persist_heartbeat_ignores_data(void);
+extern void test_reverse_signals_distinct(void);
 
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
@@ -290,6 +293,9 @@ int main(void) {
     test_persist_backoff_max();
     test_persist_heartbeat_detect();
     test_reverse_signal_format();
+    test_persist_backoff_jitter();
+    test_persist_heartbeat_ignores_data();
+    test_reverse_signals_distinct();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

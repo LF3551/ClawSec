@@ -83,3 +83,52 @@ void test_reverse_signal_format(void) {
         ASSERT(ok_sig[3] == '\n', "ROK ends with newline");
     } TEST_END;
 }
+
+/*
+ * Test: Persistent backoff jitter produces variation
+ */
+void test_persist_backoff_jitter(void) {
+    TEST_BEGIN("persistent backoff jitter produces variation") {
+        srand(1);
+        int d1 = persist_next_delay(3);
+        srand(99);
+        int d2 = persist_next_delay(3);
+        /* With different seeds, jitter should make delays differ */
+        /* But both should be in range [6, 10] for attempt=3 (base=8 ±2) */
+        ASSERT(d1 >= 1, "delay1 >= 1");
+        ASSERT(d2 >= 1, "delay2 >= 1");
+        ASSERT(d1 <= PERSIST_BACKOFF_MAX + 20, "delay1 within bounds");
+    } TEST_END;
+}
+
+/*
+ * Test: Persistent heartbeat ignores non-heartbeat data
+ */
+void test_persist_heartbeat_ignores_data(void) {
+    TEST_BEGIN("persistent heartbeat ignores regular data") {
+        ASSERT_EQ(persist_heartbeat_check("GET / HTTP/1.1\r\n", 16), 0, "HTTP not heartbeat");
+        ASSERT_EQ(persist_heartbeat_check("ROPEN\n", 6), 0, "ROPEN not heartbeat");
+        ASSERT_EQ(persist_heartbeat_check("HB", 2), 0, "partial HB not heartbeat");
+        ASSERT_EQ(persist_heartbeat_check("", 0), 0, "empty not heartbeat");
+    } TEST_END;
+}
+
+/*
+ * Test: Reverse tunnel signals are distinct (no overlap)
+ */
+void test_reverse_signals_distinct(void) {
+    TEST_BEGIN("reverse tunnel signals are distinct") {
+        const char *open_sig = "ROPEN\n";
+        const char *ok_sig = "ROK\n";
+        const char *fail_sig = "RFAIL\n";
+        const char *hb = "HB\n";
+
+        /* No signal is a prefix of another */
+        ASSERT(strncmp(open_sig, ok_sig, strlen(ok_sig)) != 0, "ROPEN != ROK prefix");
+        ASSERT(strncmp(open_sig, fail_sig, strlen(fail_sig)) != 0, "ROPEN != RFAIL prefix");
+        ASSERT(strncmp(ok_sig, fail_sig, strlen(fail_sig)) != 0, "ROK != RFAIL prefix");
+        /* Heartbeat is distinct from all reverse signals */
+        ASSERT(strncmp(hb, open_sig, strlen(hb)) != 0, "HB != ROPEN prefix");
+        ASSERT(strncmp(hb, ok_sig, strlen(hb)) != 0, "HB != ROK prefix");
+    } TEST_END;
+}

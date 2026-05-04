@@ -2,6 +2,33 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [2.6.0] - 2026-05-04
+
+### Added — Offensive / Pentest Tools
+- `--scan <range>` — Stealth port scanner with randomized order, configurable
+  timeout, and connect-based scanning. Range syntax: `1-1024`, `80`, `all`.
+- `-b` — Banner grabbing: detect service versions on open ports during scan.
+- `--socks <port>` — Full SOCKS5 proxy through encrypted tunnel. Client opens
+  local SOCKS5 listener, server proxies outbound connections.
+- `--send <file>` / `--recv <dir>` — Dedicated encrypted file transfer with:
+  SHA-256 end-to-end verification, automatic resume on interrupted transfers,
+  progress bar, path traversal protection (CWE-22).
+- `-R <host:port>` — Reverse tunnel (like SSH `-R`): server listens on extra port,
+  incoming connections are forwarded through encrypted tunnel to client's local
+  target. Works behind NAT/firewalls.
+- `--persistent` — Auto-reconnect with heartbeat + exponential backoff (1s→60s
+  with ±25% jitter). Turns one-shot tunnel into persistent stable channel.
+  Works with any mode: `-L`, `-R`, `--socks`, chat.
+
+### Changed
+- Password warning threshold: warn if < 8 characters
+- `--recv` changed from optional to required argument (fixes getopt quirk)
+- Test suite expanded: 65 → 92 tests
+
+### Security
+- File transfer receiver sanitizes filenames (strips `/`, `\`, leading `.`)
+- Reverse tunnel uses authenticated signals through encrypted channel only
+
 ## [2.5.0] - 2026-05-03
 
 ### Added — Stealth Mode (Anti-DPI / Anti-Fingerprint)
