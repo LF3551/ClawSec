@@ -22,6 +22,7 @@
 #include "fingerprint.h"
 #include "tofu.h"
 #include "pqkem.h"
+#include "portscan.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -186,6 +187,8 @@ static void usage(const char *prog) {
             "  --fingerprint <p> Mimic browser TLS (chrome, firefox, safari)\n"
             "  --tofu            Trust On First Use (SSH-like server identity)\n"
             "  --pq              Post-quantum hybrid (X25519 + ML-KEM-768)\n"
+            "  --scan <range>    Stealth port scan (SYN/connect, randomized order)\n"
+            "                    range: 1-1024, 22-443, all (default: 1-1024)\n"
             "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
             "  --jitter <ms>     Add random 0-N ms delay between packets (anti-timing)\n"
             "  -z                Compress data with zlib before encryption\n"
@@ -235,9 +238,11 @@ int main(int argc, char **argv) {
     const char *password = NULL;
     const char *bind_port = NULL;
     const char *fwd_spec = NULL;
+    const char *scan_range = NULL;
     int listen_mode = 0;
     int keep_open = 0;
     int timeout_sec = 0;
+    int scan_mode = 0;
 #ifdef GAPING_SECURITY_HOLE
     const char *exec_prog = NULL;
 #endif
@@ -252,6 +257,7 @@ int main(int argc, char **argv) {
         {"fingerprint", required_argument, NULL, 'T'},
         {"tofu",        no_argument,       NULL, 'U'},
         {"pq",          no_argument,       NULL, 'Q'},
+        {"scan",        required_argument, NULL, 'S'},
         {"help",        no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -340,11 +346,39 @@ int main(int argc, char **argv) {
         case 'Q':
             g_pq = 1;
             break;
+        case 'S':
+            scan_mode = 1;
+            scan_range = optarg;
+            break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;
 #endif
         default: usage(argv[0]); return 1;
         }
+    }
+
+    /* Port scan mode — doesn't need password */
+    if (scan_mode) {
+        if (optind >= argc) {
+            fprintf(stderr, "ERROR: --scan requires target host\n");
+            fprintf(stderr, "Usage: %s --scan <range> [--jitter N] [-v] host\n", argv[0]);
+            fprintf(stderr, "  range: 1-1024, 80, 22-443 (default: 1-1024)\n");
+            return 1;
+        }
+        const char *scan_host = argv[optind];
+        int sp = 1, ep = 1024;
+        if (scan_range && strcmp(scan_range, "all") == 0) {
+            sp = 1; ep = 65535;
+        } else if (scan_range) {
+            if (strchr(scan_range, '-')) {
+                sscanf(scan_range, "%d-%d", &sp, &ep);
+            } else {
+                sp = ep = atoi(scan_range);
+            }
+        }
+        int scan_timeout = timeout_sec > 0 ? timeout_sec * 1000 : 1500;
+        int ret = portscan_run(scan_host, sp, ep, g_jitter, scan_timeout);
+        return (ret >= 0) ? 0 : 1;
     }
 
     if (!password || *password == '\0') {

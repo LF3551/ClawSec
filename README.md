@@ -50,6 +50,7 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | **Active Probing Resistance** | ✅ `--fallback` (REALITY-like) | ❌ No | ❌ No | ❌ No |
 | **Stream Multiplexing** | ✅ `--mux` (64 streams) | ❌ No | ❌ No | ❌ No |
 | **Anti-Traffic-Analysis** | ✅ `--pad` + `--jitter` | ❌ No | ❌ No | ❌ No |
+| **Stealth Port Scan** | ✅ `--scan` (SYN/connect, randomized) | ❌ No | ✅ nmap | ❌ No |
 | **Compression** | ✅ `-z` zlib | ❌ No | ❌ No | ❌ No |
 | **Progress Bar** | ✅ `-P` built-in | ❌ No | ❌ No | ❌ No |
 | **File Verification** | ✅ `-V` SHA-256 | ❌ No | ❌ No | ❌ No |
@@ -80,6 +81,7 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 | Active Probing Resistance | `--fallback host:port` | DPI probes see a real website; only ClawSec gets the tunnel |
 | Packet Padding | `--pad` | All packets become uniform 1400 bytes |
 | Timing Jitter | `--jitter N` | Random 0-N ms delay defeats timing correlation |
+| Stealth Port Scan | `--scan range` | Parallel SYN/connect scan with randomized order and jitter |
 
 ## Quick Start
 
@@ -264,6 +266,7 @@ Options:
   --tofu            Trust On First Use (SSH-like server identity)
   --pq              Post-quantum hybrid (X25519 + ML-KEM-768)
   --fingerprint p   Mimic browser TLS (chrome, firefox, safari)
+  --scan range      Stealth port scan (1-1024, 22-443, all)
   --pad             Pad packets to uniform 1400 bytes
   --jitter ms       Random delay 0-N ms between packets
   -w secs           Timeout for connects
@@ -338,6 +341,25 @@ tar -czf - /data | ./clawsec -k "pass" server 9999
 
 # Verbose debug mode
 ./clawsec -vv -l -p 8080 -k "debug"
+```
+
+### Stealth Port Scan
+```bash
+# Scan common ports (1-1024)
+./clawsec --scan 1-1024 target.com
+
+# Scan ALL ports (65535) — takes ~2 seconds on localhost, ~60s remote
+./clawsec --scan all target.com
+
+# Custom range with jitter (anti-IDS)
+./clawsec --scan 1-65535 --jitter 50 target.com
+
+# Force IPv4/IPv6
+./clawsec --scan 1-1024 -4 target.com
+./clawsec --scan 1-1024 -6 target.com
+
+# Verbose — shows scan method
+./clawsec --scan 22-443 -v target.com
 
 
 ## Security Guidelines
@@ -483,6 +505,17 @@ make clean && make linux
 ```
 
 ## Changelog
+
+### Version 2.6.0 (May 2026) - Post-Quantum + Argon2id + Port Scan
+- **Argon2id KDF**: Memory-hard key derivation replaces PBKDF2 (with PBKDF2 fallback for OpenSSL < 3.2)
+- **Stealth Port Scan**: `--scan range` — parallel non-blocking scan with SYN (root) or connect (user) mode
+  - Randomized port order defeats sequential scan detection
+  - Jitter support (`--jitter`) for anti-rate-limit evasion
+  - SO_LINGER=0 sends immediate RST — server apps don't log
+  - Full 65535-port scan in ~2 seconds (localhost) or ~60s (remote)
+- **ECDHE Decomposition**: Extracted into ecdhe.cc/h for maintainability
+- **TOCTOU Fix**: Race condition in file transfer (CWE-367)
+- **Test Suite**: 72 tests (up from 65), with skip support for OpenSSL < 3.2/3.5
 
 ### Version 2.5.0 (May 2026) - Stealth Mode & PFS
 - **TOFU (Trust On First Use)**: `--tofu` SSH-like server identity with Ed25519 + known_hosts

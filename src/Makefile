@@ -34,8 +34,8 @@ bogus:
 
 ### HARD TARGETS
 
-clawsec:	clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o ecdhe.o argon2kdf.o farm9crypt.o aesgcm.o
-	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o ecdhe.o argon2kdf.o farm9crypt.o aesgcm.o $(XLIBS)
+clawsec:	clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o ecdhe.o argon2kdf.o portscan.o farm9crypt.o aesgcm.o
+	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o ecdhe.o argon2kdf.o portscan.o farm9crypt.o aesgcm.o $(XLIBS)
 
 
 nc-dos:
@@ -133,6 +133,9 @@ ecdhe.o: ecdhe.cc ecdhe.h obfs.h tofu.h pqkem.h argon2kdf.h
 
 argon2kdf.o: argon2kdf.c argon2kdf.h
 		${CC} $(DFLAGS) $(XFLAGS) -c argon2kdf.c
+
+portscan.o: portscan.c portscan.h net.h util.h
+		${CC} $(DFLAGS) $(XFLAGS) -c portscan.c
 
 farm9crypt.o: farm9crypt.cc farm9crypt.h ecdhe.h argon2kdf.h
 		${CC} $(XFLAGS) -c farm9crypt.cc
