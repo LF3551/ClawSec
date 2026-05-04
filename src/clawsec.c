@@ -23,6 +23,7 @@
 #include "tofu.h"
 #include "pqkem.h"
 #include "portscan.h"
+#include "socks5.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -33,6 +34,8 @@ int g_pq = 0;    /* --pq: post-quantum hybrid */
 
 static volatile sig_atomic_t g_child_exited = 0;
 static const char *s_mux_port = NULL;
+static int g_socks = 0;
+static const char *s_socks_port = NULL;
 
 static void sigchld_handler(int sig) {
     (void)sig;
@@ -126,6 +129,18 @@ static void handle_client(int sockfd, const char *password, int is_server,
         log_msg(1, "PFS session established (X25519 + PBKDF2)");
     }
 
+    /* SOCKS5 proxy mode */
+    if (g_socks) {
+        if (is_server) {
+            socks5_server(sockfd);
+        } else {
+            socks5_client(sockfd, s_socks_port);
+        }
+        close(sockfd);
+        farm9crypt_cleanup();
+        return;
+    }
+
     /* Mux mode: multiplex streams over single tunnel */
     if (g_mux) {
         if (is_server && fwd_host && fwd_port) {
@@ -190,6 +205,7 @@ static void usage(const char *prog) {
             "  --scan <range>    Stealth port scan (SYN/connect, randomized order)\n"
             "                    range: 1-1024, 22-443, all (default: 1-1024)\n"
             "  -b                Banner grab (show service version on open ports)\n"
+            "  --socks <port>    SOCKS5 proxy through encrypted tunnel\n"
             "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
             "  --jitter <ms>     Add random 0-N ms delay between packets (anti-timing)\n"
             "  -z                Compress data with zlib before encryption\n"
@@ -260,6 +276,7 @@ int main(int argc, char **argv) {
         {"tofu",        no_argument,       NULL, 'U'},
         {"pq",          no_argument,       NULL, 'Q'},
         {"scan",        required_argument, NULL, 'S'},
+        {"socks",       required_argument, NULL, 'X'},
         {"help",        no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -353,6 +370,10 @@ int main(int argc, char **argv) {
             scan_mode = 1;
             scan_range = optarg;
             break;
+        case 'X':
+            g_socks = 1;
+            s_socks_port = optarg;
+            break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;
 #endif
@@ -418,6 +439,14 @@ int main(int argc, char **argv) {
         }
         if (!listen_mode)
             s_mux_port = bind_port;
+    }
+
+    /* Validate SOCKS5 mode */
+    if (g_socks && listen_mode) {
+        /* Server side — no local port needed, will relay outbound */
+    } else if (g_socks && !s_socks_port) {
+        fprintf(stderr, "ERROR: --socks requires <port> argument\n");
+        return 1;
     }
 
     if (g_udp_mode)
