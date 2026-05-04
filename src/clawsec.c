@@ -24,6 +24,7 @@
 #include "pqkem.h"
 #include "portscan.h"
 #include "socks5.h"
+#include "filetx.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -36,6 +37,8 @@ static volatile sig_atomic_t g_child_exited = 0;
 static const char *s_mux_port = NULL;
 static int g_socks = 0;
 static const char *s_socks_port = NULL;
+static const char *s_send_file = NULL;
+static const char *s_recv_dir = NULL;
 
 static void sigchld_handler(int sig) {
     (void)sig;
@@ -141,6 +144,20 @@ static void handle_client(int sockfd, const char *password, int is_server,
         return;
     }
 
+    /* File transfer mode */
+    if (s_send_file) {
+        filetx_send(sockfd, s_send_file);
+        close(sockfd);
+        farm9crypt_cleanup();
+        return;
+    }
+    if (s_recv_dir) {
+        filetx_recv(sockfd, s_recv_dir);
+        close(sockfd);
+        farm9crypt_cleanup();
+        return;
+    }
+
     /* Mux mode: multiplex streams over single tunnel */
     if (g_mux) {
         if (is_server && fwd_host && fwd_port) {
@@ -206,6 +223,8 @@ static void usage(const char *prog) {
             "                    range: 1-1024, 22-443, all (default: 1-1024)\n"
             "  -b                Banner grab (show service version on open ports)\n"
             "  --socks <port>    SOCKS5 proxy through encrypted tunnel\n"
+            "  --send <file>     Send file (encrypted, with SHA-256 verify + resume)\n"
+            "  --recv <dir>      Receive file (save to dir, with resume support)\n"
             "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
             "  --jitter <ms>     Add random 0-N ms delay between packets (anti-timing)\n"
             "  -z                Compress data with zlib before encryption\n"
@@ -277,6 +296,8 @@ int main(int argc, char **argv) {
         {"pq",          no_argument,       NULL, 'Q'},
         {"scan",        required_argument, NULL, 'S'},
         {"socks",       required_argument, NULL, 'X'},
+        {"send",        required_argument, NULL, 'W'},
+        {"recv",        required_argument, NULL, 'R'},
         {"help",        no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -373,6 +394,12 @@ int main(int argc, char **argv) {
         case 'X':
             g_socks = 1;
             s_socks_port = optarg;
+            break;
+        case 'W':
+            s_send_file = optarg;
+            break;
+        case 'R':
+            s_recv_dir = optarg;
             break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;

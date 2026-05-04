@@ -140,6 +140,13 @@ extern void test_socks5_wire_format_long_host(void);
 extern void test_socks5_server_clean_exit(void);
 extern void test_socks5_client_binds(void);
 
+/* test_filetx.c */
+extern void test_filetx_header_format(void);
+extern void test_filetx_send_no_file(void);
+extern void test_filetx_recv_bad_header(void);
+extern void test_filetx_filename_sanitize(void);
+extern void test_filetx_resume_offset(void);
+
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
 
@@ -262,6 +269,13 @@ int main(void) {
     test_socks5_wire_format_long_host();
     test_socks5_server_clean_exit();
     test_socks5_client_binds();
+
+    /* File transfer tests */
+    test_filetx_header_format();
+    test_filetx_send_no_file();
+    test_filetx_recv_bad_header();
+    test_filetx_filename_sanitize();
+    test_filetx_resume_offset();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

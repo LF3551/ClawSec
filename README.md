@@ -53,6 +53,7 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | **Stealth Port Scan** | ✅ `--scan` (SYN/connect, randomized) | ❌ No | ✅ nmap | ❌ No |
 | **Banner Grabbing** | ✅ `-b` (service version detection) | ❌ No | ✅ nmap | ❌ No |
 | **SOCKS5 Proxy** | ✅ `--socks` (encrypted tunnel) | ❌ No | ❌ No | ❌ No |
+| **File Transfer** | ✅ `--send/--recv` (resume + SHA-256) | ❌ No | ❌ No | ❌ No |
 | **Compression** | ✅ `-z` zlib | ❌ No | ❌ No | ❌ No |
 | **Progress Bar** | ✅ `-P` built-in | ❌ No | ❌ No | ❌ No |
 | **File Verification** | ✅ `-V` SHA-256 | ❌ No | ❌ No | ❌ No |
@@ -397,6 +398,25 @@ curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 
 # Combine with other features:
 ./clawsec -k "pass" --socks 1080 --pq --tofu --obfs tls server.com 9999
+```
+
+### Encrypted File Transfer (Resume + SHA-256)
+```bash
+# Receiver: listen and save files to ./incoming/
+./clawsec -l -k "secretkey" -p 4444 --recv ./incoming
+
+# Sender: encrypt and transfer a file
+./clawsec -k "secretkey" --send backup.tar.gz remote.host 4444
+
+# Features:
+# - AES-256-GCM encrypted transfer
+# - SHA-256 end-to-end verification
+# - Automatic resume on interrupted transfers
+# - Progress bar with speed display
+# - Path traversal protection on receiver
+
+# Combine with post-quantum crypto and obfuscation:
+./clawsec -k "pass" --send secret.pdf --pq --obfs tls server.com 4444
 ```
 
 

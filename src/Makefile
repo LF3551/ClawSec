@@ -34,8 +34,8 @@ bogus:
 
 ### HARD TARGETS
 
-clawsec:	clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o ecdhe.o argon2kdf.o portscan.o socks5.o farm9crypt.o aesgcm.o
-	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o ecdhe.o argon2kdf.o portscan.o socks5.o farm9crypt.o aesgcm.o $(XLIBS)
+clawsec:	clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o ecdhe.o argon2kdf.o portscan.o socks5.o filetx.o farm9crypt.o aesgcm.o
+	$(LD) $(DFLAGS) $(XFLAGS) $(STATIC) -o clawsec clawsec.c net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o ecdhe.o argon2kdf.o portscan.o socks5.o filetx.o farm9crypt.o aesgcm.o $(XLIBS)
 
 
 nc-dos:
@@ -140,6 +140,9 @@ portscan.o: portscan.c portscan.h net.h util.h
 socks5.o: socks5.c socks5.h net.h util.h farm9crypt.h
 		${CC} $(DFLAGS) $(XFLAGS) -c socks5.c
 
+filetx.o: filetx.c filetx.h util.h farm9crypt.h
+		${CC} $(DFLAGS) $(XFLAGS) -c filetx.c
+
 farm9crypt.o: farm9crypt.cc farm9crypt.h ecdhe.h argon2kdf.h
 		${CC} $(XFLAGS) -c farm9crypt.cc
 
@@ -201,10 +204,10 @@ TEST_SRC = $(TESTDIR)/test_clawsec.c $(TESTDIR)/test_crypto.c $(TESTDIR)/test_pr
 	$(TESTDIR)/test_util.c $(TESTDIR)/test_stealth.c $(TESTDIR)/test_ech.c \
 	$(TESTDIR)/test_mux.c $(TESTDIR)/test_fallback.c $(TESTDIR)/test_fingerprint.c \
 	$(TESTDIR)/test_tofu.c $(TESTDIR)/test_pqkem.c $(TESTDIR)/test_argon2.c \
-	$(TESTDIR)/test_portscan.c $(TESTDIR)/test_socks5.c
+	$(TESTDIR)/test_portscan.c $(TESTDIR)/test_socks5.c $(TESTDIR)/test_filetx.c
 
-test: farm9crypt.o aesgcm.o ecdhe.o argon2kdf.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o net.o util.o portscan.o socks5.o $(TEST_SRC) $(TESTDIR)/test.h
-	$(LD) $(XFLAGS) -I. -I$(TESTDIR) -o test_clawsec $(TEST_SRC) farm9crypt.o aesgcm.o ecdhe.o argon2kdf.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o net.o util.o portscan.o socks5.o $(XLIBS)
+test: farm9crypt.o aesgcm.o ecdhe.o argon2kdf.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o net.o util.o portscan.o socks5.o filetx.o $(TEST_SRC) $(TESTDIR)/test.h
+	$(LD) $(XFLAGS) -I. -I$(TESTDIR) -o test_clawsec $(TEST_SRC) farm9crypt.o aesgcm.o ecdhe.o argon2kdf.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o net.o util.o portscan.o socks5.o filetx.o $(XLIBS)
 	./test_clawsec
 
 test-macos:
