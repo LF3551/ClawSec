@@ -57,6 +57,7 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | **SOCKS5 Proxy** | ✅ `--socks` (encrypted tunnel) | ❌ No | ❌ No | ❌ No |
 | **File Transfer** | ✅ `--send/--recv` (resume + SHA-256) | ❌ No | ❌ No | ❌ No |
 | **TUN VPN** | ✅ `--tun` (zero-config encrypted VPN) | ❌ No | ❌ No | ❌ No |
+| **UDP VPN Transport** | ✅ `--tun-udp` (no TCP-over-TCP) | ❌ No | ❌ No | ❌ No |
 | **Full Tunnel** | ✅ `--default-route` (all traffic via VPN) | ❌ No | ❌ No | ❌ No |
 | **NAT/Masquerade** | ✅ `--masquerade` (exit node mode) | ❌ No | ❌ No | ❌ No |
 | **Compression** | ✅ `-z` zlib | ❌ No | ❌ No | ❌ No |
@@ -473,6 +474,10 @@ sudo ./clawsec -l -k "VpnSecret123" -p 9000 --tun 10.0.0.1/24 --masquerade
 
 # Client — ALL traffic through VPN (like a real VPN service):
 sudo ./clawsec -k "VpnSecret123" server.com 9000 --tun 10.0.0.2/24 --default-route
+
+# UDP data channel — avoids TCP-over-TCP meltdown, lower latency:
+sudo ./clawsec -l -k "VpnSecret123" -p 9000 --tun 10.0.0.1/24 --masquerade --tun-udp
+sudo ./clawsec -k "VpnSecret123" server.com 9000 --tun 10.0.0.2/24 --default-route --tun-udp
 
 # That's it! Your entire internet now goes through the server.
 # curl ifconfig.me will show the server's IP, not yours.

@@ -225,6 +225,13 @@ extern "C" void farm9crypt_cleanup() {
     if (debug) fprintf(stderr, "[CRYPT] Cleanup complete\n");
 }
 
+/* Export raw session key for external use (e.g. UDP VPN data channel) */
+extern "C" int farm9crypt_export_key(unsigned char *out, size_t len) {
+    if (!initialized || !out || len < 32) return -1;
+    memcpy(out, derived_key, 32);
+    return 0;
+}
+
 /* Get session fingerprint: SHA-256(derived_key) truncated to len bytes */
 extern "C" int farm9crypt_get_fingerprint(unsigned char *out, size_t len) {
     if (!initialized) return -1;

@@ -168,6 +168,13 @@ extern void test_tun_validate_config_bad_ip(void);
 extern void test_tun_validate_config_bad_prefix(void);
 extern void test_tun_wire_format(void);
 extern void test_tun_constants(void);
+extern void test_tun_udp_encrypt_decrypt(void);
+extern void test_tun_udp_tamper_detect(void);
+extern void test_tun_udp_wrong_key(void);
+extern void test_tun_udp_wire_format(void);
+extern void test_tun_udp_constants(void);
+extern void test_tun_udp_truncated(void);
+extern void test_tun_udp_bad_magic(void);
 
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
@@ -320,6 +327,15 @@ int main(void) {
     test_tun_validate_config_bad_prefix();
     test_tun_wire_format();
     test_tun_constants();
+
+    /* UDP VPN tests */
+    test_tun_udp_encrypt_decrypt();
+    test_tun_udp_tamper_detect();
+    test_tun_udp_wrong_key();
+    test_tun_udp_wire_format();
+    test_tun_udp_constants();
+    test_tun_udp_truncated();
+    test_tun_udp_bad_magic();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

@@ -49,6 +49,8 @@ static int g_persistent = 0;               /* --persistent auto-reconnect */
 static const char *s_tun_cidr = NULL;      /* --tun 10.0.0.1/24 (VPN mode) */
 static int g_masquerade = 0;               /* --masquerade (NAT for VPN) */
 static int g_default_route = 0;            /* --default-route (all traffic via VPN) */
+static int g_tun_udp = 0;                  /* --tun-udp (UDP data channel for VPN) */
+static const char *s_bind_port = NULL;     /* -p <port> (also used by --tun-udp server) */
 
 static void sigchld_handler(int sig) {
     (void)sig;
@@ -212,7 +214,31 @@ static void handle_client(int sockfd, const char *password, int is_server,
             inet_ntop(AF_INET, &gw_addr, gw_ip, sizeof(gw_ip));
             tun_set_default_route(peer_host, gw_ip, dev_name);
         }
-        tun_relay(tun_fd, sockfd);
+
+        if (g_tun_udp) {
+            /* UDP data channel: negotiate over TCP, then relay over UDP */
+            int udp_fd = tun_udp_negotiate(sockfd,
+                                           peer_host ? peer_host : "0.0.0.0",
+                                           peer_port ? peer_port : s_bind_port,
+                                           is_server);
+            if (udp_fd < 0) {
+                fprintf(stderr, "ERROR: UDP VPN negotiation failed, falling back to TCP\n");
+                tun_relay(tun_fd, sockfd);
+            } else {
+                unsigned char vpn_key[32];
+                if (farm9crypt_export_key(vpn_key, 32) == 0) {
+                    tun_udp_relay(tun_fd, udp_fd, sockfd, vpn_key);
+                    memset(vpn_key, 0, 32);
+                } else {
+                    fprintf(stderr, "ERROR: Cannot export key for UDP VPN\n");
+                    tun_relay(tun_fd, sockfd);
+                }
+                close(udp_fd);
+            }
+        } else {
+            tun_relay(tun_fd, sockfd);
+        }
+
         tun_restore_default_route();
         tun_close(tun_fd, dev_name);
         close(sockfd);
@@ -299,6 +325,7 @@ static void usage(const char *prog) {
             "  -L <host:port>    Port forwarding: forward decrypted traffic to host:port\n"
             "  -R <host:port>    Reverse tunnel: server listens, client connects to target\n"
             "  --tun <ip/mask>   TUN VPN mode: create encrypted VPN tunnel\n"
+            "  --tun-udp         Use UDP data channel for VPN (avoids TCP-over-TCP)\n"
             "  --masquerade      Enable NAT (use with --tun on server for internet access)\n"
             "  --default-route   Route ALL traffic through VPN (client-side full tunnel)\n"
             "  --persistent      Auto-reconnect with exponential backoff (client mode)\n"
@@ -361,7 +388,7 @@ static int parse_host_port(const char *spec, char *host, size_t hlen,
 
 int main(int argc, char **argv) {
     const char *password = NULL;
-    const char *bind_port = NULL;
+    const char *bind_port = NULL;  /* set to s_bind_port below after parsing */
     const char *fwd_spec = NULL;
     const char *scan_range = NULL;
     int listen_mode = 0;
@@ -391,6 +418,7 @@ int main(int argc, char **argv) {
         {"tun",         required_argument, NULL, 'N'},
         {"masquerade",  no_argument,       NULL, 'A'},
         {"default-route", no_argument,     NULL, 'G'},
+        {"tun-udp",     no_argument,       NULL, 'B'},
         {"help",        no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -507,6 +535,9 @@ int main(int argc, char **argv) {
         case 'G':
             g_default_route = 1;
             break;
+        case 'B':
+            g_tun_udp = 1;
+            break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;
 #endif
@@ -515,6 +546,8 @@ int main(int argc, char **argv) {
     }
 
     /* Port scan mode — doesn't need password */
+    s_bind_port = bind_port;  /* expose to handle_client for --tun-udp */
+
     if (scan_mode) {
         if (optind >= argc) {
             fprintf(stderr, "ERROR: --scan requires target host\n");

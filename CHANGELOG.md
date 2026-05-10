@@ -8,6 +8,11 @@ All notable changes to ClawSec will be documented in this file.
 - `--tun <ip/mask>` — Zero-config encrypted VPN via TUN interface. Creates
   virtual network interface with full L3 connectivity. Supports macOS (utun)
   and Linux (/dev/net/tun). Wire protocol: TVPN header + encrypted IP packets.
+- `--tun-udp` — UDP data channel for VPN. After TCP handshake (ECDHE key
+  exchange), VPN data is relayed over a dedicated UDP socket with per-packet
+  AES-256-GCM encryption. Eliminates TCP-over-TCP meltdown, reduces latency.
+  Wire format: `CVPN(4B) + nonce(12B) + ciphertext + GCM tag(16B)`.
+  Includes replay protection (256-bit sliding window) and automatic TCP fallback.
 - `--masquerade` — Enable NAT/masquerade on server side. Allows VPN clients
   to access the internet through the server as exit node. Uses iptables on
   Linux, pf on macOS.
@@ -15,7 +20,9 @@ All notable changes to ClawSec will be documented in this file.
   VPN. Saves and restores original routes on disconnect. Server must have
   `--masquerade` enabled. Works like WireGuard `AllowedIPs = 0.0.0.0/0`.
 - Keepalive heartbeats (THB) every 30s to maintain VPN tunnel.
-- 10 new unit tests (CIDR parsing, validation, wire format, constants).
+- `farm9crypt_export_key()` — Export session key for external use (UDP VPN).
+- 17 new unit tests (CIDR parsing, validation, wire format, constants,
+  UDP encrypt/decrypt round-trip, tamper detection, wrong key, truncated/bad magic).
 
 ## [2.6.0] - 2026-05-04
 

@@ -63,6 +63,11 @@ int farm9crypt_write(int sockfd, char* buf, int size);
 /* Clean up and free resources */
 void farm9crypt_cleanup();
 
+/* Export the raw 32-byte session key (for UDP VPN data channel).
+ * Caller must ensure out buffer is at least 32 bytes.
+ * Returns 0 on success, -1 if not initialized or bad params. */
+int farm9crypt_export_key(unsigned char *out, size_t len);
+
 /* Get session fingerprint hash (SHA-256 of derived key, truncated to len) */
 /* Returns bytes written, or -1 on error */
 int farm9crypt_get_fingerprint(unsigned char *out, size_t len);

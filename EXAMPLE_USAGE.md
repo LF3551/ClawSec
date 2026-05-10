@@ -400,6 +400,12 @@ sudo ./clawsec -l -k "VpnSecret" -p 9000 --tun 10.0.0.1/24 --masquerade
 # Client — ALL internet traffic through VPN:
 sudo ./clawsec -k "VpnSecret" vpn.example.com 9000 --tun 10.0.0.2/24 --default-route
 
+# UDP data channel — no TCP-over-TCP meltdown, lower latency:
+# Both sides must use --tun-udp. TCP is still used for key exchange,
+# then VPN data is relayed over a dedicated UDP channel with per-packet AES-GCM.
+sudo ./clawsec -l -k "VpnSecret" -p 9000 --tun 10.0.0.1/24 --masquerade --tun-udp
+sudo ./clawsec -k "VpnSecret" vpn.example.com 9000 --tun 10.0.0.2/24 --default-route --tun-udp
+
 # Now ALL your traffic goes through the server:
 curl ifconfig.me       # shows server's IP
 ping google.com        # goes through VPN
