@@ -7,6 +7,7 @@
 #include "obfs.h"
 
 #include <signal.h>
+#include <unistd.h>
 
 void test_fallback_knock_roundtrip(void) {
     TEST_BEGIN("fallback knock send/verify roundtrip") {
@@ -30,6 +31,7 @@ void test_fallback_knock_roundtrip(void) {
         }
 
         close(fds[1]);
+        usleep(50000); /* let child start TLS connect first */
         ASSERT(obfs_tls_accept(fds[0]) == 0, "TLS accept failed");
 
         int result = fallback_check_knock(fds[0]);
@@ -71,6 +73,7 @@ void test_fallback_detects_probe(void) {
         }
 
         close(fds[1]);
+        usleep(50000); /* let child start TLS connect first */
         ASSERT(obfs_tls_accept(fds[0]) == 0, "TLS accept failed");
 
         int result = fallback_check_knock(fds[0]);
