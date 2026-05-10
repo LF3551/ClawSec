@@ -2,6 +2,14 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [2.8.1] - 2026-05-10
+
+### Fixed
+- Fix flaky `fallback knock` TLS test race condition on macOS CI (usleep before accept)
+
+### Changed
+- CI: Docker images now published to both ghcr.io and Docker Hub (`lf3551/clawsec`)
+
 ## [2.8.0] - 2026-05-10
 
 ### Added — TUN VPN

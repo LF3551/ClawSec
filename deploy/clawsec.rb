@@ -2,7 +2,7 @@
 class Clawsec < Formula
   desc "Modern netcat with AES-256-GCM encryption"
   homepage "https://github.com/LF3551/ClawSec"
-  url "https://github.com/LF3551/ClawSec/archive/refs/tags/v2.8.0.tar.gz"
+  url "https://github.com/LF3551/ClawSec/archive/refs/tags/v2.8.1.tar.gz"
   sha256 "REPLACE_WITH_ACTUAL_SHA256"
   license "BSD-3-Clause"
 
