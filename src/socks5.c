@@ -130,7 +130,7 @@ static void handle_socks_client(int client_fd, int tunnel_fd) {
         /* Connection failed — send SOCKS5 error */
         unsigned char reply[10] = {SOCKS_VERSION, SOCKS_REP_HOSTUNREACH,
                                    0, SOCKS_ATYP_IPV4, 0,0,0,0, 0,0};
-        write(client_fd, reply, 10);
+        (void)write(client_fd, reply, 10);
         goto fail;
     }
 

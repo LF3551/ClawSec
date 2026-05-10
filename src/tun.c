@@ -11,6 +11,9 @@
 #ifdef __APPLE__
 #define _DARWIN_C_SOURCE
 #endif
+#ifdef __linux__
+#define _GNU_SOURCE
+#endif
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
@@ -158,7 +161,7 @@ int tun_open(const char *ip, int prefix_len, char *dev_name, size_t dev_name_len
 
     /* Set MTU */
     snprintf(cmd, sizeof(cmd), "ifconfig %s mtu %d", dev_name, TUN_MTU);
-    system(cmd);
+    (void)system(cmd);
 
     log_msg(1, "tun: %s configured %s/%d (peer %s)", dev_name, ip, prefix_len, peer_ip);
     return fd;
@@ -168,7 +171,7 @@ void tun_close(int tun_fd, const char *dev_name) {
     if (dev_name) {
         char cmd[256];
         snprintf(cmd, sizeof(cmd), "ifconfig %s down 2>/dev/null", dev_name);
-        system(cmd);
+        (void)system(cmd);
     }
     if (tun_fd >= 0) close(tun_fd);
 }
@@ -248,7 +251,7 @@ void tun_close(int tun_fd, const char *dev_name) {
     if (dev_name) {
         char cmd[256];
         snprintf(cmd, sizeof(cmd), "ip link set %s down 2>/dev/null", dev_name);
-        system(cmd);
+        (void)system(cmd);
     }
     if (tun_fd >= 0) close(tun_fd);
 }
@@ -272,7 +275,7 @@ static int tun_write_packet(int tun_fd, const char *buf, int len) {
 int tun_enable_nat(const char *dev_name, const char *subnet) {
 #ifdef __linux__
     /* Enable IP forwarding */
-    system("sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1");
+    (void)system("sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1");
 
     /* Add iptables masquerade rule */
     char cmd[512];
@@ -291,7 +294,7 @@ int tun_enable_nat(const char *dev_name, const char *subnet) {
     return 0;
 #elif defined(__APPLE__)
     /* macOS: enable forwarding + pf NAT */
-    system("sysctl -w net.inet.ip.forwarding=1 >/dev/null 2>&1");
+    (void)system("sysctl -w net.inet.ip.forwarding=1 >/dev/null 2>&1");
 
     /* Create a temporary pf anchor */
     char pf_conf[256];
@@ -302,7 +305,7 @@ int tun_enable_nat(const char *dev_name, const char *subnet) {
         fclose(f);
         char cmd[512];
         snprintf(cmd, sizeof(cmd), "pfctl -f %s -e 2>/dev/null", pf_conf);
-        system(cmd);
+        (void)system(cmd);
     }
     log_msg(1, "tun: NAT enabled for %s via %s", subnet, dev_name);
     (void)dev_name;
@@ -414,14 +417,14 @@ int tun_set_default_route(const char *server_host, const char *gateway_ip, const
 
     /* 1. Add host route to VPN server via original gateway */
     snprintf(cmd, sizeof(cmd), "route add -host %s %s", s_server_ip, s_orig_gateway);
-    system(cmd);
+    (void)system(cmd);
 
     /* 2. Delete old default route */
-    system("route delete default 2>/dev/null");
+    (void)system("route delete default 2>/dev/null");
 
     /* 3. Add new default route via VPN */
     snprintf(cmd, sizeof(cmd), "route add default %s", gateway_ip);
-    system(cmd);
+    (void)system(cmd);
 
 #elif defined(__linux__)
     /* Get current default gateway */
@@ -450,12 +453,12 @@ int tun_set_default_route(const char *server_host, const char *gateway_ip, const
     /* 1. Add host route to VPN server via original gateway */
     snprintf(cmd, sizeof(cmd), "ip route add %s via %s dev %s",
              s_server_ip, s_orig_gateway, s_orig_iface);
-    system(cmd);
+    (void)system(cmd);
 
     /* 2. Replace default route via VPN */
     snprintf(cmd, sizeof(cmd), "ip route replace default via %s dev %s",
              gateway_ip, dev_name);
-    system(cmd);
+    (void)system(cmd);
 #endif
 
     s_routes_modified = 1;
@@ -472,22 +475,22 @@ int tun_restore_default_route(void) {
 
 #ifdef __APPLE__
     /* Remove VPN default */
-    system("route delete default 2>/dev/null");
+    (void)system("route delete default 2>/dev/null");
     /* Restore original default */
     snprintf(cmd, sizeof(cmd), "route add default %s", s_orig_gateway);
-    system(cmd);
+    (void)system(cmd);
     /* Remove server host route */
     snprintf(cmd, sizeof(cmd), "route delete -host %s", s_server_ip);
-    system(cmd);
+    (void)system(cmd);
 
 #elif defined(__linux__)
     /* Restore original default */
     snprintf(cmd, sizeof(cmd), "ip route replace default via %s dev %s",
              s_orig_gateway, s_orig_iface);
-    system(cmd);
+    (void)system(cmd);
     /* Remove server host route */
     snprintf(cmd, sizeof(cmd), "ip route delete %s", s_server_ip);
-    system(cmd);
+    (void)system(cmd);
 #endif
 
     s_routes_modified = 0;

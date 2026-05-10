@@ -7,7 +7,8 @@ RUN apk add --no-cache \
     g++ \
     make \
     musl-dev \
-    util-linux-dev
+    util-linux-dev \
+    linux-headers
 
 WORKDIR /app
 COPY src/ ./src/
