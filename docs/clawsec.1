@@ -1,4 +1,4 @@
-.TH CLAWSEC 1 "May 2026" "ClawSec 2.5.0" "User Commands"
+.TH CLAWSEC 1 "May 2026" "ClawSec 2.8.0" "User Commands"
 .SH NAME
 clawsec \- encrypted network tool with AES-256-GCM and Perfect Forward Secrecy
 .SH SYNOPSIS
@@ -133,6 +133,58 @@ secrets are combined, so the session key is secure against both
 classical and quantum adversaries. Requires OpenSSL >= 3.5.
 Both client and server must use \fB\-\-pq\fR.
 Can be combined with \fB\-\-tofu\fR.
+.TP
+.BI \-\-tun " ip/mask"
+TUN VPN mode. Create a virtual network interface and relay encrypted
+IP packets through the tunnel. Assigns the given IP address and subnet
+mask to the TUN device. Requires root/sudo. Example: \fB\-\-tun 10.0.0.1/24\fR.
+Supports macOS (utun) and Linux (/dev/net/tun).
+.TP
+.B \-\-tun\-udp
+Use a UDP data channel for VPN traffic instead of TCP. After the TCP
+handshake (ECDHE key exchange), a dedicated UDP socket is opened for
+VPN data with per-packet AES-256-GCM encryption. Eliminates TCP-over-TCP
+meltdown and reduces latency. Falls back to TCP on failure.
+Both sides must use \fB\-\-tun\-udp\fR.
+.TP
+.B \-\-masquerade
+Enable NAT/masquerade on the server side. Allows VPN clients to access
+the internet through the server as an exit node. Uses iptables/nftables
+on Linux, pf on macOS. Use with \fB\-\-tun\fR on the server.
+.TP
+.B \-\-default\-route
+Full tunnel mode (client-side). Routes ALL traffic through the VPN,
+similar to WireGuard \fBAllowedIPs = 0.0.0.0/0\fR. Saves and restores
+original routes on disconnect (including Ctrl+C/kill). Server must
+have \fB\-\-masquerade\fR enabled.
+.TP
+.BI \-\-scan " range"
+Port scanner. Scan target host for open ports with randomized order.
+Range syntax: \fB1-1024\fR, \fB80\fR, \fBall\fR (1-65535).
+Does not require encryption password.
+.TP
+.B \-b
+Banner grabbing. During port scan, detect service versions on open ports.
+.TP
+.BI \-\-socks " port"
+SOCKS5 proxy through encrypted tunnel. Client opens a local SOCKS5
+listener on \fIport\fR; server proxies outbound connections.
+.TP
+.BI \-\-send " file"
+Send a file through encrypted tunnel with SHA-256 verification,
+automatic resume, and progress bar.
+.TP
+.BI \-\-recv " dir"
+Receive a file into \fIdir\fR through encrypted tunnel with
+SHA-256 verification and path traversal protection.
+.TP
+.BI \-R " host:port"
+Reverse tunnel. Server listens on an extra port; incoming connections
+are tunneled to the client's local target. SSH-like \fB\-R\fR.
+.TP
+.B \-\-persistent
+Auto-reconnect with exponential backoff (1s\(en60s, \(+-25% jitter).
+Turns any tunnel into a stable persistent channel.
 .TP
 .BI \-\-fingerprint " profile"
 Shape the TLS ClientHello to match a real browser. Supported profiles:
@@ -284,6 +336,48 @@ Combine with TOFU for maximum security:
 .nf
 Server: clawsec \-l \-p 443 \-k "pass" \-\-pq \-\-tofu
 Client: clawsec \-k "pass" \-\-pq \-\-tofu server 443
+.fi
+.SS TUN VPN
+Zero-config encrypted VPN (requires root/sudo):
+.PP
+.nf
+Server: sudo clawsec \-l \-k "pass" \-p 9000 \-\-tun 10.0.0.1/24 \-\-masquerade
+Client: sudo clawsec \-k "pass" \-\-tun 10.0.0.2/24 \-\-default\-route server 9000
+.fi
+.PP
+With UDP data channel (avoids TCP-over-TCP meltdown):
+.PP
+.nf
+Server: sudo clawsec \-l \-k "pass" \-p 9000 \-\-tun 10.0.0.1/24 \-\-masquerade \-\-tun\-udp
+Client: sudo clawsec \-k "pass" \-\-tun 10.0.0.2/24 \-\-default\-route \-\-tun\-udp server 9000
+.fi
+.SS SOCKS5 Proxy
+Route any application through encrypted tunnel:
+.PP
+.nf
+Server: clawsec \-l \-p 9000 \-k "pass" \-\-socks 0
+Client: clawsec \-k "pass" \-\-socks 1080 server 9000
+curl \-\-proxy socks5://127.0.0.1:1080 https://ifconfig.me
+.fi
+.SS Reverse Tunnel
+SSH-like reverse port forwarding:
+.PP
+.nf
+Server: clawsec \-l \-p 9000 \-k "pass" \-R 0.0.0.0:8080
+Client: clawsec \-k "pass" \-R 127.0.0.1:3000 server 9000
+.fi
+.SS Encrypted File Transfer
+Dedicated file transfer with SHA-256 verification:
+.PP
+.nf
+Recv:   clawsec \-l \-p 4444 \-k "pass" \-\-recv ./incoming
+Send:   clawsec \-k "pass" \-\-send backup.tar.gz server 4444
+.fi
+.SS Port Scanner
+Stealth port scanning with banner grabbing:
+.PP
+.nf
+clawsec \-\-scan 1\-1024 \-b target.com
 .fi
 .SS Compressed Transfer with Verification
 Transfer files with zlib compression, progress, and SHA-256 verification:
