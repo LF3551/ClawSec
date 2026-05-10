@@ -2,6 +2,21 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [2.8.0] - 2026-05-10
+
+### Added — TUN VPN
+- `--tun <ip/mask>` — Zero-config encrypted VPN via TUN interface. Creates
+  virtual network interface with full L3 connectivity. Supports macOS (utun)
+  and Linux (/dev/net/tun). Wire protocol: TVPN header + encrypted IP packets.
+- `--masquerade` — Enable NAT/masquerade on server side. Allows VPN clients
+  to access the internet through the server as exit node. Uses iptables on
+  Linux, pf on macOS.
+- `--default-route` — Full tunnel mode: routes ALL client traffic through the
+  VPN. Saves and restores original routes on disconnect. Server must have
+  `--masquerade` enabled. Works like WireGuard `AllowedIPs = 0.0.0.0/0`.
+- Keepalive heartbeats (THB) every 30s to maintain VPN tunnel.
+- 10 new unit tests (CIDR parsing, validation, wire format, constants).
+
 ## [2.6.0] - 2026-05-04
 
 ### Added — Offensive / Pentest Tools

@@ -383,6 +383,50 @@ ssh -o ProxyCommand='nc -x 127.0.0.1:1080 %h %p' user@internal.host
 # - Pentest persistent channels (with --obfs tls --pq)
 ```
 
+## TUN VPN Mode
+
+**Requirements:**
+- Root/sudo for TUN device creation
+- Server needs a **public IP** (static or dynamic) or port forwarding on the router
+- Behind CGNAT? Use a cheap VPS as relay, or ask your ISP for a public IP
+- Dynamic IP? Use DDNS (noip.com, duckdns.org) for a stable hostname
+
+```bash
+# Zero-config encrypted VPN
+
+# Server (public IP or port-forwarded) — VPN gateway with NAT:
+sudo ./clawsec -l -k "VpnSecret" -p 9000 --tun 10.0.0.1/24 --masquerade
+
+# Client — ALL internet traffic through VPN:
+sudo ./clawsec -k "VpnSecret" vpn.example.com 9000 --tun 10.0.0.2/24 --default-route
+
+# Now ALL your traffic goes through the server:
+curl ifconfig.me       # shows server's IP
+ping google.com        # goes through VPN
+# Ctrl+C to disconnect — original routes auto-restored
+
+# Without --default-route, only VPN subnet (10.0.0.x) goes through tunnel
+# With --default-route, everything goes through VPN (full tunnel mode)
+
+# Quantum-resistant VPN with auto-reconnect:
+sudo ./clawsec -k "Pass" --tun 10.0.0.2/24 --default-route --pq --persistent vpn.example.com 9000
+
+# Stealth VPN (disguised as HTTPS traffic):
+sudo ./clawsec -k "Pass" --tun 10.0.0.2/24 --default-route --obfs tls --persistent vpn.example.com 443
+
+# Dynamic IP server with DDNS:
+sudo ./clawsec -k "Pass" --tun 10.0.0.2/24 --persistent myvpn.ddns.net 9000
+
+# No public IP? Use a $3/mo VPS as relay:
+# VPS:    ./clawsec -l -k "Pass" -p 9000 --tun 10.0.0.1/24 --masquerade
+# Client: sudo ./clawsec -k "Pass" vps.example.com 9000 --tun 10.0.0.2/24
+
+# Multiple clients (each with unique IP):
+# Client 1: --tun 10.0.0.2/24
+# Client 2: --tun 10.0.0.3/24
+# Client 3: --tun 10.0.0.4/24
+```
+
 ## Security Best Practices
 
 1. Never use default or weak passwords

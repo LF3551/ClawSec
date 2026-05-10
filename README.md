@@ -56,6 +56,9 @@ Modern encrypted network tool evolved from Cryptcat with state-of-the-art crypto
 | **Banner Grabbing** | ✅ `-b` (service version detection) | ❌ No | ✅ nmap | ❌ No |
 | **SOCKS5 Proxy** | ✅ `--socks` (encrypted tunnel) | ❌ No | ❌ No | ❌ No |
 | **File Transfer** | ✅ `--send/--recv` (resume + SHA-256) | ❌ No | ❌ No | ❌ No |
+| **TUN VPN** | ✅ `--tun` (zero-config encrypted VPN) | ❌ No | ❌ No | ❌ No |
+| **Full Tunnel** | ✅ `--default-route` (all traffic via VPN) | ❌ No | ❌ No | ❌ No |
+| **NAT/Masquerade** | ✅ `--masquerade` (exit node mode) | ❌ No | ❌ No | ❌ No |
 | **Compression** | ✅ `-z` zlib | ❌ No | ❌ No | ❌ No |
 | **Progress Bar** | ✅ `-P` built-in | ❌ No | ❌ No | ❌ No |
 | **File Verification** | ✅ `-V` SHA-256 | ❌ No | ❌ No | ❌ No |
@@ -450,6 +453,43 @@ curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 # - Unstable networks (mobile, satellite)
 # - Long-running tunnels that must survive reboots
 # - Pentest implant persistence (with --obfs tls --pq)
+```
+
+### TUN VPN Mode (--tun)
+
+> **Requirements:**
+> - Root/sudo (for TUN device creation)
+> - Server must have a **public (white) IP** or a forwarded port on the router.
+>   Behind CGNAT/double NAT the server cannot accept incoming connections —
+>   use a VPS ($3/mo) as relay or ask your ISP for a public IP.
+> - Dynamic public IP works fine — consider DDNS (e.g. noip.com) so clients
+>   can connect by hostname instead of a changing address.
+
+```bash
+# Zero-config encrypted VPN — like WireGuard but with one command
+
+# Server (public IP or port-forwarded):
+sudo ./clawsec -l -k "VpnSecret123" -p 9000 --tun 10.0.0.1/24 --masquerade
+
+# Client — ALL traffic through VPN (like a real VPN service):
+sudo ./clawsec -k "VpnSecret123" server.com 9000 --tun 10.0.0.2/24 --default-route
+
+# That's it! Your entire internet now goes through the server.
+# curl ifconfig.me will show the server's IP, not yours.
+
+# With --masquerade, server NATs client traffic to internet (exit node)
+# Without --default-route, only VPN subnet traffic goes through tunnel
+# With --default-route, ALL traffic goes through VPN (full tunnel mode)
+
+# Combine with PQ crypto for quantum-resistant VPN:
+sudo ./clawsec -k "pass" --tun 10.0.0.2/24 --default-route --pq --persistent server.com 9000
+
+# Dynamic IP? Use DDNS hostname:
+sudo ./clawsec -k "pass" --tun 10.0.0.2/24 --persistent myvpn.ddns.net 9000
+
+# No public IP at all? Use a $3 VPS as relay:
+# VPS:    ./clawsec -l -k "pass" -p 9000 --tun 10.0.0.1/24 --masquerade
+# Client: sudo ./clawsec -k "pass" vps.example.com 9000 --tun 10.0.0.2/24
 ```
 
 ### Password Requirements

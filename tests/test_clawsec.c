@@ -157,6 +157,18 @@ extern void test_persist_backoff_jitter(void);
 extern void test_persist_heartbeat_ignores_data(void);
 extern void test_reverse_signals_distinct(void);
 
+/* test_tun.c */
+extern void test_tun_parse_cidr(void);
+extern void test_tun_parse_cidr_default(void);
+extern void test_tun_parse_cidr_16(void);
+extern void test_tun_parse_cidr_invalid_prefix(void);
+extern void test_tun_parse_cidr_null(void);
+extern void test_tun_validate_config_ok(void);
+extern void test_tun_validate_config_bad_ip(void);
+extern void test_tun_validate_config_bad_prefix(void);
+extern void test_tun_wire_format(void);
+extern void test_tun_constants(void);
+
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
 
@@ -296,6 +308,18 @@ int main(void) {
     test_persist_backoff_jitter();
     test_persist_heartbeat_ignores_data();
     test_reverse_signals_distinct();
+
+    /* TUN VPN tests */
+    test_tun_parse_cidr();
+    test_tun_parse_cidr_default();
+    test_tun_parse_cidr_16();
+    test_tun_parse_cidr_invalid_prefix();
+    test_tun_parse_cidr_null();
+    test_tun_validate_config_ok();
+    test_tun_validate_config_bad_ip();
+    test_tun_validate_config_bad_prefix();
+    test_tun_wire_format();
+    test_tun_constants();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

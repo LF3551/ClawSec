@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <errno.h>
 #include <time.h>
@@ -28,6 +29,7 @@
 #include "filetx.h"
 #include "reverse.h"
 #include "persistent.h"
+#include "tun.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -44,6 +46,9 @@ static const char *s_send_file = NULL;
 static const char *s_recv_dir = NULL;
 static const char *s_reverse_spec = NULL;  /* -R host:port (reverse tunnel) */
 static int g_persistent = 0;               /* --persistent auto-reconnect */
+static const char *s_tun_cidr = NULL;      /* --tun 10.0.0.1/24 (VPN mode) */
+static int g_masquerade = 0;               /* --masquerade (NAT for VPN) */
+static int g_default_route = 0;            /* --default-route (all traffic via VPN) */
 
 static void sigchld_handler(int sig) {
     (void)sig;
@@ -167,6 +172,54 @@ static void handle_client(int sockfd, const char *password, int is_server,
         return;
     }
 
+    /* TUN VPN mode (--tun) */
+    if (s_tun_cidr) {
+        char tun_ip[64];
+        int tun_prefix = 24;
+        if (tun_parse_cidr(s_tun_cidr, tun_ip, sizeof(tun_ip), &tun_prefix) < 0) {
+            fprintf(stderr, "ERROR: Invalid TUN CIDR '%s'\n", s_tun_cidr);
+            close(sockfd);
+            farm9crypt_cleanup();
+            return;
+        }
+        char dev_name[32];
+        int tun_fd = tun_open(tun_ip, tun_prefix, dev_name, sizeof(dev_name));
+        if (tun_fd < 0) {
+            fprintf(stderr, "ERROR: Failed to open TUN device (need root/sudo)\n");
+            close(sockfd);
+            farm9crypt_cleanup();
+            return;
+        }
+        if (g_masquerade) {
+            char subnet[80];
+            /* Build subnet from IP and prefix: e.g. 10.0.0.0/24 */
+            struct in_addr addr;
+            inet_pton(AF_INET, tun_ip, &addr);
+            uint32_t mask = htonl(~((1U << (32 - tun_prefix)) - 1));
+            addr.s_addr &= mask;
+            char net_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &addr, net_str, sizeof(net_str));
+            snprintf(subnet, sizeof(subnet), "%s/%d", net_str, tun_prefix);
+            tun_enable_nat(dev_name, subnet);
+        }
+        if (g_default_route && !is_server && peer_host) {
+            /* Calculate VPN gateway (peer) IP — same logic as tun_open */
+            struct in_addr gw_addr;
+            inet_pton(AF_INET, tun_ip, &gw_addr);
+            unsigned char *gp = (unsigned char *)&gw_addr.s_addr;
+            gp[3] = (gp[3] == 1) ? 2 : 1;
+            char gw_ip[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &gw_addr, gw_ip, sizeof(gw_ip));
+            tun_set_default_route(peer_host, gw_ip, dev_name);
+        }
+        tun_relay(tun_fd, sockfd);
+        tun_restore_default_route();
+        tun_close(tun_fd, dev_name);
+        close(sockfd);
+        farm9crypt_cleanup();
+        return;
+    }
+
     /* Reverse tunnel mode (-R) */
     if (s_reverse_spec) {
         if (is_server) {
@@ -245,6 +298,9 @@ static void usage(const char *prog) {
             "  -K                Keep-open: accept multiple clients (fork per client)\n"
             "  -L <host:port>    Port forwarding: forward decrypted traffic to host:port\n"
             "  -R <host:port>    Reverse tunnel: server listens, client connects to target\n"
+            "  --tun <ip/mask>   TUN VPN mode: create encrypted VPN tunnel\n"
+            "  --masquerade      Enable NAT (use with --tun on server for internet access)\n"
+            "  --default-route   Route ALL traffic through VPN (client-side full tunnel)\n"
             "  --persistent      Auto-reconnect with exponential backoff (client mode)\n"
             "  --obfs http       Obfuscate traffic as HTTP requests (anti-DPI)\n"
             "  --obfs tls        Wrap connection in real TLS 1.3 (stealth mode)\n"            "  --ech              Encrypted Client Hello (hide SNI from DPI)\n"
@@ -332,6 +388,9 @@ int main(int argc, char **argv) {
         {"send",        required_argument, NULL, 'W'},
         {"recv",        required_argument, NULL, 'Y'},
         {"persistent",  no_argument,       NULL, 'Z'},
+        {"tun",         required_argument, NULL, 'N'},
+        {"masquerade",  no_argument,       NULL, 'A'},
+        {"default-route", no_argument,     NULL, 'G'},
         {"help",        no_argument,       NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -438,6 +497,15 @@ int main(int argc, char **argv) {
             break;
         case 'Z':
             g_persistent = 1;
+            break;
+        case 'N':
+            s_tun_cidr = optarg;
+            break;
+        case 'A':
+            g_masquerade = 1;
+            break;
+        case 'G':
+            g_default_route = 1;
             break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;
