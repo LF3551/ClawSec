@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build release binaries for multiple platforms
 
-VERSION=${1:-"2.8.1"}
+VERSION=${1:-"2.8.2"}
 RELEASE_DIR="release-$VERSION"
 
 echo "Building ClawSec v$VERSION"

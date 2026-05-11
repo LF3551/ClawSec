@@ -1,6 +1,6 @@
 # Maintainer: Aleksei Aleinikov <alexey.aleynikov@telekom.com>
 pkgname=clawsec
-pkgver=2.8.1
+pkgver=2.8.2
 pkgrel=1
 pkgdesc="Encrypted netcat with VPN, SOCKS5, reverse tunnels, port scanning, and post-quantum crypto"
 arch=('x86_64' 'aarch64')

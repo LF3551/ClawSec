@@ -2,6 +2,11 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [2.8.2] - 2026-05-11
+
+### Fixed
+- Add VPN options to shell completions (zsh, bash, fish): `--tun`, `--tun-udp`, `--masquerade`, `--default-route`, `--scan`, `-b`, `--socks`, `--send`, `--recv`, `-R`, `--persistent`
+
 ## [2.8.1] - 2026-05-10
 
 ### Fixed
