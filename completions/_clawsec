@@ -22,6 +22,17 @@ _clawsec() {
         '--fingerprint[Mimic browser TLS fingerprint]:profile:(chrome firefox safari)' \
         '--tofu[Trust On First Use - SSH-like server identity]' \
         '--pq[Post-quantum hybrid key exchange (X25519 + ML-KEM-768)]' \
+        '--tun[TUN VPN mode with IP/mask]:ip/mask:' \
+        '--tun-udp[UDP data channel for VPN (avoids TCP-over-TCP)]' \
+        '--masquerade[Enable NAT/masquerade on VPN server]' \
+        '--default-route[Route all traffic through VPN tunnel]' \
+        '--scan[Port scanner]:range:' \
+        '-b[Banner grabbing during port scan]' \
+        '--socks[SOCKS5 proxy through encrypted tunnel]:port:' \
+        '--send[Send file through encrypted tunnel]:file:_files' \
+        '--recv[Receive file into directory]:dir:_directories' \
+        '-R[Reverse tunnel]:host\:port:' \
+        '--persistent[Auto-reconnect with exponential backoff]' \
         '-z[Compress data with zlib before encryption]' \
         '-P[Show transfer progress bar]' \
         '-V[SHA-256 end-to-end file verification]' \
