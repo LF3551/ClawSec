@@ -69,14 +69,14 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 
 ## Security Features
 
-- **AES-256-GCM**: Authenticated encryption with integrity verification
+- **AES-256-GCM**: Authenticated encryption; the frame header (sequence number, length, version) is authenticated too
 - **X25519 ECDHE**: Perfect Forward Secrecy — each session has unique ephemeral keys
-- **PBKDF2**: Password-based key derivation with 100,000 iterations
-- **Random Session Salt**: Per-session salt exchange prevents key reuse across sessions
-- **Replay Protection**: Message sequence counters reject duplicated/reordered packets
-- **Secure Random IV**: Cryptographically strong per-message randomization
-- **Protocol Versioning**: Future-proof binary message format
-- **Memory Safety**: Secure key wiping and resource cleanup
+- **Argon2id**: Memory-hard password binding (OpenSSL ≥ 3.2; PBKDF2-SHA256 100k fallback on older OpenSSL)
+- **Directional keys**: HKDF-SHA256 derives separate client→server and server→client keys (TCP and UDP), so frames cannot be reflected
+- **Replay Protection**: Strict sequence numbers on TCP, 256-entry sliding window on the UDP VPN channel
+- **Bounded decryption**: Plaintext is released only after tag verification and never beyond the caller's buffer
+- **Protocol Versioning**: Wire protocol v2; peers on a different version are rejected with a clear error
+- **Memory Safety**: Key material wiped with `OPENSSL_cleanse`; tests run under ASan/UBSan in CI
 
 ### Anti-Censorship / Anti-DPI
 
@@ -528,9 +528,10 @@ clawsec -l -p 1234 -k "$CLAW_KEY"
 |-----------|-----------|------------|
 | Cipher | AES-256 | 256-bit key |
 | Mode | GCM | AEAD with authentication |
-| Key Derivation | PBKDF2-HMAC-SHA256 | 100,000 iterations |
+| Password binding | Argon2id (PBKDF2-HMAC-SHA256 fallback) | t=3, m=19 MiB, p=1 (PBKDF2: 100,000 iterations) |
+| Traffic keys | HKDF-SHA256 | separate keys per direction, per channel (TCP / UDP) |
 | IV | CSPRNG | 96 bits (12 bytes) |
-| Auth Tag | GMAC | 128 bits (16 bytes) |
+| Auth Tag | GMAC | 128 bits (16 bytes), covers header (AAD) + ciphertext |
 
 ### Protocol Format
 
@@ -539,9 +540,9 @@ clawsec -l -p 1234 -k "$CLAW_KEY"
 ```
 
 - Magic number: `0x434C4157` ("CLAW")
-- Version: `0x0001` (protocol v1)
-- Sequence number: monotonic counter (replay protection)
-- Automatic authentication and integrity verification
+- Version: `0x0002` (protocol v2 — not compatible with ClawSec ≤ 2.8.2)
+- Sequence number: strictly consecutive per direction; a session never reuses one
+- The 16-byte header is GCM associated data: altering sequence, length, version or flags invalidates the tag
 
 ### Session Handshake
 
@@ -549,9 +550,14 @@ clawsec -l -p 1234 -k "$CLAW_KEY"
 Client ──TCP connect──▶ Server
 Client ◀──X25519 pubkey (32B)── Server
 Client ──X25519 pubkey (32B)──▶ Server
-       [Both: key = SHA256(ECDH_secret || PBKDF2(password))]
+       [Both: session = SHA256(ECDH_secret || Argon2id(password, SHA256(pubkeys)))]
+       [Both: k_c2s, k_s2c = HKDF-SHA256(session, "ClawSec v2 tcp c2s" / "... s2c")]
 Client ◀──encrypted messages──▶ Server
 ```
+
+> **Password strength matters.** The password is not protected by a PAKE yet:
+> an active attacker who completes a handshake can test password guesses
+> offline. Use a long random password (e.g. `openssl rand -base64 24`).
 
 Perfect Forward Secrecy: even if password is later compromised,
 previously recorded sessions cannot be decrypted.
@@ -571,13 +577,20 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ## Testing
 
 ```bash
-# Run integration test suite (65 tests)
 cd src
-make macos    # or: make linux
-make test XFLAGS='-I/opt/homebrew/opt/openssl@3/include' XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++'
 
-# On Linux (system OpenSSL):
-make linux && make test
+# Unit/integration tests (124 tests)
+make linux && make test          # macOS: make macos && make test-macos
+
+# Same tests under AddressSanitizer + UndefinedBehaviorSanitizer
+make test-asan
+
+# End-to-end tests of the real binary (Linux): stream modes, --mux, --socks,
+# -R, --send/--recv, wrong password, control-byte payloads
+make e2e
+
+# VPN end-to-end tests in network namespaces (Linux, root): --tun, --tun-udp
+sudo make e2e-vpn
 ```
 
 Test coverage:
@@ -587,6 +600,8 @@ Test coverage:
 - Different salts → different ciphertext
 - Wrong password rejection
 - Replay protection (duplicated packets rejected)
+- Protocol v2 regressions: reflection, replay with edited sequence number,
+  header tampering, version mismatch, forged frames, buffer bounds
 - Large messages (8KB)
 - Input validation (NULL/empty password, invalid salt)
 - Protocol magic validation
@@ -682,7 +697,7 @@ This tool is for authorized testing and legitimate use only.
 ```
 ClawSec/
 ├── src/              # Source code (C/C++)
-├── tests/            # Test suite (58 tests)
+├── tests/            # Unit tests (124) + end-to-end scripts
 ├── docs/             # Documentation (FAQ, examples, man page)
 ├── scripts/          # Build, install, quickstart scripts
 ├── deploy/           # Deployment configs (systemd, k8s, Homebrew)

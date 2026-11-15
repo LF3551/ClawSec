@@ -98,10 +98,11 @@ sudo systemctl start clawsec
 ClawSec uses:
 - AES-256-GCM (NIST approved)
 - X25519 ECDHE (Perfect Forward Secrecy)
-- PBKDF2 with 100k iterations
+- Argon2id password binding (PBKDF2 100k fallback on OpenSSL < 3.2)
+- Separate HKDF-derived keys per direction
 - Cryptographically secure random IVs
-- GCM authentication tags
-- Replay protection (sequence counters)
+- GCM authentication tags covering the frame header
+- Replay protection (authenticated sequence numbers)
 - TLS 1.3 camouflage (`--obfs tls`)
 - Packet padding and timing jitter (`--pad`, `--jitter`)
 

@@ -407,25 +407,31 @@ AES-256-GCM (AEAD) for authenticated encryption
 .IP \(bu 2
 X25519 ECDHE for Perfect Forward Secrecy
 .IP \(bu 2
-PBKDF2-HMAC-SHA256 (100,000 iterations) for password binding
+Argon2id for password binding (PBKDF2-HMAC-SHA256 100,000 iterations on OpenSSL < 3.2)
+.IP \(bu 2
+HKDF-SHA256 directional traffic keys (client\->server, server\->client; TCP and UDP)
 .IP \(bu 2
 Per-message random IV (96-bit)
 .IP \(bu 2
-Monotonic sequence counters (replay protection)
+Authenticated frame header and strict sequence numbers (replay and reflection protection)
 .SS Handshake Protocol
 .PP
 .nf
 1. TCP connection established
 2. Server/Client exchange X25519 ephemeral public keys (32 bytes each)
 3. Both compute: shared_secret = ECDH(my_priv, peer_pub)
-4. Both compute: final_key = SHA256(shared_secret || PBKDF2(password))
-5. Encrypted communication begins
+4. Both compute: session = SHA256(shared_secret || Argon2id(password, SHA256(pubkeys)))
+5. Both derive directional keys: HKDF-SHA256(session, "ClawSec v2 tcp c2s" / "... s2c")
+6. Encrypted communication begins (wire protocol v2)
 .fi
 .SS Wire Format
 .PP
 .nf
 [MAGIC:4][VERSION:2][FLAGS:2][SEQ:4][LENGTH:4][IV:12][TAG:16][CIPHERTEXT]
 .fi
+.PP
+VERSION is 2. The 16-byte header is authenticated as GCM associated data.
+Protocol v2 is not compatible with ClawSec 2.8.2 and earlier.
 .SH EXIT STATUS
 .TP
 .B 0
