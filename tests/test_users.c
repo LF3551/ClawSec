@@ -1,7 +1,12 @@
 /*
  * test_users.c — per-user passwords (--users / --user)
  */
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE
+#endif
 #define _POSIX_C_SOURCE 200809L
+#include <stdlib.h>
+#include <unistd.h>
 #include "test.h"
 #include <errno.h>
 #include <fcntl.h>
