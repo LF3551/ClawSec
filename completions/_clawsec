@@ -30,6 +30,9 @@ _clawsec() {
         '--scan-rate[SYN scan probes per second]:pps' \
         '--users[Server: per-user passwords file]:file:_files' \
         '--add-user[Add/change a user in the --users file]:name' \
+        '--set-user[Change a user'"'"'s options]:name' \
+        '--del-user[Remove a user]:name' \
+        '--user-option[ip=, socks-allow=, disabled, none]:option' \
         '--user[Client: log in as this user]:name' \
         '--tun6[Server: IPv6 inside the tunnel]:ip6/prefix' \
         '--socks-allow[SOCKS server: allowed destination CIDRs]:cidr list' \

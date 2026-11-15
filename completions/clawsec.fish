@@ -32,6 +32,9 @@ complete -c clawsec -l handshake-timeout -x -d 'Abort session setup after n seco
 complete -c clawsec -l scan-rate -x -d 'SYN scan probes per second'
 complete -c clawsec -l users -r -F -d 'Server: per-user passwords file'
 complete -c clawsec -l add-user -x -d 'Add/change a user in the --users file'
+complete -c clawsec -l set-user -x -d "Change a user's options"
+complete -c clawsec -l del-user -x -d 'Remove a user'
+complete -c clawsec -l user-option -x -d 'ip=, socks-allow=, disabled, none'
 complete -c clawsec -l user -x -d 'Client: log in as this user'
 complete -c clawsec -l tun6 -x -d 'Server: IPv6 inside the tunnel'
 complete -c clawsec -l socks-allow -x -d 'SOCKS server: allowed destination CIDRs'

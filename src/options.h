@@ -5,6 +5,8 @@
 #ifndef CLAWSEC_OPTIONS_H
 #define CLAWSEC_OPTIONS_H
 
+#include <netinet/in.h>
+
 struct clawsec_options {
     /* modes */
     int socks;                     /* --socks */
@@ -33,6 +35,12 @@ struct clawsec_options {
     int max_per_ip;                /* --max-per-ip (0 = unlimited) */
     int auth_fail_limit;           /* --auth-fail-limit per 10 min (0 = off) */
     int handshake_timeout;         /* --handshake-timeout (s, 0 = off) */
+
+    /* per-user login (server) */
+    const char *users_file;        /* --users */
+    /* set in the session process after a per-user login: the user's fixed
+     * VPN address (users file "ip="), 0.0.0.0 = none */
+    struct in_addr session_user_ip;
 };
 
 extern struct clawsec_options g_opt;

@@ -1,24 +1,30 @@
 """
 e2e_socks.py — SOCKS5 through a ClawSec tunnel (mux v2), called by e2e.sh.
 
-Usage: e2e_socks.py <socks_proxy_port> <base_port> [label]
-Starts three local destinations on base_port..base_port+2 (keep-alive echo,
+Usage: e2e_socks.py <socks_proxy_port> <unused> [label]
+Starts three local destinations on free ports (keep-alive echo,
 read-until-EOF reverser, 8 MiB bulk sender) and prints one line per check in
 e2e.sh format. Exit status 0 if all checks pass.
 """
 import socket, struct, sys, threading, time, os
 PROXY, BASE = int(sys.argv[1]), int(sys.argv[2])
 LABEL = sys.argv[3] if len(sys.argv) > 3 else "--socks"
-ECHO, REVERSE, BULK = BASE, BASE + 1, BASE + 2
 BULK_SIZE = 8 * 1024 * 1024
 
-def serve(port, handler):
+def serve(handler):
+    """Listen on a free port chosen by the kernel; returns the port"""
     s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(("127.0.0.1", port)); s.listen(64)
+    s.bind(("127.0.0.1", 0)); s.listen(64)
     def loop():
         while True:
             c, _ = s.accept(); threading.Thread(target=handler, args=(c,), daemon=True).start()
     threading.Thread(target=loop, daemon=True).start()
+    return s.getsockname()[1]
+
+def closed_port():
+    """A port with nothing listening (bound briefly, then released)"""
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    return port
 
 def echo(c):                       # keeps the connection open, echoes
     try:
@@ -32,7 +38,7 @@ def bulk(c):                       # sends BULK_SIZE bytes
     try: c.sendall(os.urandom(1024) * (BULK_SIZE // 1024)); c.close()
     except OSError: pass
 
-serve(ECHO, echo); serve(REVERSE, reverse); serve(BULK, bulk)
+ECHO, REVERSE, BULK = serve(echo), serve(reverse), serve(bulk)
 time.sleep(0.2)
 
 def socks(port, host=b"localhost", timeout=10):
@@ -87,7 +93,7 @@ def slow_reader_does_not_block():
     return r == b"ping" and fast and got == BULK_SIZE
 
 def refused_and_unreachable():
-    c, rep = socks(BASE + 7)          # nothing listens there
+    c, rep = socks(closed_port())     # nothing listens there
     return rep[1] != 0
 
 def bad_socks_version():

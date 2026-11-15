@@ -13,12 +13,22 @@
 #include "tun.h"
 #include "farm9crypt.h"
 #include "util.h"
+#include "options.h"
 
 #define TVPN_HDR 6
 
 /* Ask for an address: locally (single-session server) or from the hub */
 static int assign(vpn_server_ctx_t *c, struct in_addr want, int legacy,
                   unsigned char reply[VPN_CFG_REP_LEN]) {
+    /* a user with a fixed address (users file "ip=") always gets it; a
+     * ClawSec < 4.2 client must already be using it */
+    if (g_opt.session_user_ip.s_addr) {
+        if (legacy && want.s_addr != g_opt.session_user_ip.s_addr) {
+            vpn_cfg_build_reply(reply, VPN_CFG_REP_LEN, VPN_CFG_OUTSIDE, NULL);
+            return VPN_CFG_OUTSIDE;
+        }
+        want = g_opt.session_user_ip;
+    }
     if (c->hub_fd < 0) {
         vpn_cfg_t cfg;
         int st = vpn_pool_assign(c->pool, want, 0, &cfg);

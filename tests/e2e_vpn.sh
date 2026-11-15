@@ -236,6 +236,26 @@ hub_test() {
     hub_check "--default-route IPv6 routes removed on exit" \
         sh -c "! ip netns exec ${H[0]} ip -6 route | grep -q '^::/1'"
     kill "${C[@]}" "$HUB" 2>/dev/null; wait "${C[@]}" "$HUB" 2>/dev/null
+    # per-user fixed address: users file ip=, client asks for --tun auto
+    local UF="$WORK/vpn-users"
+    CLAWSEC_PASSWORD='dana-Vpn-passw0rd-1' "$BIN" --users "$UF" --add-user dana \
+        --user-option ip=10.232.0.77 >/dev/null 2>&1
+    ip netns exec "$S" timeout 30 "$BIN" -l -p 9001 -K --users "$UF" --tun 10.232.0.1/24 \
+        --tun6 fd00:232::1/64 </dev/null >/dev/null 2>"$WORK/hub2.log" &
+    HUB=$!
+    sleep 0.8
+    ip netns exec "${H[1]}" env CLAWSEC_PASSWORD='dana-Vpn-passw0rd-1' timeout 30 "$BIN" \
+        --user dana --tun auto 192.168.242.1 9001 </dev/null >/dev/null 2>&1 &
+    C=($!)
+    for _ in $(seq 40); do
+        ip netns exec "${H[1]}" ip -o addr 2>/dev/null | grep -q '10.232.0.77/24' && break
+        sleep 0.1
+    done
+    hub_check "users file ip=: fixed address 10.232.0.77 (+ fd00:232::4d)" \
+        sh -c "ip netns exec ${H[1]} ip -o addr | grep -q '10.232.0.77/24' &&
+               ip netns exec ${H[1]} ip -o addr | grep -q 'fd00:232::4d/64' &&
+               ip netns exec ${H[1]} ping -c1 -W2 10.232.0.1"
+    kill "${C[@]}" "$HUB" 2>/dev/null; wait "${C[@]}" "$HUB" 2>/dev/null
     ip netns del "$S"; for n in "${H[@]}"; do ip netns del "$n"; done
 }
 

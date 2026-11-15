@@ -17,6 +17,7 @@
 #include "ecdhe.h"
 #include "pqkem.h"
 #include "users.h"
+#include <arpa/inet.h>
 
 void test_users_names_and_scalars(void) {
     TEST_BEGIN("users: name rules; w depends on name and password") {
@@ -38,19 +39,40 @@ void test_users_file(void) {
         char dir[] = "/tmp/clawsec-users-XXXXXX", path[128];
         ASSERT(mkdtemp(dir) != NULL, "tmpdir");
         snprintf(path, sizeof(path), "%s/users", dir);
-        unsigned char w1[32], w2[32], w3[32], got[32];
+        unsigned char w1[32], w2[32], w3[32];
+        user_entry_t got;
         memset(w1, 0x11, 32); memset(w2, 0x22, 32); memset(w3, 0x33, 32);
-        ASSERT(users_set(path, "alice", w1) == 0 && users_set(path, "bob", w2) == 0, "add");
+        ASSERT(users_set(path, "alice", w1, NULL) == 0 && users_set(path, "bob", w2, NULL) == 0, "add");
         struct stat st;
         ASSERT(stat(path, &st) == 0 && (st.st_mode & 0777) == 0600, "mode 0600");
         FILE *f = fopen(path, "a");
         fputs("# a comment\nnot a valid line\n", f);
         fclose(f);
-        ASSERT(users_set(path, "alice", w3) == 0, "replace");
-        ASSERT(users_lookup(path, "alice", got) == 1 && memcmp(got, w3, 32) == 0, "alice replaced");
-        ASSERT(users_lookup(path, "bob", got) == 1 && memcmp(got, w2, 32) == 0, "bob kept");
-        ASSERT(users_lookup(path, "carol", got) == 0, "unknown user");
-        ASSERT(users_lookup("/nonexistent/users", "alice", got) == -1, "missing file");
+        ASSERT(users_set(path, "alice", w3, NULL) == 0, "replace");
+        ASSERT(users_lookup(path, "alice", &got) == 1 && memcmp(got.w, w3, 32) == 0, "alice replaced");
+        ASSERT(users_lookup(path, "bob", &got) == 1 && memcmp(got.w, w2, 32) == 0, "bob kept");
+        ASSERT(users_lookup(path, "carol", &got) == 0, "unknown user");
+        ASSERT(users_lookup("/nonexistent/users", "alice", &got) == -1, "missing file");
+
+        /* options: set without touching the password, keep on password change */
+        ASSERT(users_set(path, "bob", NULL, "ip=10.8.0.10,socks-allow=10.0.0.0/8;192.168.1.0/24") == 0,
+               "set options");
+        ASSERT(users_lookup(path, "bob", &got) == 1 && memcmp(got.w, w2, 32) == 0 && got.has_ip &&
+               got.ip.s_addr == htonl(0x0a08000a) &&
+               strcmp(got.socks_allow, "10.0.0.0/8,192.168.1.0/24") == 0 && !got.disabled,
+               "options stored, password kept");
+        ASSERT(users_set(path, "bob", w1, NULL) == 0 && users_lookup(path, "bob", &got) == 1 &&
+               memcmp(got.w, w1, 32) == 0 && got.has_ip, "password change keeps options");
+        ASSERT(users_set(path, "bob", NULL, "disabled") == 0 && users_lookup(path, "bob", &got) == 1 &&
+               got.disabled && !got.has_ip, "options replaced");
+        ASSERT(users_set(path, "bob", NULL, "none") == 0 && users_lookup(path, "bob", &got) == 1 &&
+               !got.disabled && got.opts[0] == '\0', "options cleared");
+        errno = 0;
+        ASSERT(users_set(path, "nobody", NULL, "disabled") == -1 && errno == ENOENT,
+               "options for an unknown user");
+        ASSERT(users_delete(path, "bob") == 1 && users_lookup(path, "bob", &got) == 0, "deleted");
+        ASSERT(users_delete(path, "bob") == 0, "delete twice");
+        ASSERT(users_lookup(path, "alice", &got) == 1, "others kept after delete");
         f = fopen(path, "r");
         char buf[2048];
         size_t n = fread(buf, 1, sizeof(buf) - 1, f);
@@ -75,7 +97,9 @@ static void make_users_file(void) {
     snprintf(s_users_path, sizeof(s_users_path), "%s/users", dir);
     unsigned char w[32];
     user_password_to_w("alice", "alice-password", 14, w);
-    users_set(s_users_path, "alice", w);
+    users_set(s_users_path, "alice", w, NULL);
+    user_password_to_w("carol", "carol-password", 14, w);
+    users_set(s_users_path, "carol", w, "disabled");
 }
 
 static void clean_users_file(void) {
@@ -130,6 +154,8 @@ void test_users_handshake(void) {
         int wrong_cr = cr;
         int unknown = user_handshake("mallory", "alice-password", 0, &cr);
         int unknown_cr = cr;
+        int disabled = user_handshake("carol", "carol-password", 0, &cr);
+        int disabled_cr = cr;
         int nouser = user_handshake(NULL, "alice-password", 0, &cr);
         int nouser_cr = cr;
         int pq_ok = -1, pq_cr = -1;
@@ -141,9 +167,32 @@ void test_users_handshake(void) {
                "wrong password: FAIL_AUTH on both ends");
         ASSERT(unknown == 10 + FARM9_FAIL_AUTH && unknown_cr == 10 + FARM9_FAIL_AUTH,
                "unknown user: same result as a wrong password");
+        ASSERT(disabled == 10 + FARM9_FAIL_AUTH && disabled_cr == 10 + FARM9_FAIL_AUTH,
+               "disabled user: refused like a wrong password");
         ASSERT(nouser_cr == 10 + FARM9_FAIL_CONFIG && nouser != 0,
                "client without --user: option mismatch");
         if (pq_available())
             ASSERT(pq_ok == 0 && pq_cr == 0, "per-user login with --pq");
+    } TEST_END;
+}
+
+void test_users_options(void) {
+    TEST_BEGIN("users: option syntax") {
+        user_entry_t e;
+        ASSERT(users_parse_options("ip=10.1.2.3,disabled", &e) == 0 && e.has_ip && e.disabled, "ok");
+        ASSERT(users_parse_options("", &e) == 0 && !e.has_ip && !e.disabled, "empty");
+        int saved = dup(STDERR_FILENO), dn = open("/dev/null", O_WRONLY);
+        dup2(dn, STDERR_FILENO); close(dn);
+        int bad1 = users_parse_options("ip=10.1.2", &e);
+        int bad2 = users_parse_options("admin", &e);
+        int bad3 = users_parse_options("socks-allow=10.0.0.0/8 ;x", &e);
+        int bad4 = users_parse_options("ip=1.2.3.4:x", &e);
+        dup2(saved, STDERR_FILENO); close(saved);
+        ASSERT(bad1 == -1 && bad2 == -1 && bad3 == -1 && bad4 == -1, "invalid options rejected");
+        char line[] = "dave:v1:0000000000000000000000000000000000000000000000000000000000000001:ip=10.0.0.9";
+        ASSERT(users_parse_line(line, &e) == 1 && e.has_ip && strcmp(e.name, "dave") == 0 &&
+               e.w[31] == 1, "line with options");
+        char old[] = "erin:v1:0000000000000000000000000000000000000000000000000000000000000002";
+        ASSERT(users_parse_line(old, &e) == 1 && !e.has_ip, "4.2 line without options");
     } TEST_END;
 }

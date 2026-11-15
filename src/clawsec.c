@@ -82,6 +82,9 @@ static void usage(const char *prog) {
             "  --user <name>     Client: log in as <name> (server uses --users)\n"
             "  --users <file>    Server: per-user passwords instead of a shared one\n"
             "  --add-user <name> With --users: add a user / change its password, exit\n"
+            "  --set-user <name> With --users: change a user's options, exit\n"
+            "  --del-user <name> With --users: remove a user, exit\n"
+            "  --user-option <o> ip=A.B.C.D | socks-allow=CIDR;CIDR | disabled | none\n"
             "                    (or set CLAWSEC_PASSWORD; without either you are prompted)\n"
             "  -l                Listen mode (server)\n"
             "  -p <port>         Local port in listen mode\n"
@@ -147,6 +150,9 @@ enum {
     OPT_USER,
     OPT_USERS,
     OPT_ADD_USER,
+    OPT_SET_USER,
+    OPT_DEL_USER,
+    OPT_USER_OPTION,
     OPT_MAX_CLIENTS,
     OPT_MAX_PER_IP,
     OPT_SCAN_RATE,
@@ -174,6 +180,10 @@ int main(int argc, char **argv) {
     const char *login_user = NULL;    /* --user (client) */
     const char *users_file = NULL;    /* --users (server) */
     const char *add_user = NULL;      /* --add-user (with --users) */
+    const char *set_user = NULL;      /* --set-user (with --users) */
+    const char *del_user = NULL;      /* --del-user (with --users) */
+    char user_opts[USER_OPTS_MAX] = "";   /* --user-option, comma-joined */
+    int have_user_opts = 0;
     int keep_open = 0;
     int timeout_sec = 0;
     int scan_mode = 0;
@@ -209,6 +219,9 @@ int main(int argc, char **argv) {
         {"user",        required_argument, NULL, OPT_USER},
         {"users",       required_argument, NULL, OPT_USERS},
         {"add-user",    required_argument, NULL, OPT_ADD_USER},
+        {"set-user",    required_argument, NULL, OPT_SET_USER},
+        {"del-user",    required_argument, NULL, OPT_DEL_USER},
+        {"user-option", required_argument, NULL, OPT_USER_OPTION},
         {"max-clients", required_argument, NULL, OPT_MAX_CLIENTS},
         {"max-per-ip", required_argument, NULL, OPT_MAX_PER_IP},
         {"scan-rate", required_argument, NULL, OPT_SCAN_RATE},
@@ -250,6 +263,19 @@ int main(int argc, char **argv) {
         case OPT_USER: login_user = optarg; break;
         case OPT_USERS: users_file = optarg; break;
         case OPT_ADD_USER: add_user = optarg; break;
+        case OPT_SET_USER: set_user = optarg; break;
+        case OPT_DEL_USER: del_user = optarg; break;
+        case OPT_USER_OPTION: {
+            size_t used = strlen(user_opts);
+            if (used + strlen(optarg) + 2 > sizeof(user_opts)) {
+                fprintf(stderr, "ERROR: too many --user-option values\n");
+                return 1;
+            }
+            if (used) strcat(user_opts, ",");
+            strcat(user_opts, optarg);
+            have_user_opts = 1;
+            break;
+        }
         case OPT_MAX_CLIENTS: {
             long v = parse_count(optarg, 4096);
             if (v < 1) {
@@ -479,15 +505,48 @@ int main(int argc, char **argv) {
     }
 
     /* Per-user login: option checks */
-    if (add_user && !users_file) {
-        fprintf(stderr, "ERROR: --add-user needs --users <file>\n");
+    if ((add_user || set_user || del_user) && !users_file) {
+        fprintf(stderr, "ERROR: --add-user/--set-user/--del-user need --users <file>\n");
         return 1;
+    }
+    if (have_user_opts && !add_user && !set_user) {
+        fprintf(stderr, "ERROR: --user-option goes with --add-user or --set-user\n");
+        return 1;
+    }
+    if (have_user_opts && users_parse_options(user_opts, NULL) != 0) return 1;
+    if ((set_user && !user_name_valid(set_user)) || (del_user && !user_name_valid(del_user))) {
+        fprintf(stderr, "ERROR: user names are 1-%d characters from A-Z a-z 0-9 . _ -\n",
+                USER_NAME_MAX);
+        return 1;
+    }
+    if (set_user) {                   /* options only, the password stays */
+        if (!have_user_opts) {
+            fprintf(stderr, "ERROR: --set-user needs --user-option KEY=VALUE "
+                            "(or --user-option none)\n");
+            return 1;
+        }
+        if (users_set(users_file, set_user, NULL, user_opts) != 0) {
+            fprintf(stderr, "ERROR: cannot update '%s' in %s: %s\n", set_user, users_file,
+                    errno == ENOENT ? "no such user (create it with --add-user)" : strerror(errno));
+            return 1;
+        }
+        printf("user '%s' updated in %s\n", set_user, users_file);
+        return 0;
+    }
+    if (del_user) {
+        int r = users_delete(users_file, del_user);
+        if (r < 0) {
+            fprintf(stderr, "ERROR: cannot update %s: %s\n", users_file, strerror(errno));
+            return 1;
+        }
+        printf(r ? "user '%s' removed from %s\n" : "no user '%s' in %s\n", del_user, users_file);
+        return r ? 0 : 1;
     }
     if (login_user && (listen_mode || users_file)) {
         fprintf(stderr, "ERROR: --user is a client option (the server uses --users <file>)\n");
         return 1;
     }
-    if (users_file && !listen_mode && !add_user) {
+    if (users_file && !listen_mode && !add_user && !set_user && !del_user) {
         fprintf(stderr, "ERROR: --users is a server option (-l); clients use --user <name>\n");
         return 1;
     }
@@ -532,7 +591,7 @@ int main(int argc, char **argv) {
         unsigned char w[32];
         rc = user_password_to_w(add_user, pw1, strlen(pw1), w);
         secret_wipe(pw1, sizeof(pw1));
-        if (rc == 0) rc = users_set(users_file, add_user, w);
+        if (rc == 0) rc = users_set(users_file, add_user, w, have_user_opts ? user_opts : NULL);
         secret_wipe(w, sizeof(w));
         if (rc != 0) {
             fprintf(stderr, "ERROR: cannot update %s: %s\n", users_file, strerror(errno));
@@ -544,6 +603,7 @@ int main(int argc, char **argv) {
 
     if (users_file) {
         if (users_check_file(users_file) != 0) return 1;
+        g_opt.users_file = users_file;
         ecdhe_set_users_file(users_file);
         if (password_from_argv || key_file)
             fprintf(stderr, "Warning: --users replaces the shared password; -k/--key-file "

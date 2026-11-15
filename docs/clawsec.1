@@ -288,6 +288,20 @@ With \fB\-\-users\fR: add \fIname\fR or change its password (asked twice on
 the terminal, or taken from \fB\-\-key\-file\fR / \fBCLAWSEC_PASSWORD\fR), then exit.
 Names: 1\-32 characters from A\-Z a\-z 0\-9 . _ \-.
 .TP
+.BI \-\-set\-user " name"
+With \fB\-\-users\fR: change the options of \fIname\fR (\fB\-\-user\-option\fR),
+keeping the password.
+.TP
+.BI \-\-del\-user " name"
+With \fB\-\-users\fR: remove \fIname\fR.
+.TP
+.BI \-\-user\-option " opt"
+With \fB\-\-add\-user\fR or \fB\-\-set\-user\fR (repeatable):
+\fBip=\fIA.B.C.D\fR (fixed VPN address; IPv6 with the same host number),
+\fBsocks\-allow=\fICIDR\fR;\fICIDR\fR (this user's SOCKS destinations instead of
+the server's), \fBdisabled\fR (login refused like a wrong password),
+\fBnone\fR (clear).
+.TP
 .BI \-\-user " name"
 Client: log in as \fIname\fR on a server that runs \fB\-\-users\fR.
 .TP

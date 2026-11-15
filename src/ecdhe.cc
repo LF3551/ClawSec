@@ -434,8 +434,14 @@ static int transcript_aad(const unsigned char *m1, size_t l1, const unsigned cha
 static void user_scalar(const char *name, unsigned char w[SPAKE2_SCALAR_LEN]) {
     static unsigned char fake_key[32];
     static int have_key = 0;
-    int r = s_users_file ? users_lookup(s_users_file, name, w) : -1;
-    if (r == 1) return;
+    user_entry_t e;
+    int r = s_users_file ? users_lookup(s_users_file, name, &e) : -1;
+    if (r == 1 && !e.disabled) {                    /* disabled = like unknown */
+        memcpy(w, e.w, SPAKE2_SCALAR_LEN);
+        OPENSSL_cleanse(&e, sizeof(e));
+        return;
+    }
+    OPENSSL_cleanse(&e, sizeof(e));
     if (r < 0) fprintf(stderr, "[ClawSec] Error: cannot read the users file\n");
     if (!have_key) {
         RAND_bytes(fake_key, sizeof(fake_key));

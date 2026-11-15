@@ -203,6 +203,7 @@ extern void test_pad_handshake_both(void);
 extern void test_users_names_and_scalars(void);
 extern void test_users_file(void);
 extern void test_users_handshake(void);
+extern void test_users_options(void);
 
 /* test_vpn.c */
 extern void test_vpn_cfg_messages(void);
@@ -423,6 +424,7 @@ int main(void) {
     test_users_names_and_scalars();
     test_users_file();
     test_users_handshake();
+    test_users_options();
 
     /* VPN addresses */
     test_vpn_cfg_messages();
