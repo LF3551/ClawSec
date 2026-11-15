@@ -592,6 +592,12 @@ int tun_enable_nat6(const char *dev_name, const char *subnet6) {
      * IPv6 rule goes into its own anchor. */
     char out_if[IFNAMSIZ];
     if (default_iface(out_if, sizeof(out_if)) != 0) return -1;
+    FILE *fw = popen("sysctl -n net.inet6.ip6.forwarding 2>/dev/null", "r");
+    if (fw) {
+        int c = fgetc(fw);
+        if (c == '0' || c == '1') s_prev_forwarding6 = (char)c;
+        pclose(fw);
+    }
     (void)RUN(1, "sysctl", "-w", "net.inet6.ip6.forwarding=1");
     char pf_conf[] = "/tmp/clawsec_nat6.XXXXXX";
     int fd = mkstemp(pf_conf);
@@ -626,10 +632,13 @@ static void tun_disable_nat6(void) {
     default:
         return;
     }
+    if (s_prev_forwarding6 == '0') {
 #ifdef __linux__
-    if (s_prev_forwarding6 == '0')
         (void)RUN(1, "sysctl", "-w", "net.ipv6.conf.all.forwarding=0");
+#elif defined(__APPLE__)
+        (void)RUN(1, "sysctl", "-w", "net.inet6.ip6.forwarding=0");
 #endif
+    }
     s_nat6_backend = NAT6_NONE;
 }
 
