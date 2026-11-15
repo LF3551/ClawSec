@@ -75,9 +75,9 @@ static void install_sigchld(void) {
     sigaction(SIGCHLD, &sa, NULL);
 }
 
-/* Forward declaration */
-static int parse_host_port(const char *spec, char *host, size_t hlen,
-                           char *port, size_t plen);
+/* Local listener addresses (resolved once from the command line) */
+static char s_socks_host[256], s_socks_lport[8];   /* --socks [host:]port (client) */
+static char s_mux_host[256], s_mux_lport[8];       /* -p [host:]port with --mux (client) */
 
 /* Handle one client connection (used by keep-open and normal mode) */
 static void handle_client(int sockfd, const char *password, int is_server,
@@ -155,7 +155,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
         if (is_server) {
             socks5_server(sockfd);
         } else {
-            socks5_client(sockfd, s_socks_port);
+            socks5_client(sockfd, s_socks_host, s_socks_lport);
         }
         close(sockfd);
         farm9crypt_cleanup();
@@ -254,14 +254,14 @@ static void handle_client(int sockfd, const char *password, int is_server,
         if (is_server) {
             /* Server: listen on reverse port, relay through tunnel */
             char rev_host[256], rev_port[32];
-            if (parse_host_port(s_reverse_spec, rev_host, sizeof(rev_host),
+            if (net_parse_host_port(s_reverse_spec, rev_host, sizeof(rev_host),
                                 rev_port, sizeof(rev_port)) == 0) {
-                reverse_server(sockfd, rev_port);
+                reverse_server(sockfd, rev_host, rev_port);
             }
         } else {
             /* Client: wait for ROPEN, connect to local target, relay back */
             char rev_host[256], rev_port[32];
-            if (parse_host_port(s_reverse_spec, rev_host, sizeof(rev_host),
+            if (net_parse_host_port(s_reverse_spec, rev_host, sizeof(rev_host),
                                 rev_port, sizeof(rev_port)) == 0) {
                 reverse_client(sockfd, rev_host, rev_port);
             }
@@ -276,7 +276,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
         if (is_server && fwd_host && fwd_port) {
             mux_relay_server(sockfd, fwd_host, fwd_port);
         } else if (!is_server && s_mux_port) {
-            mux_relay_client(sockfd, s_mux_port);
+            mux_relay_client(sockfd, s_mux_host, s_mux_lport);
         }
         close(sockfd);
         farm9crypt_cleanup();
@@ -324,9 +324,11 @@ static void usage(const char *prog) {
             "  -k <password>     Encryption password (required)\n"
             "  -l                Listen mode (server)\n"
             "  -p <port>         Local port in listen mode\n"
+            "                    (with --mux on the client: [host:]port, default 127.0.0.1)\n"
             "  -K                Keep-open: accept multiple clients (fork per client)\n"
             "  -L <host:port>    Port forwarding: forward decrypted traffic to host:port\n"
-            "  -R <host:port>    Reverse tunnel: server listens, client connects to target\n"
+            "  -R <host:port>    Reverse tunnel. Server: address to listen on (127.0.0.1,\n"
+            "                    or 0.0.0.0 to expose publicly). Client: target to connect to\n"
             "  --tun <ip/mask>   TUN VPN mode: create encrypted VPN tunnel\n"
             "  --tun-udp         Use UDP data channel for VPN (avoids TCP-over-TCP)\n"
             "  --masquerade      Enable NAT (use with --tun on server for internet access)\n"
@@ -341,7 +343,8 @@ static void usage(const char *prog) {
             "  --scan <range>    Stealth port scan (SYN/connect, randomized order)\n"
             "                    range: 1-1024, 22-443, all (default: 1-1024)\n"
             "  -b                Banner grab (show service version on open ports)\n"
-            "  --socks <port>    SOCKS5 proxy through encrypted tunnel\n"
+            "  --socks [h:]port  SOCKS5 proxy through encrypted tunnel (client listens on\n"
+            "                    127.0.0.1 by default; the proxy has no authentication)\n"
             "  --send <file>     Send file (encrypted, with SHA-256 verify + resume)\n"
             "  --recv <dir>      Receive file (save to dir, with resume support)\n"
             "  --pad             Pad all packets to uniform 1400 bytes (anti-analysis)\n"
@@ -361,33 +364,6 @@ static void usage(const char *prog) {
     fprintf(stderr,
             "  -e <program>      Execute program after connect (encrypted)\n");
 #endif
-}
-
-/* Parse host:port string. Returns 0 on success, -1 on error. */
-static int parse_host_port(const char *spec, char *host, size_t hlen,
-                           char *port, size_t plen) {
-    if (!spec) return -1;
-    /* [IPv6]:port */
-    if (spec[0] == '[') {
-        const char *bracket = strchr(spec, ']');
-        if (!bracket) return -1;
-        size_t hl = bracket - spec - 1;
-        if (hl >= hlen) return -1;
-        memcpy(host, spec + 1, hl);
-        host[hl] = '\0';
-        if (bracket[1] != ':') return -1;
-        snprintf(port, plen, "%s", bracket + 2);
-        return 0;
-    }
-    /* host:port */
-    const char *colon = strrchr(spec, ':');
-    if (!colon || colon == spec) return -1;
-    size_t hl = colon - spec;
-    if (hl >= hlen) return -1;
-    memcpy(host, spec, hl);
-    host[hl] = '\0';
-    snprintf(port, plen, "%s", colon + 1);
-    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -487,7 +463,7 @@ int main(int argc, char **argv) {
             break;
         case 'F':
             g_fallback = 1;
-            if (parse_host_port(optarg, g_fallback_host, sizeof(g_fallback_host),
+            if (net_parse_host_port(optarg, g_fallback_host, sizeof(g_fallback_host),
                                 g_fallback_port, sizeof(g_fallback_port)) < 0) {
                 fprintf(stderr, "ERROR: Invalid fallback target '%s' (use host:port)\n", optarg);
                 return 1;
@@ -592,7 +568,7 @@ int main(int argc, char **argv) {
     char fwd_host[256] = {0};
     char fwd_port[32] = {0};
     if (fwd_spec) {
-        if (parse_host_port(fwd_spec, fwd_host, sizeof(fwd_host),
+        if (net_parse_host_port(fwd_spec, fwd_host, sizeof(fwd_host),
                             fwd_port, sizeof(fwd_port)) < 0) {
             fprintf(stderr, "ERROR: Invalid forward target '%s' (use host:port)\n", fwd_spec);
             return 1;
@@ -611,16 +587,41 @@ int main(int argc, char **argv) {
             fprintf(stderr, "ERROR: --mux in client mode requires -p <local_port>\n");
             return 1;
         }
-        if (!listen_mode)
+        if (!listen_mode) {
+            /* Local forwarding port: loopback unless an address is given */
+            if (net_parse_listen_spec(bind_port, net_loopback_host(),
+                                      s_mux_host, sizeof(s_mux_host),
+                                      s_mux_lport, sizeof(s_mux_lport)) < 0) {
+                fprintf(stderr, "ERROR: Invalid --mux local port '%s' (use port or host:port)\n",
+                        bind_port);
+                return 1;
+            }
             s_mux_port = bind_port;
+        }
     }
 
     /* Validate SOCKS5 mode */
     if (g_socks && listen_mode) {
         /* Server side — no local port needed, will relay outbound */
-    } else if (g_socks && !s_socks_port) {
-        fprintf(stderr, "ERROR: --socks requires <port> argument\n");
-        return 1;
+    } else if (g_socks) {
+        /* The proxy is unauthenticated: loopback unless an address is given */
+        if (!s_socks_port ||
+            net_parse_listen_spec(s_socks_port, net_loopback_host(),
+                                  s_socks_host, sizeof(s_socks_host),
+                                  s_socks_lport, sizeof(s_socks_lport)) < 0) {
+            fprintf(stderr, "ERROR: Invalid --socks '%s' (use port or host:port)\n",
+                    s_socks_port ? s_socks_port : "");
+            return 1;
+        }
+    }
+
+    /* Validate reverse tunnel spec */
+    if (s_reverse_spec) {
+        char h[256], pt[8];
+        if (net_parse_host_port(s_reverse_spec, h, sizeof(h), pt, sizeof(pt)) < 0) {
+            fprintf(stderr, "ERROR: Invalid -R '%s' (use host:port)\n", s_reverse_spec);
+            return 1;
+        }
     }
 
     if (g_udp_mode)

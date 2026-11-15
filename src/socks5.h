@@ -17,7 +17,7 @@
 
 /* Client-side: local SOCKS5 listener + relay through encrypted fd.
  * Blocks until tunnel closes. */
-void socks5_client(int tunnel_fd, const char *local_port);
+void socks5_client(int tunnel_fd, const char *listen_host, const char *listen_port);
 
 /* Server-side: receive connect requests from tunnel, make outbound
  * connections, relay data. Blocks until tunnel closes. */

@@ -12,8 +12,9 @@
  *   Then bidirectional relay through tunnel.
  */
 
-/* Server side: listen on rev_port, relay through encrypted tunnel_fd */
-int reverse_server(int tunnel_fd, const char *rev_port);
+/* Server side: listen on rev_host:rev_port (e.g. 127.0.0.1, or 0.0.0.0 to
+ * expose publicly), relay through encrypted tunnel_fd */
+int reverse_server(int tunnel_fd, const char *rev_host, const char *rev_port);
 
 /* Client side: wait for ROPEN, connect to target, relay back */
 int reverse_client(int tunnel_fd, const char *target_host, const char *target_port);

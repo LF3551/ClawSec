@@ -179,8 +179,9 @@ done:
 
 /* ──────────── Client-side mux relay ──────────── */
 
-int mux_relay_client(int enc_fd, const char *local_port) {
-    int listen_fd = net_listen(local_port);
+int mux_relay_client(int enc_fd, const char *listen_host, const char *local_port) {
+    int listen_fd = net_listen_on(listen_host, local_port);
+    if (listen_fd < 0) return -1;
 
     int streams[MUX_MAX_STREAMS];
     memset(streams, -1, sizeof(streams));
@@ -188,7 +189,7 @@ int mux_relay_client(int enc_fd, const char *local_port) {
 
     char buf[MUX_MAX_PAYLOAD];
 
-    log_msg(1, "mux: client relay on *:%s", local_port);
+    log_msg(1, "mux: client relay on %s:%s", listen_host ? listen_host : "*", local_port);
 
     for (;;) {
         fd_set rfds;

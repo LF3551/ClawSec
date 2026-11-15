@@ -162,7 +162,7 @@ void test_socks5_client_binds(void) {
         pid_t pid = fork();
         if (pid == 0) {
             close(fds[1]);
-            socks5_client(fds[0], port_str);
+            socks5_client(fds[0], "127.0.0.1", port_str);
             close(fds[0]);
             _exit(0);
         }

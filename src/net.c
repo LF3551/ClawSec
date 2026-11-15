@@ -142,17 +142,23 @@ int net_try_connect(const char *host, const char *port, int timeout_sec) {
     return sock;
 }
 
-int net_listen(const char *port) {
+/* Create a listening socket on host:port (host NULL = wildcard).
+ * Returns fd or -1; *gai_err receives a getaddrinfo error if any. */
+static int listen_socket(const char *host, const char *port, int *gai_err) {
     struct addrinfo hints, *res = NULL, *rp;
     int listen_fd = -1, ret;
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family   = g_af_family;
     hints.ai_socktype = g_udp_mode ? SOCK_DGRAM : SOCK_STREAM;
-    hints.ai_flags    = AI_PASSIVE;
+    hints.ai_flags    = host ? 0 : AI_PASSIVE;
 
-    ret = getaddrinfo(NULL, port, &hints, &res);
-    if (ret != 0) fatal("getaddrinfo(*,%s): %s", port, gai_strerror(ret));
+    *gai_err = 0;
+    ret = getaddrinfo(host, port, &hints, &res);
+    if (ret != 0) {
+        *gai_err = ret;
+        return -1;
+    }
 
     for (rp = res; rp != NULL; rp = rp->ai_next) {
         listen_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
@@ -161,7 +167,7 @@ int net_listen(const char *port) {
         int yes = 1;
         setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
-        if (rp->ai_family == AF_INET6 && g_af_family == AF_UNSPEC) {
+        if (!host && rp->ai_family == AF_INET6 && g_af_family == AF_UNSPEC) {
             int no = 0;
             setsockopt(listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, &no, sizeof(no));
         }
@@ -172,7 +178,7 @@ int net_listen(const char *port) {
             continue;
         }
         if (!g_udp_mode) {
-            if (listen(listen_fd, 1) < 0) {
+            if (listen(listen_fd, 16) < 0) {
                 close(listen_fd);
                 listen_fd = -1;
                 continue;
@@ -182,8 +188,85 @@ int net_listen(const char *port) {
     }
 
     freeaddrinfo(res);
+    return listen_fd;
+}
+
+int net_listen(const char *port) {
+    int gai_err = 0;
+    int listen_fd = listen_socket(NULL, port, &gai_err);
+    if (gai_err) fatal("getaddrinfo(*,%s): %s", port, gai_strerror(gai_err));
     if (listen_fd < 0) fatal("listen on *:%s failed", port);
     return listen_fd;
+}
+
+int net_listen_on(const char *host, const char *port) {
+    int gai_err = 0;
+    int saved_udp = g_udp_mode;
+    g_udp_mode = 0;                 /* local listeners are always TCP */
+    int listen_fd = listen_socket(host, port, &gai_err);
+    g_udp_mode = saved_udp;
+    if (gai_err) {
+        fprintf(stderr, "ERROR: cannot resolve listen address %s:%s: %s\n",
+                host ? host : "*", port, gai_strerror(gai_err));
+        return -1;
+    }
+    if (listen_fd < 0)
+        fprintf(stderr, "ERROR: cannot listen on %s:%s: %s\n",
+                host ? host : "*", port, strerror(errno));
+    return listen_fd;
+}
+
+const char *net_loopback_host(void) {
+    return g_af_family == AF_INET6 ? "::1" : "127.0.0.1";
+}
+
+static int valid_port(const char *port) {
+    if (!port || !*port || strlen(port) > 5) return 0;
+    long v = 0;
+    for (const char *p = port; *p; p++) {
+        if (*p < '0' || *p > '9') return 0;
+        v = v * 10 + (*p - '0');
+    }
+    return v >= 1 && v <= 65535;
+}
+
+int net_parse_host_port(const char *spec, char *host, size_t hlen,
+                        char *port, size_t plen) {
+    if (!spec || !host || !port || hlen == 0 || plen == 0) return -1;
+    const char *port_str;
+    size_t hl;
+
+    if (spec[0] == '[') {                       /* [IPv6]:port */
+        const char *bracket = strchr(spec, ']');
+        if (!bracket || bracket[1] != ':') return -1;
+        hl = (size_t)(bracket - spec - 1);
+        if (hl == 0 || hl >= hlen) return -1;
+        memcpy(host, spec + 1, hl);
+        port_str = bracket + 2;
+    } else {                                    /* host:port */
+        const char *colon = strrchr(spec, ':');
+        if (!colon || colon == spec) return -1;
+        hl = (size_t)(colon - spec);
+        if (hl >= hlen) return -1;
+        memcpy(host, spec, hl);
+        port_str = colon + 1;
+    }
+    host[hl] = '\0';
+    if (!valid_port(port_str) || strlen(port_str) >= plen) return -1;
+    snprintf(port, plen, "%s", port_str);
+    return 0;
+}
+
+int net_parse_listen_spec(const char *spec, const char *default_host,
+                          char *host, size_t hlen, char *port, size_t plen) {
+    if (!spec || !default_host) return -1;
+    if (strchr(spec, ':'))
+        return net_parse_host_port(spec, host, hlen, port, plen);
+    if (!valid_port(spec) || strlen(spec) >= plen || strlen(default_host) >= hlen)
+        return -1;
+    snprintf(host, hlen, "%s", default_host);
+    snprintf(port, plen, "%s", spec);
+    return 0;
 }
 
 int net_accept(int listen_fd) {

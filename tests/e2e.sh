@@ -47,6 +47,21 @@ wait_port() {
     return 1
 }
 
+# Print the local IPv4 address (hex, as in /proc/net/tcp) of the LISTEN socket on port $1
+listen_addr() {
+    awk -v p="$(printf '%04X' "$1")" '$4 == "0A" { split($2, a, ":"); if (a[2] == p) print a[1] }' /proc/net/tcp
+}
+
+expect_loopback() {   # expect_loopback <name> <port>
+    local addr
+    addr=$(listen_addr "$2")
+    if [ "$addr" = "0100007F" ]; then
+        echo "  [E2E] $1 listens on 127.0.0.1 only ... PASS"; PASS=$((PASS + 1))
+    else
+        echo "  [E2E] $1 listens on 127.0.0.1 only ... FAIL (bound to '${addr:-?}')"; FAIL=$((FAIL + 1))
+    fi
+}
+
 check() {   # check <name> <expected-file> <actual-file>
     if cmp -s "$2" "$3"; then
         echo "  [E2E] $1 ... PASS"; PASS=$((PASS + 1))
@@ -119,6 +134,7 @@ wait_port "$P"
 wait_port "$LP"
 timeout 15 curl -s -o "$WORK/mux.out" "http://127.0.0.1:$LP$URL_PATH"
 check "--mux -L port forwarding" "$PAYLOAD" "$WORK/mux.out"
+expect_loopback "--mux local port (default)" "$LP"
 
 # ── --socks: SOCKS5 through the tunnel ─────────────────────────────────
 P=$(free_port); SP=$(free_port)
@@ -128,6 +144,7 @@ wait_port "$P"
 wait_port "$SP"
 timeout 15 curl -s --socks5 "127.0.0.1:$SP" -o "$WORK/socks.out" "http://127.0.0.1:$WEB$URL_PATH"
 check "--socks SOCKS5 proxy" "$PAYLOAD" "$WORK/socks.out"
+expect_loopback "--socks proxy (default)" "$SP"
 
 # ── -R: reverse tunnel ─────────────────────────────────────────────────
 P=$(free_port); RP=$(free_port)
@@ -137,6 +154,7 @@ wait_port "$P"
 wait_port "$RP"
 timeout 15 curl -s -o "$WORK/rev.out" "http://127.0.0.1:$RP$URL_PATH"
 check "-R reverse tunnel" "$PAYLOAD" "$WORK/rev.out"
+expect_loopback "-R 127.0.0.1:port" "$RP"
 
 # ── --send / --recv: file transfer with SHA-256 verification ────────────
 P=$(free_port); mkdir -p "$WORK/inbox"
