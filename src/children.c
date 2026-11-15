@@ -26,6 +26,7 @@
 
 /* -K: live handler processes (decremented by the SIGCHLD handler) */
 volatile sig_atomic_t g_active_children = 0;
+void (*g_child_exit_hook)(pid_t pid) = NULL;
 
 /* Exited handlers, recorded by the SIGCHLD handler and consumed by the accept
  * loop (iplimit accounting). Live handlers <= 4096, so the ring cannot
@@ -56,6 +57,7 @@ void reap_handler_exits(void) {
         pid_t pid = s_exit_pid[i];
         int st = s_exit_status[i];
         s_exit_tail++;
+        if (g_child_exit_hook) g_child_exit_hook(pid);
         int auth_failed = WIFEXITED(st) && WEXITSTATUS(st) == CHILD_AUTH_FAILED;
         char key[IPLIMIT_KEY_LEN];
         int fails = iplimit_finished(pid, auth_failed, time(NULL), key);

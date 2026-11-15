@@ -9,6 +9,7 @@
 #define CLAWSEC_CHILDREN_H
 
 #include <signal.h>
+#include <sys/types.h>
 #include "iplimit.h"
 
 #define AUTH_FAIL_WINDOW 600       /* seconds */
@@ -21,6 +22,10 @@
 
 /* Live handler processes (decremented by the SIGCHLD handler) */
 extern volatile sig_atomic_t g_active_children;
+
+/* Called by reap_handler_exits() for every finished handler (not from the
+ * signal handler), e.g. so the VPN hub can drop that client's slot. */
+extern void (*g_child_exit_hook)(pid_t pid);
 
 void install_sigchld(void);
 /* Account for finished handlers; call with SIGCHLD blocked. */
