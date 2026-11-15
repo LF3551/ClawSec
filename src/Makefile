@@ -152,9 +152,9 @@ fuzz:
 	rm -f *.o   # sanitizer/clang objects must not leak into a normal build
 	mkdir -p fuzz-corpus/frame fuzz-corpus/parsers
 	UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=1 \
-		./fuzz_frame -max_total_time=$(FUZZ_SECONDS) -print_final_stats=1 fuzz-corpus/frame
+		./fuzz_frame -max_total_time=$(FUZZ_SECONDS) -timeout=5 -print_final_stats=1 fuzz-corpus/frame
 	UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=1 \
-		./fuzz_parsers -max_total_time=$(FUZZ_SECONDS) -print_final_stats=1 fuzz-corpus/parsers
+		./fuzz_parsers -max_total_time=$(FUZZ_SECONDS) -timeout=5 -print_final_stats=1 fuzz-corpus/parsers
 
 # End-to-end tests against the built ./clawsec binary (Linux)
 e2e:

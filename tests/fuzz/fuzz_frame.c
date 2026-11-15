@@ -52,7 +52,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t len) {
         for (size_t i = 0; i + 1 <= len; i++) {
             if (i + 1 == len || (data[i] == 0xFF && data[i + 1] == 0xFE)) {
                 size_t end = (i + 1 == len) ? len : i;
-                if (end > start) (void)send(fds[0], data + start, end - start, 0);
+                /* Never block: the datagram queue of a socketpair is small
+                 * (net.unix.max_dgram_qlen) and nobody reads until later */
+                if (end > start && send(fds[0], data + start, end - start, MSG_DONTWAIT) < 0)
+                    break;
                 start = i + 2;
                 i++;
             }
@@ -72,7 +75,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t len) {
     } else {
         size_t off = 0;
         while (off < len) {
-            ssize_t w = send(fds[0], data + off, len - off, 0);
+            ssize_t w = send(fds[0], data + off, len - off, MSG_DONTWAIT);
             if (w <= 0) break;
             off += (size_t)w;
         }

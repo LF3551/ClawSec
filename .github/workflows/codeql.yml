@@ -12,6 +12,7 @@ jobs:
   analyze:
     name: Analyze C/C++
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       actions: read
       contents: read
