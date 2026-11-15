@@ -210,6 +210,11 @@ extern void test_vpn_cfg_messages(void);
 extern void test_vpn_pool_assign(void);
 extern void test_vpn_pool_route_spoof(void);
 
+/* test_rekey.c */
+extern void test_rekey_roundtrip(void);
+extern void test_rekey_tamper_and_mismatch(void);
+extern void test_rekey_handshake_flag(void);
+
 /* test_reverse.c */
 extern void test_persist_backoff_initial(void);
 extern void test_persist_backoff_exponential(void);
@@ -430,6 +435,11 @@ int main(void) {
     test_vpn_cfg_messages();
     test_vpn_pool_assign();
     test_vpn_pool_route_spoof();
+
+    /* --rekey */
+    test_rekey_roundtrip();
+    test_rekey_tamper_and_mismatch();
+    test_rekey_handshake_flag();
 
     /* Reverse tunnel + persistent tests */
     test_persist_backoff_initial();

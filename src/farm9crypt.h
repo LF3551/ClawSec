@@ -62,6 +62,14 @@ void farm9crypt_set_padding(int enabled);
 int  farm9crypt_padding(void);
 int  farm9crypt_max_payload(void);
 
+/* --rekey: update the stream keys every `seconds` and/or every `records`
+ * sent records (0 = off; at least one must be set to enable). Set before
+ * the handshake: it is announced there and both ends must use it. */
+void farm9crypt_set_rekey(int seconds, unsigned long long records);
+int  farm9crypt_rekey(void);
+/* Number of key updates sent / received in this session (tests, logs) */
+void farm9crypt_key_updates(unsigned long *sent, unsigned long *received);
+
 /* Set UDP datagram mode (must be called before read/write) */
 void farm9crypt_set_udp_mode(int enabled);
 
@@ -132,4 +140,9 @@ int farm9crypt_get_fingerprint(unsigned char *out, size_t len);
  * Negotiated in the handshake, so both ends always agree. */
 #define FARM9_PAD_UNIT 1400
 #define FARM9_FLAG_PADDED 0x0001
+/* --rekey: a record with this flag carries one byte 0x01; after it the
+ * sender's stream key becomes HKDF(key, "ClawSec v4 key update") and its
+ * sequence number restarts at 0 (one-way ratchet, like TLS 1.3 KeyUpdate).
+ * Negotiated in the handshake; never used in UDP mode. */
+#define FARM9_FLAG_KEYUPDATE 0x0002
 #define FARM9_MAX_WIRE (((FARM9_MAX_MSG + 2 + FARM9_PAD_UNIT - 1) / FARM9_PAD_UNIT) * FARM9_PAD_UNIT)

@@ -161,6 +161,7 @@ extern "C" void ecdhe_forget_password(void) {
 #define FLAG_PQ     0x0002
 #define FLAG_PAD    0x0004
 #define FLAG_USER   0x0008      /* per-user passwords (--users / --user) */
+#define FLAG_REKEY  0x0010      /* key updates (--rekey) */
 #define ID_CLIENT   "ClawSec v4 client"
 #define ID_SERVER   "ClawSec v4 server"
 #define SIG_LABEL   "ClawSec v4 server signature"
@@ -202,7 +203,8 @@ static const char *flag_names(unsigned f, char *buf, size_t len) {
     if (f & FLAG_PQ)   strncat(buf, " --pq", len - strlen(buf) - 1);
     if (f & FLAG_PAD)  strncat(buf, " --pad", len - strlen(buf) - 1);
     if (f & FLAG_USER) strncat(buf, " per-user login (--users/--user)", len - strlen(buf) - 1);
-    if (f & ~(unsigned)(FLAG_TOFU | FLAG_PQ | FLAG_PAD | FLAG_USER))
+    if (f & FLAG_REKEY) strncat(buf, " --rekey", len - strlen(buf) - 1);
+    if (f & ~(unsigned)(FLAG_TOFU | FLAG_PQ | FLAG_PAD | FLAG_USER | FLAG_REKEY))
         strncat(buf, " (options unknown to this version)", len - strlen(buf) - 1);
     if (!buf[0]) strncat(buf, " none of --tofu/--pq/--pad/--user", len - 1);
     return buf + 1;
@@ -240,9 +242,9 @@ static int hello_flags_ok(const unsigned char *buf, unsigned mine) {
         if ((mine ^ theirs) & FLAG_USER)
             fprintf(stderr, "[ClawSec] The server has per-user login (--users): connect with "
                             "--user <name>; a server without --users takes no --user.\n");
-        if ((mine ^ theirs) & (FLAG_TOFU | FLAG_PQ | FLAG_PAD))
-            fprintf(stderr, "[ClawSec] --tofu, --pq and --pad must be set identically on both "
-                            "ends (--pad also needs ClawSec 4.2+ on both).\n");
+        if ((mine ^ theirs) & (FLAG_TOFU | FLAG_PQ | FLAG_PAD | FLAG_REKEY))
+            fprintf(stderr, "[ClawSec] --tofu, --pq, --pad and --rekey must be set on both ends "
+                            "(--pad needs ClawSec 4.2+, --rekey 4.3+ on both).\n");
         return -1;
     }
     return 0;
@@ -467,6 +469,7 @@ static int handshake(int fd, const char *password, size_t pass_len, int server_m
     int rc = -1;
 
     if (farm9crypt_padding()) flags |= FLAG_PAD;
+    if (farm9crypt_rekey()) flags |= FLAG_REKEY;
     if (server_mode ? s_users_file != NULL : s_user[0] != '\0') flags |= FLAG_USER;
     const int tofu = (flags & FLAG_TOFU) != 0, pq = (flags & FLAG_PQ) != 0;
     const int user = (flags & FLAG_USER) != 0;

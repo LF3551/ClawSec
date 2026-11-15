@@ -52,6 +52,7 @@ authenticates both ends with a shared password.
 - **SPAKE2 (RFC 9382)**: password-authenticated key exchange — an eavesdropper or man-in-the-middle cannot test password guesses offline; every attempt costs a connection. Forward secrecy from fresh scalars per session; verified against the RFC test vectors
 - **Transcript binding**: both confirmation MACs (and the `--tofu` signature) cover the whole handshake — versions, options, identity key, ML-KEM data
 - **Argon2id**: memory-hard password scalar via libargon2, computed once per process
+- **Key updates (`--rekey 30m|2h|100000r`)**: each direction ratchets its stream key (HKDF, like TLS 1.3 KeyUpdate) and wipes the old one: a key that leaks later does not decrypt earlier traffic, and long sessions have no record limit
 - **Guessing limits**: with `-K`, `--auth-fail-limit` blocks an address after repeated wrong passwords, `--max-per-ip` caps concurrent handlers per address
 - **Directional keys**: HKDF-SHA256 derives separate client→server and server→client keys (TCP and UDP), so frames cannot be reflected
 - **Version and option check**: wrong passwords, incompatible versions and different `--tofu`/`--pq` settings are reported during the handshake, with a clear error and exit status 1
@@ -302,6 +303,8 @@ Connection:
   --del-user name   With --users: remove a user
   --user-option o   ip=A.B.C.D | socks-allow=CIDR;CIDR | disabled | none
   --user name       Client: log in as name (server runs --users)
+  --rekey when      Update the stream keys every 30m, 2h or 100000r records
+                    (both ends, 4.3+; not with -u)
   --auth-fail-limit n  With -K: refuse an address for 10 min after n wrong
                     passwords within 10 min (default 5, 0 = off)
   --handshake-timeout s  Abort session setup after s seconds (default 15, 0 = off)

@@ -26,6 +26,7 @@
  */
 
 #include <string.h>
+#include <ctime>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <stdint.h>
@@ -92,6 +93,16 @@ static unsigned char udp_tx_key[FARM9_KEY_LEN];
 static unsigned char udp_rx_key[FARM9_KEY_LEN];
 static unsigned char session_fp[32];
 static uint64_t send_seq = 0;    /* Next outgoing sequence number */
+/* --rekey: key updates (see farm9crypt.h); current stream keys, ratcheted */
+static unsigned char tcp_tx_key[FARM9_KEY_LEN];
+static unsigned char tcp_rx_key[FARM9_KEY_LEN];
+static int rekey_seconds = 0;          /* 0 = no time-based updates */
+static uint64_t rekey_records = 0;     /* 0 = no update before the sequence limit */
+static int rekey_enabled = 0;
+static time_t last_tx_update = 0;
+static unsigned long tx_updates = 0, rx_updates = 0;
+#define LABEL_KEY_UPDATE "ClawSec v4 key update"
+#define KEY_UPDATED (-3)               /* read_one: a key-update record was consumed */
 static uint64_t recv_seq = 0;    /* Next expected incoming sequence number */
 static int last_failure = FARM9_FAIL_NONE;
 
@@ -167,6 +178,22 @@ static int hkdf_sha256(const unsigned char* ikm, size_t ikm_len, const char* inf
     return rc == 1 ? 0 : -1;
 }
 
+/* k(n+1) = HKDF(k(n), "key update"); the old key is wiped */
+static int ratchet(unsigned char key[FARM9_KEY_LEN], AESGCM** cipher) {
+    unsigned char next[FARM9_KEY_LEN];
+    if (hkdf_sha256(key, FARM9_KEY_LEN, LABEL_KEY_UPDATE, next, sizeof(next)) != 0) return -1;
+    AESGCM* c = new (std::nothrow) AESGCM(next, FARM9_KEY_LEN);
+    if (!c) {
+        secure_zero(next, sizeof(next));
+        return -1;
+    }
+    delete *cipher;
+    *cipher = c;
+    memcpy(key, next, FARM9_KEY_LEN);
+    secure_zero(next, sizeof(next));
+    return 0;
+}
+
 static void reset_state(void) {
     delete encryptor;
     encryptor = NULL;
@@ -177,6 +204,9 @@ static void reset_state(void) {
     secure_zero(session_fp, sizeof(session_fp));
     send_seq = 0;
     recv_seq = 0;
+    secure_zero(tcp_tx_key, sizeof(tcp_tx_key));
+    secure_zero(tcp_rx_key, sizeof(tcp_rx_key));
+    tx_updates = rx_updates = 0;
     udp_any = 0;
     udp_max = 0;
     udp_seen = 0;
@@ -212,6 +242,9 @@ static int install_session(unsigned char session_key[FARM9_KEY_LEN], int server_
     }
     memcpy(udp_tx_key, server_mode ? udp_s2c : udp_c2s, FARM9_KEY_LEN);
     memcpy(udp_rx_key, server_mode ? udp_c2s : udp_s2c, FARM9_KEY_LEN);
+    memcpy(tcp_tx_key, server_mode ? s2c : c2s, FARM9_KEY_LEN);
+    memcpy(tcp_rx_key, server_mode ? c2s : s2c, FARM9_KEY_LEN);
+    last_tx_update = time(NULL);
 
     initialized = true;
     rc = 0;
@@ -445,8 +478,12 @@ static int read_one(int sockfd, char* buf, int size, int recv_flags) {
         FAIL(EPROTONOSUPPORT);
     }
 
-    /* Flags: exactly the negotiated padding bit (authenticated as AAD) */
-    if (ntohs(header.flags) != (padding ? FARM9_FLAG_PADDED : 0)) {
+    /* Flags: exactly the negotiated padding bit, plus the key-update bit if
+     * --rekey was negotiated (all authenticated as AAD) */
+    uint16_t hflags = ntohs(header.flags);
+    int key_update = (hflags & FARM9_FLAG_KEYUPDATE) != 0;
+    if ((hflags & ~FARM9_FLAG_KEYUPDATE) != (padding ? FARM9_FLAG_PADDED : 0) ||
+        (key_update && (!rekey_enabled || udp_mode))) {
         if (debug) fprintf(stderr, "[CRYPT] Error: unexpected frame flags 0x%04x\n",
                           ntohs(header.flags));
         FAIL(EPROTO);
@@ -502,6 +539,20 @@ static int read_one(int sockfd, char* buf, int size, int recv_flags) {
     else
         recv_seq++;
 
+    /* Key update: the peer switches its sending key after this record */
+    if (key_update) {
+        int valid = plaintext_len == 1 && plaintext[data_off] == 0x01;
+        secure_zero(plaintext, sizeof(plaintext));
+        if (!valid || ratchet(tcp_rx_key, &decryptor) != 0) {
+            errno = EPROTO;
+            return -1;
+        }
+        recv_seq = 0;
+        rx_updates++;
+        if (debug) fprintf(stderr, "[CRYPT] Receive key updated (%lu)\n", rx_updates);
+        return KEY_UPDATED;
+    }
+
     if (plaintext_len > size) {
         if (debug) fprintf(stderr, "[CRYPT] Error: Message of %d bytes exceeds buffer of %d bytes\n",
                           plaintext_len, size);
@@ -539,8 +590,13 @@ extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
         return -1;
     }
 
-    if (!udp_mode)
-        return read_one(sockfd, buf, size, 0);
+    if (!udp_mode) {
+        /* A key update is always followed by the data record that triggered
+         * it (see farm9crypt_write), so reading on cannot stall */
+        int rc;
+        while ((rc = read_one(sockfd, buf, size, 0)) == KEY_UPDATED) { }
+        return rc;
+    }
 
     /* UDP: skip datagrams that must be ignored. Block for the first one,
      * then only drain what is already queued; if nothing usable is left,
@@ -570,7 +626,40 @@ static int send_exact(int sockfd, const void* buf, size_t len) {
     return (int)total;
 }
 
+static int write_record(int sockfd, const char* buf, int size, uint16_t extra_flags);
+
+/* --rekey: send a key-update record, then switch the sending key */
+static int key_update(int sockfd) {
+    const char one = 0x01;
+    if (write_record(sockfd, &one, 1, FARM9_FLAG_KEYUPDATE) != 1) return -1;
+    if (ratchet(tcp_tx_key, &encryptor) != 0) {
+        errno = EIO;
+        return -1;
+    }
+    send_seq = 0;
+    last_tx_update = time(NULL);
+    tx_updates++;
+    if (debug) fprintf(stderr, "[CRYPT] Send key updated (%lu)\n", tx_updates);
+    return 0;
+}
+
 extern "C" int farm9crypt_write(int sockfd, char* buf, int size) {
+    if (!initialized || !encryptor) {
+        if (debug) fprintf(stderr, "[CRYPT] Error: Not initialized\n");
+        errno = EINVAL;
+        return -1;
+    }
+    /* Key updates are sent only here, immediately before a data record */
+    if (rekey_enabled && !udp_mode &&
+        (send_seq >= FARM9_SEQ_LIMIT - 1 ||
+         (rekey_records && send_seq >= rekey_records) ||
+         (rekey_seconds && time(NULL) - last_tx_update >= rekey_seconds))) {
+        if (key_update(sockfd) != 0) return -1;
+    }
+    return write_record(sockfd, buf, size, 0);
+}
+
+static int write_record(int sockfd, const char* buf, int size, uint16_t extra_flags) {
     if (!initialized || !encryptor) {
         if (debug) fprintf(stderr, "[CRYPT] Error: Not initialized\n");
         errno = EINVAL;
@@ -602,7 +691,7 @@ extern "C" int farm9crypt_write(int sockfd, char* buf, int size) {
      * GCM ciphertext length equals plaintext length. */
     /* --pad: [u16 length][data][random] up to a multiple of FARM9_PAD_UNIT */
     unsigned char padded[FARM9_MAX_WIRE];
-    unsigned char* pt = reinterpret_cast<unsigned char*>(buf);
+    const unsigned char* pt = reinterpret_cast<const unsigned char*>(buf);
     int pt_len = size;
     if (padding) {
         pt_len = ((size + 2 + FARM9_PAD_UNIT - 1) / FARM9_PAD_UNIT) * FARM9_PAD_UNIT;
@@ -619,7 +708,7 @@ extern "C" int farm9crypt_write(int sockfd, char* buf, int size) {
     struct farm9_header header;
     header.magic = htonl(FARM9_MAGIC);
     header.version = htons(FARM9_VERSION);
-    header.flags = htons(padding ? FARM9_FLAG_PADDED : 0);
+    header.flags = htons((uint16_t)((padding ? FARM9_FLAG_PADDED : 0) | extra_flags));
     header.seq_num = htonl((uint32_t)send_seq);
     header.length = htonl((uint32_t)pt_len);
 
@@ -675,6 +764,19 @@ extern "C" int farm9crypt_write(int sockfd, char* buf, int size) {
     }
 
     return size;  /* Return original plaintext size */
+}
+
+extern "C" void farm9crypt_set_rekey(int seconds, unsigned long long records) {
+    rekey_seconds = seconds > 0 ? seconds : 0;
+    rekey_records = records;
+    rekey_enabled = rekey_seconds > 0 || rekey_records > 0;
+}
+
+extern "C" int farm9crypt_rekey(void) { return rekey_enabled; }
+
+extern "C" void farm9crypt_key_updates(unsigned long* sent, unsigned long* received) {
+    if (sent) *sent = tx_updates;
+    if (received) *received = rx_updates;
 }
 
 extern "C" int farm9crypt_prepare_password(const char* password, size_t pass_len) {

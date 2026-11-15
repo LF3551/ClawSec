@@ -360,6 +360,7 @@ vpn_test "tcp relay"
 vpn_test "--tun-udp" --tun-udp
 vpn_test "tcp relay --pad" --pad
 vpn_test "--tun-udp --pad" --tun-udp --pad
+vpn_test "tcp relay --rekey 10r" --rekey 10r
 hub_test
 if command -v iptables >/dev/null; then
     hub_udp_test ""
