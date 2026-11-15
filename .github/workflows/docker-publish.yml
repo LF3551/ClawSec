@@ -1,11 +1,9 @@
 name: Build and Publish Docker
 
+# Published releases only: a tag push used to trigger a second, identical run.
 on:
   release:
     types: [published]
-  push:
-    tags:
-      - 'v*'
 
 env:
   REGISTRY: ghcr.io

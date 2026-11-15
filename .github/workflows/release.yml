@@ -1,0 +1,130 @@
+name: Release
+
+# Runs when a GitHub release is published (or manually for an existing tag):
+#   1. builds and tests the binary on Linux x86_64, Linux arm64 and macOS arm64
+#   2. attaches clawsec-<version>-<os>-<arch>.tar.gz and SHA256SUMS to the release
+#   3. records the source tarball checksum in the Homebrew formula and PKGBUILD
+# Docker images (docker-publish.yml) and the AUR package (aur-publish.yml) are
+# published by their own workflows on the same event.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag, e.g. v3.0.0'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+          - name: macos-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libargon2-dev zlib1g-dev build-essential
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install openssl@3 argon2
+
+      - name: Check tag matches source version
+        run: |
+          src=$(sed -n 's/^#define CLAWSEC_VERSION "\(.*\)"/\1/p' src/version.h)
+          test "v$src" = "$TAG" || { echo "tag $TAG != src/version.h $src"; exit 1; }
+
+      - name: Unit tests
+        run: |
+          cd src
+          if [ "$RUNNER_OS" = macOS ]; then make macos && make test-macos; else make linux && make test; fi
+
+      - name: End-to-end tests
+        if: runner.os == 'Linux'
+        run: bash tests/e2e.sh src/clawsec
+
+      - name: Package
+        run: scripts/build-release.sh "$TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: release-*/clawsec-*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums
+        run: |
+          cd dist
+          find . -name '*.tar.gz' -exec mv {} . \;
+          sha256sum clawsec-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attach to release
+        run: |
+          cd dist
+          gh release upload "$TAG" clawsec-*.tar.gz SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+
+  packaging-checksums:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Update Homebrew formula and PKGBUILD
+        run: |
+          ver="${TAG#v}"
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+          sha=$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)
+          echo "source tarball sha256: $sha"
+          sed -i -E "s|^  url \".*\"|  url \"$url\"|; s|^  sha256 \".*\"|  sha256 \"$sha\"|" deploy/clawsec.rb
+          sed -i -E "s|^pkgver=.*|pkgver=$ver|; s|^sha256sums=.*|sha256sums=('$sha')|" aur/PKGBUILD
+          git diff
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/clawsec.rb aur/PKGBUILD
+          if git diff --cached --quiet; then echo "Already up to date"; exit 0; fi
+          git commit -m "chore(release): packaging checksums for ${TAG}"
+          git push origin HEAD
