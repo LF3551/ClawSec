@@ -7,6 +7,7 @@
 #include "test.h"
 #include <fcntl.h>
 #include <poll.h>
+#include <signal.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include "farm9crypt.h"
@@ -248,5 +249,66 @@ void test_pake_mitm_passthrough(void) {
         waitpid(relay, NULL, 0);
         ASSERT_EQ(rc, 0, "client");
         ASSERT_EQ(srv_res, 0, "server");
+    } TEST_END;
+}
+
+/* ── UDP (-u): a lost handshake datagram is retransmitted ── */
+
+/* Relay datagrams between a[1] <-> b[1], dropping the datagrams whose
+ * sequence numbers (1-based, both directions counted together) are in drop. */
+static void lossy_relay(int x, int y, const int *drop, int ndrop) {
+    struct pollfd p[2] = { { x, POLLIN, 0 }, { y, POLLIN, 0 } };
+    unsigned char buf[4096];
+    int seq = 0;
+    for (;;) {
+        if (poll(p, 2, 3000) <= 0) return;
+        for (int i = 0; i < 2; i++) {
+            if (!(p[i].revents & POLLIN)) continue;
+            ssize_t n = recv(p[i].fd, buf, sizeof(buf), 0);
+            if (n <= 0) return;
+            seq++;
+            int dropped = 0;
+            for (int d = 0; d < ndrop; d++) dropped |= drop[d] == seq;
+            if (!dropped) (void)send(p[i ^ 1].fd, buf, (size_t)n, 0);
+        }
+    }
+}
+
+static int udp_handshake_with_loss(const int *drop, int ndrop) {
+    int a[2], b[2];
+    if (socketpair(AF_UNIX, SOCK_DGRAM, 0, a) != 0 || socketpair(AF_UNIX, SOCK_DGRAM, 0, b) != 0)
+        return 0;
+    pk_timeouts(a[0]); pk_timeouts(b[0]);
+    /* In UDP mode the connecting side takes the server role (sends first) */
+    int oth[] = { a[1], b[0], b[1], -1 };
+    pid_t srv = spawn_role(a[0], hs_plain, PAKE_PASS, FARM9_ROLE_SERVER, oth);
+    pid_t relay = fork();
+    if (relay == 0) {
+        close(a[0]); close(b[0]);
+        lossy_relay(a[1], b[1], drop, ndrop);
+        _exit(0);
+    }
+    close(a[0]); close(a[1]); close(b[1]);
+    int rc = hs_plain(b[0], PAKE_PASS, FARM9_ROLE_CLIENT);
+    farm9crypt_cleanup();
+    int srv_res = child_result(srv);
+    close(b[0]);
+    kill(relay, SIGTERM);
+    waitpid(relay, NULL, 0);
+    return rc == 0 && srv_res == 0;
+}
+
+void test_pake_udp_retransmit(void) {
+    TEST_BEGIN("v4 -u: any one lost handshake datagram is recovered") {
+        for (int k = 1; k <= 4; k++) {
+            int drop[1] = { k };
+            char msg[64];
+            snprintf(msg, sizeof(msg), "handshake failed when datagram %d was lost", k);
+            ASSERT(udp_handshake_with_loss(drop, 1), msg);
+        }
+        int two_of_last[2] = { 4, 5 };              /* message 4 and its first copy */
+        ASSERT(udp_handshake_with_loss(two_of_last, 2), "two copies of message 4 lost");
+        int first_two[2] = { 1, 2 };                /* message 1 and its retransmission */
+        ASSERT(udp_handshake_with_loss(first_two, 2), "message 1 lost twice");
     } TEST_END;
 }

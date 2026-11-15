@@ -34,6 +34,9 @@
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
+#include <poll.h>
+#include <time.h>
+#include <sys/time.h>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
 #include <openssl/evp.h>
@@ -229,14 +232,96 @@ static void courtesy_hello(int fd, unsigned my_flags, int server_mode) {
     (void)ecdhe_send(fd, h, sizeof(h));
 }
 
+/* ---------- UDP: loss-tolerant message exchange ---------- */
+
+static int is_udp(int fd) {
+    int type = 0;
+    socklen_t l = sizeof(type);
+    return obfs_get_mode() == OBFS_NONE &&
+           getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &l) == 0 && type == SOCK_DGRAM;
+}
+
+static long long now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/*
+ * Wait for the peer's next handshake datagram. While waiting, our last
+ * message (resend) is retransmitted with exponential backoff (0.5 s .. 4 s)
+ * and immediately whenever the peer repeats its previous message (prev),
+ * which means our answer was lost. Datagrams of an unexpected length are
+ * ignored (want_len 0 = any datagram of at least 4 bytes, for hellos).
+ * The overall limit is the socket's receive timeout (--handshake-timeout).
+ * Returns the datagram length, or -1 (errno ETIMEDOUT on timeout).
+ */
+static int udp_wait(int fd, const unsigned char *resend, size_t resend_len,
+                    const unsigned char *prev, size_t prev_len,
+                    unsigned char *in, size_t in_max, size_t want_len) {
+    struct timeval tv = { 0, 0 };
+    socklen_t tl = sizeof(tv);
+    long long limit_ms = 0;
+    if (getsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, &tl) == 0)
+        limit_ms = (long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+    long long deadline = limit_ms > 0 ? now_ms() + limit_ms : 0;
+    int interval = 500;
+    long long next_resend = now_ms() + interval;
+
+    for (;;) {
+        long long now = now_ms();
+        if (deadline && now >= deadline) {
+            errno = ETIMEDOUT;
+            return -1;
+        }
+        long long wait = resend ? next_resend - now : 1000;
+        if (deadline && deadline - now < wait) wait = deadline - now;
+        if (wait < 0) wait = 0;
+        struct pollfd p = { fd, POLLIN, 0 };
+        int rc = poll(&p, 1, (int)wait);
+        if (rc < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (rc == 0) {
+            if (resend && now_ms() >= next_resend) {
+                (void)send(fd, resend, resend_len, 0);
+                if (interval < 4000) interval *= 2;
+                next_resend = now_ms() + interval;
+            }
+            continue;
+        }
+        /* Receive into a scratch buffer larger than any handshake message,
+         * with MSG_TRUNC for the real size: a longer datagram must never be
+         * mistaken for a shorter message by truncation. */
+        unsigned char dg[MSG1_MAX + 64];
+        ssize_t n = recv(fd, dg, sizeof(dg), MSG_DONTWAIT | MSG_TRUNC);
+        if (n < 0) {
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) continue;
+            if (errno == ECONNREFUSED) continue;    /* ICMP from a peer not yet listening */
+            return -1;
+        }
+        if ((size_t)n > sizeof(dg)) continue;      /* oversized: not ours */
+        if (prev && (size_t)n == prev_len && memcmp(dg, prev, prev_len) == 0) {
+            if (resend) (void)send(fd, resend, resend_len, 0);   /* our answer was lost */
+            continue;
+        }
+        if (want_len ? (size_t)n != want_len : n < 4) continue;   /* noise / stale */
+        if ((size_t)n > in_max) continue;
+        memcpy(in, dg, (size_t)n);
+        return (int)n;
+    }
+}
+
 static int recv_hello_msg(int fd, unsigned char *buf, size_t max, size_t expected,
-                          unsigned my_flags, int server_mode) {
+                          unsigned my_flags, int server_mode,
+                          const unsigned char *resend, size_t resend_len) {
     if (is_datagram_transport(fd)) {
         int n;
         if (obfs_get_mode() == OBFS_HTTP) {
             n = obfs_recv(fd, buf, max);
         } else {
-            do { n = (int)recv(fd, buf, max, 0); } while (n < 0 && errno == EINTR);
+            n = udp_wait(fd, resend, resend_len, NULL, 0, buf, max, 0);
         }
         if (n <= 0) return -1;
         if (hello_version_ok(buf, (size_t)n) != 0) {
@@ -340,9 +425,10 @@ static int handshake(int fd, const char *password, size_t pass_len, int server_m
             memcpy(m1 + off, kem_pk, PQ_KEM_PUBKEY_LEN);
         }
         if (ecdhe_send(fd, m1, l1) < 0) goto out;
+        const int udp = is_udp(fd);
 
         /* 2: hello || pA || [KEM ciphertext] */
-        if (recv_hello_msg(fd, m2, sizeof(m2), l2, flags, 1) != 0) goto out;
+        if (recv_hello_msg(fd, m2, sizeof(m2), l2, flags, 1, udp ? m1 : NULL, l1) != 0) goto out;
 
         {
             EVP_MD_CTX *md = EVP_MD_CTX_new();
@@ -374,7 +460,9 @@ static int handshake(int fd, const char *password, size_t pass_len, int server_m
         if (ecdhe_send(fd, m3, l3) < 0) goto out;
 
         /* 4: cA. Anything but a valid cA here is a failed password attempt. */
-        if (ecdhe_recv(fd, m4, sizeof(m4)) < 0 ||
+        int got4 = udp ? (udp_wait(fd, m3, l3, m2, l2, m4, sizeof(m4), sizeof(m4)) < 0 ? -1 : 0)
+                       : ecdhe_recv(fd, m4, sizeof(m4));
+        if (got4 < 0 ||
             CRYPTO_memcmp(m4, peer_conf, SPAKE2_CONF_LEN) != 0) {
             farm9crypt_set_failure(FARM9_FAIL_AUTH);
             fprintf(stderr, "[ClawSec] Error: authentication failed - the client did not "
@@ -383,7 +471,8 @@ static int handshake(int fd, const char *password, size_t pass_len, int server_m
         }
     } else {
         /* 1 */
-        if (recv_hello_msg(fd, m1, sizeof(m1), l1, flags, 0) != 0) goto out;
+        const int udp = is_udp(fd);
+        if (recv_hello_msg(fd, m1, sizeof(m1), l1, flags, 0, NULL, 0) != 0) goto out;
         const unsigned char *pB = m1 + HELLO_LEN;
         const unsigned char *id_pub = tofu ? pB + SPAKE2_POINT_LEN : NULL;
         const unsigned char *peer_kem = pq ? pB + SPAKE2_POINT_LEN + (tofu ? ID_PUB_LEN : 0) : NULL;
@@ -411,7 +500,9 @@ static int handshake(int fd, const char *password, size_t pass_len, int server_m
         }
 
         /* 3: the server proves the password (and its identity) first */
-        if (ecdhe_recv(fd, m3, l3) < 0) {
+        int got3 = udp ? (udp_wait(fd, m2, l2, m1, l1, m3, sizeof(m3), l3) < 0 ? -1 : 0)
+                       : ecdhe_recv(fd, m3, l3);
+        if (got3 < 0) {
             fprintf(stderr, "[ClawSec] Error: connection closed during the handshake\n");
             goto out;
         }
@@ -442,6 +533,10 @@ static int handshake(int fd, const char *password, size_t pass_len, int server_m
 
         /* 4 */
         if (ecdhe_send(fd, my_conf, SPAKE2_CONF_LEN) < 0) goto out;
+        if (udp) {                  /* nothing acknowledges message 4: send it 3 times */
+            (void)send(fd, my_conf, SPAKE2_CONF_LEN, 0);
+            (void)send(fd, my_conf, SPAKE2_CONF_LEN, 0);
+        }
     }
 
     /* session key */
