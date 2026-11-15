@@ -588,8 +588,10 @@ sudo clawsec --user bob   --tun 10.8.0.20/24 vpn.example.com 9000   # fixed addr
 - `--default-route` with IPv6 adds `::/1` and `8000::/1` through the tunnel;
   removed again on exit.
 - ClawSec 4.1 clients still work (the hub learns their address from the
-  first packet). `--tun-udp` is not available with `-K` yet: 4.2 clients fall
-  back to the TCP channel immediately.
+  first packet).
+- `--tun-udp` works with `-K` too (4.3+): the hub runs every client's UDP data
+  channel on the server port, with its own replay window per client; clients
+  that cannot use UDP stay on the TCP channel.
 
 ### Password Requirements
 

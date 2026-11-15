@@ -149,6 +149,23 @@ int tun_udp_negotiate(int tcp_fd, const char *host, const char *port, int is_ser
 int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
                   const unsigned char *tx_key, const unsigned char *rx_key);
 
+/* Anti-replay window for one UDP peer (the hub keeps one per client) */
+#define TUN_REPLAY_WINDOW 256
+typedef struct {
+    uint32_t max_seq;
+    uint64_t bitmap[TUN_REPLAY_WINDOW / 64];
+} tun_replay_t;
+void tun_replay_init(tun_replay_t *r);
+/* 0 if seq is fresh (and records it), -1: seq 0, duplicate or too old */
+int tun_replay_accept(tun_replay_t *r, uint32_t seq);
+
+/* One UDP data-channel datagram, with --pad applied/removed as negotiated
+ * (pkt buffers: TUN_MTU + 2 bytes). Return 0 or -1. */
+int tun_udp_seal(const unsigned char *key, uint32_t seq, const unsigned char *pkt, int len,
+                 unsigned char *out, int *out_len);
+int tun_udp_open(const unsigned char *key, const unsigned char *in, int in_len,
+                 unsigned char *pkt, int *pkt_len, uint32_t *seq);
+
 /* Anti-replay sliding window for the UDP data channel (exposed for tests).
  * check returns 0 if seq is fresh (and records it), -1 if it must be dropped:
  * seq 0 (reserved), duplicates, or older than the window. */
