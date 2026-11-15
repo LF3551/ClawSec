@@ -70,6 +70,10 @@ extern int tests_skipped;
     (void)_test_failed; \
 } while(0)
 
+/* Discard a result of a warn_unused_result function in test setup code
+ * ((void) casts do not silence GCC's warning under _FORTIFY_SOURCE) */
+#define IGNORE_RESULT(x) do { if ((x)) { } } while (0)
+
 /* Helper: create connected socket pair */
 static inline int make_socketpair(int fds[2]) {
     return socketpair(AF_UNIX, SOCK_STREAM, 0, fds);

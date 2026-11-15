@@ -118,7 +118,7 @@ void test_portscan_banner_grab(void) {
                 client = accept(listen_fd, NULL, NULL);
                 if (client >= 0) {
                     const char *banner = "TESTBANNER/1.0\r\n";
-                    write(client, banner, strlen(banner));
+                    IGNORE_RESULT(write(client, banner, strlen(banner)));
                     test_sleep_ms(100);
                     close(client);
                 }
