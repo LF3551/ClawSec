@@ -14,49 +14,6 @@
 #include <signal.h>
 
 /*
- * Test: Wire format header encode/decode
- */
-void test_filetx_header_format(void) {
-    TEST_BEGIN("filetx header wire format") {
-        /* Simulate header: 8(size) + 32(hash) + 2(name_len) + N(name) */
-        uint64_t file_size = 1048576; /* 1MB */
-        unsigned char hash[32];
-        memset(hash, 0xAB, 32);
-        const char *name = "test_file.bin";
-        int name_len = strlen(name);
-
-        char hdr[FILETX_HDR_SIZE + 256];
-        /* Encode size (big-endian) */
-        for (int i = 7; i >= 0; i--) {
-            hdr[i] = file_size & 0xFF;
-            file_size >>= 8;
-        }
-        memcpy(hdr + 8, hash, 32);
-        hdr[40] = (name_len >> 8) & 0xFF;
-        hdr[41] = name_len & 0xFF;
-        memcpy(hdr + 42, name, name_len);
-
-        /* Decode */
-        uint64_t dec_size = 0;
-        for (int i = 0; i < 8; i++)
-            dec_size = (dec_size << 8) | (unsigned char)hdr[i];
-        ASSERT_EQ(dec_size, 1048576ULL, "file size 1MB");
-
-        unsigned char dec_hash[32];
-        memcpy(dec_hash, hdr + 8, 32);
-        ASSERT(memcmp(dec_hash, hash, 32) == 0, "hash matches");
-
-        int dec_name_len = ((unsigned char)hdr[40] << 8) | (unsigned char)hdr[41];
-        ASSERT_EQ(dec_name_len, 13, "name_len = 13");
-
-        char dec_name[256];
-        memcpy(dec_name, hdr + 42, dec_name_len);
-        dec_name[dec_name_len] = '\0';
-        ASSERT_STR_EQ(dec_name, "test_file.bin", "filename");
-    } TEST_END;
-}
-
-/*
  * Test: filetx_send fails gracefully on non-existent file
  */
 void test_filetx_send_no_file(void) {
@@ -116,25 +73,99 @@ void test_filetx_recv_bad_header(void) {
     } TEST_END;
 }
 
-/*
- * Test: Resume offset encoding
- */
-void test_filetx_resume_offset(void) {
-    TEST_BEGIN("filetx resume offset wire format") {
-        uint64_t offset = 5242880; /* 5MB */
-        unsigned char buf[8];
 
-        /* Encode big-endian */
-        for (int i = 7; i >= 0; i--) {
-            buf[i] = offset & 0xFF;
-            offset >>= 8;
+/* Send src_path from a child (server role) and receive into dir in the
+ * parent (client role) over a real encrypted channel. Returns recv's rc. */
+static int transfer(const char *src_path, const char *dir) {
+    int fds[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) return -2;
+    pid_t pid = fork();
+    if (pid < 0) return -2;
+    if (pid == 0) {
+        close(fds[1]);
+        int devnull = open("/dev/null", O_WRONLY);
+        dup2(devnull, STDERR_FILENO);
+        if (farm9crypt_init_password("filetx-test-pass", 16, FARM9_ROLE_SERVER) != 0) _exit(2);
+        int rc = filetx_send(fds[0], src_path);
+        farm9crypt_cleanup();
+        _exit(rc == 0 ? 0 : 1);
+    }
+    close(fds[0]);
+    int saved = dup(STDERR_FILENO), devnull = open("/dev/null", O_WRONLY);
+    dup2(devnull, STDERR_FILENO); close(devnull);
+    int rc = farm9crypt_init_password("filetx-test-pass", 16, FARM9_ROLE_CLIENT) == 0
+             ? filetx_recv(fds[1], dir) : -2;
+    dup2(saved, STDERR_FILENO); close(saved);
+    farm9crypt_cleanup();
+    close(fds[1]);
+    int status;
+    waitpid(pid, &status, 0);
+    return rc;
+}
+
+static int files_equal(const char *a, const char *b) {
+    FILE *fa = fopen(a, "rb"), *fb = fopen(b, "rb");
+    int eq = fa && fb;
+    while (eq) {
+        int ca = fgetc(fa), cb = fgetc(fb);
+        if (ca != cb) eq = 0;
+        if (ca == EOF || cb == EOF) break;
+    }
+    if (fa) fclose(fa);
+    if (fb) fclose(fb);
+    return eq;
+}
+
+void test_filetx_roundtrip_real(void) {
+    TEST_BEGIN("filetx_send/filetx_recv transfer a file (real code)") {
+        char dir[] = "/tmp/clawsec-ftxXXXXXX";
+        ASSERT(mkdtemp(dir) != NULL, "mkdtemp");
+        char src[512], dst[512], part[600];
+        snprintf(src, sizeof(src), "%s/source.bin", dir);
+        snprintf(dst, sizeof(dst), "%s/out/source.bin", dir);
+        snprintf(part, sizeof(part), "%s%s", dst, FILETX_PART_SUFFIX);
+        char outdir[256];
+        snprintf(outdir, sizeof(outdir), "%s/out", dir);
+        ASSERT(mkdir(outdir, 0700) == 0, "mkdir");
+        FILE *f = fopen(src, "wb");
+        ASSERT(f != NULL, "create source");
+        for (int i = 0; i < 50000; i++) fputc((i * 131) & 0xFF, f);
+        fclose(f);
+
+        int rc = transfer(src, outdir);
+        int eq = files_equal(src, dst);
+        int part_left = access(part, F_OK) == 0;
+        unlink(dst); unlink(src); rmdir(outdir); rmdir(dir);
+        ASSERT_EQ(rc, 0, "receive failed");
+        ASSERT(eq, "received file differs");
+        ASSERT(!part_left, ".clawsec-part must be renamed away");
+    } TEST_END;
+}
+
+void test_filetx_resume_real(void) {
+    TEST_BEGIN("filetx_recv resumes from its own .clawsec-part") {
+        char dir[] = "/tmp/clawsec-ftxXXXXXX";
+        ASSERT(mkdtemp(dir) != NULL, "mkdtemp");
+        char src[512], dst[512], part[600];
+        snprintf(src, sizeof(src), "%s/data.bin", dir);
+        char outdir[256];
+        snprintf(outdir, sizeof(outdir), "%s/out", dir);
+        ASSERT(mkdir(outdir, 0700) == 0, "mkdir");
+        snprintf(dst, sizeof(dst), "%s/data.bin", outdir);
+        snprintf(part, sizeof(part), "%s%s", dst, FILETX_PART_SUFFIX);
+        FILE *f = fopen(src, "wb"), *pf = fopen(part, "wb");
+        ASSERT(f && pf, "create files");
+        for (int i = 0; i < 30000; i++) {
+            int c = (i * 7 + 3) & 0xFF;
+            fputc(c, f);
+            if (i < 12345) fputc(c, pf);          /* correct 12345-byte prefix */
         }
+        fclose(f); fclose(pf);
 
-        /* Decode */
-        uint64_t dec = 0;
-        for (int i = 0; i < 8; i++)
-            dec = (dec << 8) | buf[i];
-
-        ASSERT_EQ(dec, 5242880ULL, "offset 5MB roundtrip");
+        int rc = transfer(src, outdir);
+        int eq = files_equal(src, dst);
+        unlink(dst); unlink(part); unlink(src); rmdir(outdir); rmdir(dir);
+        ASSERT_EQ(rc, 0, "resume failed");
+        ASSERT(eq, "resumed file differs");
     } TEST_END;
 }
