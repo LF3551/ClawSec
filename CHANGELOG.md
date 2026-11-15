@@ -2,6 +2,58 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [Unreleased]
+
+### Security
+- **Wire protocol v2 (breaking: not compatible with ≤ 2.8.2).** The 16-byte frame
+  header (magic, version, flags, sequence number, length) is now authenticated as
+  AES-GCM associated data. In v1 a captured frame could be replayed by editing its
+  unauthenticated sequence number.
+- **Directional keys.** HKDF-SHA256 derives independent client→server and
+  server→client keys from the session key. In v1 both directions shared one key,
+  so a node accepted its own frames reflected back to it.
+- **Receive-buffer overflow fixed.** `farm9crypt_read()` decrypted into the caller's
+  buffer without honouring its size, before verifying the tag. A frame forged by an
+  on-path attacker (no password needed) could overwrite up to ~8 KB of stack memory
+  behind small buffers (e.g. SOCKS status, file-transfer offsets, reverse-tunnel
+  signals). Plaintext is now decrypted internally and released only after tag
+  verification, never beyond the caller's buffer (`EMSGSIZE` otherwise).
+- Sequence numbers are never reused: a session stops after 2^32 messages per
+  direction instead of wrapping (TCP and UDP channels).
+- `--tun-udp`: the UDP data channel uses its own directional keys (separate from the
+  TCP channel), and sequence number 0 — reserved for the negotiation probe/ACK — is
+  no longer accepted as data, so captured probes cannot be replayed into the tunnel.
+- Stream mode no longer interprets payload bytes as chat control messages. Data that
+  happened to start with `0x01` was silently dropped (corrupting transfers), and data
+  starting with `0x01 'F'` made the receiver write a file into its working directory.
+  Control messages are now only processed in interactive chat mode (`-c`).
+- Key material is wiped with `OPENSSL_cleanse`.
+
+### Fixed
+- `--mux` did not work at all: every frame read failed with `EINVAL` (frame buffer
+  4 bytes larger than the maximum message), and full 8 KB reads could not be sent.
+  `MUX_MAX_PAYLOAD` is now `8192 - MUX_HDR_SIZE`.
+- `--tun-udp` negotiation race: the client sent a single UDP probe that could arrive
+  before the server had bound its socket, silently falling back to TCP on one side.
+  The server now binds before announcing its token, the client retransmits the probe
+  until it is acknowledged, and invalid datagrams are ignored instead of aborting.
+- Test suite builds with GCC 14 (`usleep` replaced by a `nanosleep` helper).
+
+### Changed
+- `farm9crypt_init_password*()` take a role (`FARM9_ROLE_CLIENT` / `FARM9_ROLE_SERVER`).
+  The deprecated `farm9crypt_init(char*)` (which read a raw key with `strlen`) was
+  removed. `farm9crypt_export_key()` was replaced by `farm9crypt_export_udp_keys()`.
+- Session fingerprint is derived with HKDF (still identical on both ends).
+
+### Added
+- `tests/test_security.c`: regression tests for each issue above.
+- `tests/e2e.sh` (`make e2e`): end-to-end tests of the real binary — stream modes,
+  `--obfs http|tls`, `--tofu`, `--pq`, `--mux`, `--socks`, `-R`, `--send/--recv`,
+  wrong password, control-byte payloads.
+- `tests/e2e_vpn.sh` (`sudo make e2e-vpn`): `--tun` and `--tun-udp` across two
+  network namespaces.
+- `make test-asan`; CI runs the unit tests under ASan/UBSan and both e2e suites.
+
 ## [2.8.2] - 2026-05-11
 
 ### Fixed

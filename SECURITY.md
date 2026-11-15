@@ -14,12 +14,17 @@ ClawSec implements modern authenticated encryption using **AES-256-GCM** (Galois
 - **Tag Size**: 128 bits (16 bytes) - authentication tag
 
 ### Key Derivation
-- **Algorithm**: X25519 ECDHE + PBKDF2-HMAC-SHA256
+- **Algorithm**: X25519 ECDHE + Argon2id (PBKDF2-HMAC-SHA256 100k fallback on OpenSSL < 3.2)
 - **ECDHE**: Ephemeral X25519 keypair per session (Perfect Forward Secrecy)
-- **PBKDF2 Iterations**: 100,000 (OWASP recommended minimum)
-- **Key Binding**: final_key = SHA256(ECDH_shared_secret || PBKDF2(password, pubkey_hash))
-- **Output**: 256-bit derived key
-- **Property**: Both ECDH agreement AND password knowledge required for decryption
+- **Argon2id parameters**: t=3, m=19 MiB, p=1 (OWASP minimum profile)
+- **Session key**: session = SHA256(ECDH_shared_secret [|| ML-KEM secret] || KDF(password, SHA256(server_pub || client_pub)))
+- **Traffic keys** (HKDF-SHA256, empty salt, info labels bound to the protocol version):
+  - `ClawSec v2 tcp c2s` / `ClawSec v2 tcp s2c` — stream channel, one key per direction
+  - `ClawSec v2 udp c2s` / `ClawSec v2 udp s2c` — `--tun-udp` data channel, one key per direction
+  - `ClawSec v2 fingerprint` — session fingerprint shown in chat mode
+- **Property**: Both ECDH agreement AND password knowledge required for decryption; each
+  direction and channel uses an independent key, so frames cannot be reflected or moved
+  between channels
 
 ### Protocol Format
 
@@ -27,13 +32,34 @@ ClawSec implements modern authenticated encryption using **AES-256-GCM** (Galois
 [MAGIC:4][VERSION:2][FLAGS:2][SEQ:4][LENGTH:4][IV:12][TAG:16][CIPHERTEXT:variable]
 
 MAGIC    = 0x434C4157 ("CLAW")
-VERSION  = 0x0001 (protocol version 1)
-FLAGS    = 0x0000 (reserved for future use)
+VERSION  = 0x0002 (protocol version 2)
+FLAGS    = 0x0000 (reserved, must be zero)
 SEQ      = message sequence number (network byte order, replay protection)
-LENGTH   = ciphertext length in bytes (network byte order)
+LENGTH   = ciphertext length in bytes (network byte order, == plaintext length)
 IV       = random initialization vector (unique per message)
-TAG      = GCM authentication tag
+TAG      = GCM authentication tag over AAD = the 16-byte header, and the ciphertext
 ```
+
+Receiver rules (v2):
+- the header is authenticated: any change to MAGIC, VERSION, FLAGS, SEQ or LENGTH fails the tag;
+- SEQ must equal the next expected value; a direction never reuses a SEQ (the session
+  refuses to continue after 2^32 messages instead of wrapping);
+- plaintext is decrypted into an internal buffer and copied to the caller only after the
+  tag verifies, and only if it fits the caller's buffer (otherwise `EMSGSIZE`).
+
+Protocol v2 is not wire-compatible with v1 (ClawSec ≤ 2.8.2); a v1 peer is rejected
+with an explicit version error.
+
+### UDP VPN data channel (`--tun-udp`)
+
+```
+[MAGIC "CVPN":4][NONCE:12 = SEQ:4 || random:8][CIPHERTEXT][TAG:16]   AAD = "CVPN"
+```
+
+- Encrypted with the directional UDP keys (never the TCP keys).
+- SEQ 0 is reserved for the negotiation probe/ACK; data starts at 1 and the
+  256-entry sliding window rejects SEQ 0, duplicates and stale packets.
+- The sender stops instead of wrapping SEQ.
 
 ### Session Handshake
 
@@ -43,9 +69,10 @@ TAG      = GCM authentication tag
 3. Client sends X25519 ephemeral public key (32 bytes)
 4. Both compute: shared_secret = X25519(my_privkey, peer_pubkey)
 5. Both compute: salt = SHA256(server_pubkey || client_pubkey)
-6. Both compute: password_key = PBKDF2(password, salt[0:16], 100000)
-7. Both compute: final_key = SHA256(shared_secret || password_key)
-8. Encrypted communication begins (seq counters start at 0)
+6. Both compute: password_key = Argon2id(password, salt)   (PBKDF2 fallback)
+7. Both compute: session = SHA256(shared_secret || password_key)
+8. Both derive directional keys with HKDF-SHA256 (see Key Derivation)
+9. Encrypted communication begins (seq counters start at 0 in each direction)
 ```
 
 Perfect Forward Secrecy: ephemeral private keys are never stored. Even if
@@ -59,19 +86,28 @@ password is compromised later, recorded traffic cannot be decrypted.
 2. **Integrity**: GCM authentication tag detects tampering
 3. **Authentication**: Both endpoints verify message authenticity via password-bound ECDHE
 4. **IV Uniqueness**: Cryptographically secure random IV per message
-5. **Replay Protection**: Monotonic sequence counters reject duplicated/reordered messages
+5. **Replay Protection**: Authenticated, strictly consecutive sequence numbers reject duplicated, reordered and re-labelled messages
 6. **Session Isolation**: Ephemeral X25519 keys ensure unique session keys
 7. **Perfect Forward Secrecy**: Compromised password cannot decrypt past sessions
 8. **TOFU Identity Verification**: `--tofu` provides SSH-like server identity with Ed25519 signing and `known_hosts` — detects MITM on reconnection
 9. **Post-Quantum Resistance**: `--pq` adds ML-KEM-768 (CRYSTALS-Kyber) hybrid key exchange on top of X25519, protecting against quantum adversaries
+10. **Reflection Resistance**: Separate keys per direction; a node never accepts its own frames
+11. **Bounded Decryption**: Unauthenticated plaintext never reaches caller buffers; writes never exceed the buffer size
 
 ### ⚠️ Current Limitations
 
 1. **No PKI/certificate infrastructure**: Without `--tofu`, authentication relies solely on pre-shared password. With `--tofu`, MITM is detectable on reconnection but first contact requires out-of-band fingerprint verification
-2. **PBKDF2 (not Argon2)**: PBKDF2 is resistant to CPU brute-force but not GPU/ASIC-optimized attacks. Argon2id would provide memory-hard protection
-3. **No certificate pinning**: `--tofu` provides first-use trust, but not CA-signed certificate validation
-4. **Single password per session**: No per-user authentication; all clients share the same password
-5. **Post-quantum requires OpenSSL >= 3.5**: `--pq` hybrid key exchange needs ML-KEM support (OpenSSL 3.5+)
+2. **No PAKE — offline password guessing by an active attacker**: the password is mixed into the
+   session key after an unauthenticated X25519 exchange. An attacker who runs the handshake with a
+   client or server (or sits in the middle) learns the X25519 secret and can test password guesses
+   offline against captured frames. Use long random passwords (≥ 128 bits, e.g.
+   `openssl rand -base64 24`). A PAKE (e.g. CPace) is planned
+3. **Handshake transcript not authenticated**: `--tofu` signs only the server's ephemeral key, not the
+   full transcript (client key, ML-KEM messages); key confirmation is implicit (first frame)
+4. **No certificate pinning**: `--tofu` provides first-use trust, but not CA-signed certificate validation
+5. **Single password per session**: No per-user authentication; all clients share the same password
+6. **PBKDF2 fallback on OpenSSL < 3.2**: not memory-hard; prefer OpenSSL ≥ 3.2 (Argon2id)
+7. **Post-quantum requires OpenSSL >= 3.5**: `--pq` hybrid key exchange needs ML-KEM support (OpenSSL 3.5+)
 
 ## Usage Guidelines
 
@@ -133,18 +169,19 @@ admin                # Too short and common
 ### 1. Man-in-the-Middle (MITM)
 **Threat**: Attacker intercepts and relays traffic
 **Mitigation**: Use pre-shared password; attacker without password cannot decrypt
-**Limitation**: No authentication of endpoint identity
+**Limitation**: No authentication of endpoint identity without `--tofu`; an active attacker can
+test password guesses offline (no PAKE yet) — use a long random password
 
 ### 2. Replay Attacks
 **Threat**: Attacker captures and resends encrypted messages
-**Mitigation**: Monotonic sequence counter per session; receiver rejects any message with unexpected sequence number
-**Status**: ✅ Implemented (v2.4.0)
+**Mitigation**: Sequence counter per direction, authenticated as GCM AAD; receiver rejects any message with an unexpected sequence number, and editing the number invalidates the tag. Separate keys per direction prevent reflection.
+**Status**: ✅ Implemented (v2.4.0); header authentication and directional keys added in protocol v2 (v1 accepted replays with an edited sequence number and reflected frames)
 
 ### 3. Brute Force
 **Threat**: Attacker tries to guess password
 **Mitigation**: 
 - Strong passwords (12+ chars)
-- PBKDF2 with 100k iterations slows down attacks
+- Argon2id (memory-hard) slows down guessing; note that guessing can be done offline by an active attacker (see Limitations)
 - Monitor failed connection attempts
 
 ### 4. Side-Channel Attacks
@@ -201,7 +238,7 @@ Found a security issue? Please report to:
 ## Future Enhancements
 
 ### Planned Security Features
-1. **Argon2id KDF**: Replace PBKDF2 with memory-hard key derivation (GPU/ASIC resistance)
+1. **PAKE (e.g. CPace) + transcript-bound key confirmation**: remove offline password guessing by active attackers
 2. **Per-user authentication**: Support multiple passwords/keys for multi-client deployments
 3. **Key rotation**: Automatic session key renegotiation for long-lived connections
 
@@ -254,6 +291,6 @@ For production environments, consider professionally audited solutions like:
 
 ---
 
-**Last Updated**: May 3, 2026  
-**Protocol Version**: 1  
+**Last Updated**: November 15, 2026  
+**Protocol Version**: 2  
 **Maintainer**: ClawSec Project
