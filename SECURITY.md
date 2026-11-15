@@ -238,6 +238,16 @@ test password guesses offline (no PAKE yet) — use a long random password
 
 ## Known Vulnerabilities
 
+### Fixed in 3.1.0 (affect ClawSec ≤ 3.0.0)
+
+| Issue | Impact |
+|---|---|
+| `--recv` followed a symlink/hard link named like the incoming file | A link in the receive directory made the receiver append to its target, corrupting an unrelated file |
+| SOCKS server connected to any destination | Password holders could reach the server's loopback services and cloud metadata (SSRF) |
+| No handshake timeout; `-K` forked without limit | A silent client held a single-session server forever; many clients exhausted memory (~19 MiB Argon2id each) |
+| `-u`: one forged datagram ended the session | Off-path denial of service for UDP sessions |
+| Password only via `-k` | Visible to other local users in the process list and in shell history |
+
 ### Fixed in 3.0.0 (affect ClawSec ≤ 2.8.2 — upgrade both endpoints)
 
 | Issue | Impact |
@@ -250,7 +260,8 @@ test password guesses offline (no PAKE yet) — use a long random password
 | `--tun` address passed unvalidated to shell commands run as root | Command injection via the `--tun` argument |
 | `-e` built by default | Every binary could hand out a shell |
 
-Details: [CHANGELOG.md](CHANGELOG.md) and
+Details: [CHANGELOG.md](CHANGELOG.md),
+[releases/3.1.0/RELEASE_NOTES.md](releases/3.1.0/RELEASE_NOTES.md) and
 [releases/3.0.0/RELEASE_NOTES.md](releases/3.0.0/RELEASE_NOTES.md).
 No CVE identifiers have been assigned.
 
@@ -259,7 +270,7 @@ See *Current Limitations* above (most importantly: no PAKE yet).
 
 ### Security Audits
 - Initial implementation: November 2025
-- Last review: November 2026 (internal review for 3.0.0)
+- Last review: November 2026 (internal reviews for 3.0.0 and 3.1.0)
 - Status: Not externally audited (community project)
 
 ## Responsible Disclosure
@@ -329,6 +340,6 @@ For production environments, consider professionally audited solutions like:
 ---
 
 **Last Updated**: November 15, 2026  
-**Release**: 3.0.0  
+**Release**: 3.1.0  
 **Protocol Version**: 3  
 **Maintainer**: ClawSec Project

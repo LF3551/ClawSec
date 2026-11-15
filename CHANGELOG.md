@@ -2,7 +2,12 @@
 
 All notable changes to ClawSec will be documented in this file.
 
-## [Unreleased]
+## [3.1.0] - 2026-11-15
+
+Security, reliability and packaging release. **Wire-compatible with 3.0.0**
+(protocol 3). Behaviour changes: the SOCKS server denies loopback/link-local
+destinations unless `--socks-allow` permits them, and `-K` runs at most 16
+concurrent handlers by default (`--max-clients`).
 
 ### Security
 - **Password off the command line.** New `--key-file <file>` and the
