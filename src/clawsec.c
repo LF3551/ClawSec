@@ -748,7 +748,7 @@ static int run_vpn_hub(int listen_fd, const char *password) {
                 if (n <= 0) break;
                 int owner = vpn_pool_route(pool, (unsigned char *)buf, (size_t)n);
                 if (owner >= 0 && owner < max && cl[owner].fd >= 0)
-                    (void)send(cl[owner].fd, buf, (size_t)n, MSG_DONTWAIT);   /* drop if full */
+                    (void)send(cl[owner].fd, buf, (size_t)n, 0);   /* non-blocking: dropped if full */
             }
         }
 
@@ -804,7 +804,7 @@ static int run_vpn_hub(int listen_fd, const char *password) {
         for (int k = 0; k < max; k++) {
             if (cl[k].fd < 0 || !(pfd[k + 2].revents & (POLLIN | POLLHUP | POLLERR))) continue;
             for (int burst = 0; burst < 64; burst++) {
-                ssize_t n = recv(cl[k].fd, buf, sizeof(buf), MSG_DONTWAIT);
+                ssize_t n = recv(cl[k].fd, buf, sizeof(buf), 0);            /* non-blocking socket */
                 if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) break;
                 if (n <= 0) {                                  /* session ended */
                     hub_drop_client(pool, &cl[k], k);
@@ -1288,7 +1288,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ERROR: password key derivation failed\n");
         return 1;
     }
-password_done:
+password_done:;
 
     /* Parse port forwarding target */
     char fwd_host[256] = {0};
