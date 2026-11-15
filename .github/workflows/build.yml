@@ -119,6 +119,9 @@ jobs:
         cd src
         ./clawsec -h || true
         test -f clawsec
+
+    - name: TUN smoke test (utun, pf NAT anchor, cleanup)
+      run: sudo bash tests/e2e_vpn_macos.sh src/clawsec
     
     - name: Upload artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
