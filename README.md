@@ -5,6 +5,7 @@
 <p align="center">
   <a href="https://github.com/LF3551/ClawSec/actions/workflows/build.yml"><img src="https://github.com/LF3551/ClawSec/actions/workflows/build.yml/badge.svg" alt="Build and Test" /></a>
   <a href="https://github.com/LF3551/ClawSec/actions/workflows/codeql.yml"><img src="https://github.com/LF3551/ClawSec/actions/workflows/codeql.yml/badge.svg" alt="CodeQL" /></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/LF3551/ClawSec"><img src="https://api.scorecard.dev/projects/github.com/LF3551/ClawSec/badge" alt="OpenSSF Scorecard" /></a>
   <a href="https://github.com/LF3551/ClawSec/releases/latest"><img src="https://img.shields.io/github/v/release/LF3551/ClawSec" alt="Latest release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="License: BSD-3-Clause" /></a>
   <br />

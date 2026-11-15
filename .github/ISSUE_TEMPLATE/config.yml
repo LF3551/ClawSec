@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/LF3551/ClawSec/security/advisories/new
+    about: Please report vulnerabilities privately, not in a public issue (see SECURITY.md).
+  - name: Documentation and FAQ
+    url: https://github.com/LF3551/ClawSec/blob/main/docs/FAQ.md
+    about: Common errors (wrong password, protocol version, option mismatch) are explained here.

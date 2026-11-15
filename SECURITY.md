@@ -280,6 +280,7 @@ Details: [CHANGELOG.md](CHANGELOG.md),
 [releases/3.1.0/RELEASE_NOTES.md](releases/3.1.0/RELEASE_NOTES.md) and
 [releases/3.0.0/RELEASE_NOTES.md](releases/3.0.0/RELEASE_NOTES.md).
 GitHub Security Advisories:
+[GHSA-xhj4-6qx3-3784](https://github.com/LF3551/ClawSec/security/advisories/GHSA-xhj4-6qx3-3784) (offline password guessing, fixed in 4.0.0, high),
 [GHSA-p24v-84fh-v7r2](https://github.com/LF3551/ClawSec/security/advisories/GHSA-p24v-84fh-v7r2) (record layer, high),
 [GHSA-vx49-pc8w-vgrx](https://github.com/LF3551/ClawSec/security/advisories/GHSA-vx49-pc8w-vgrx) (receiver file writes),
 [GHSA-f39q-c788-x6h5](https://github.com/LF3551/ClawSec/security/advisories/GHSA-f39q-c788-x6h5) (SOCKS exposure/SSRF),
