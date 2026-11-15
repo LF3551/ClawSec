@@ -105,8 +105,10 @@ static char s_socks_host[256], s_socks_lport[8];   /* --socks [host:]port (clien
 static char s_mux_host[256], s_mux_lport[8];       /* -p [host:]port with --mux (client) */
 
 /* Handle one client connection (used by keep-open and normal mode) */
-/* Returns 0 on success, 1 if the session could not be set up or failed.
- * The return value becomes the exit status in single-session modes. */
+/* Returns 0 on success, 1 if the session could not be set up or failed,
+ * HC_PERMANENT if it failed for a reason a retry cannot fix (wrong password,
+ * incompatible peer). main() maps every failure to exit status 1. */
+#define HC_PERMANENT 2
 static int handle_client_inner(int sockfd, const char *password, int is_server,
                           int send_first, const char *exec_prog,
                           const char *fwd_host, const char *fwd_port,
@@ -165,7 +167,7 @@ static int handle_client_inner(int sockfd, const char *password, int is_server,
                 fprintf(stderr, "ERROR: handshake timed out after %d s\n", g_handshake_timeout);
             fprintf(stderr, "ERROR: Post-quantum hybrid handshake failed\n");
             close(sockfd);
-            return 1;
+            return farm9crypt_last_failure() != FARM9_FAIL_NONE ? HC_PERMANENT : 1;
         }
         if (g_tofu)
             log_msg(1, "PFS session established (X25519 + ML-KEM-768 + Ed25519 TOFU + password KDF)");
@@ -178,7 +180,7 @@ static int handle_client_inner(int sockfd, const char *password, int is_server,
                 fprintf(stderr, "ERROR: handshake timed out after %d s\n", g_handshake_timeout);
             fprintf(stderr, "ERROR: ECDHE+TOFU handshake failed\n");
             close(sockfd);
-            return 1;
+            return farm9crypt_last_failure() != FARM9_FAIL_NONE ? HC_PERMANENT : 1;
         }
         log_msg(1, "PFS session established (X25519 + Ed25519 TOFU + password KDF)");
     } else {
@@ -187,7 +189,7 @@ static int handle_client_inner(int sockfd, const char *password, int is_server,
                 fprintf(stderr, "ERROR: handshake timed out after %d s\n", g_handshake_timeout);
             fprintf(stderr, "ERROR: ECDHE handshake failed\n");
             close(sockfd);
-            return 1;
+            return farm9crypt_last_failure() != FARM9_FAIL_NONE ? HC_PERMANENT : 1;
         }
         log_msg(1, "PFS session established (X25519 + password KDF)");
     }
@@ -841,7 +843,7 @@ int main(int argc, char **argv) {
                                                  fwd_spec ? fwd_host : NULL,
                                                  fwd_spec ? fwd_port : NULL,
                                                  NULL, NULL);
-                    _exit(child_rc);
+                    _exit(child_rc ? 1 : 0);
                 }
                 /* Parent: continue accepting */
                 close(client_fd);
@@ -858,7 +860,7 @@ int main(int argc, char **argv) {
             }
 
             int send_first = g_udp_mode ? 0 : 1;
-            exit_status = handle_client(sockfd, password, 1, send_first, exec_arg,
+            exit_status = !!handle_client(sockfd, password, 1, send_first, exec_arg,
                                         fwd_spec ? fwd_host : NULL,
                                         fwd_spec ? fwd_port : NULL,
                                         NULL, NULL);
@@ -890,10 +892,17 @@ int main(int argc, char **argv) {
                 attempt = 0; /* reset on successful connect */
 
                 int send_first = g_udp_mode ? 1 : 0;
-                handle_client(sockfd, password, 0, send_first, NULL,
-                              fwd_spec ? fwd_host : NULL,
-                              fwd_spec ? fwd_port : NULL,
-                              host, port);
+                int rc = handle_client(sockfd, password, 0, send_first, NULL,
+                                       fwd_spec ? fwd_host : NULL,
+                                       fwd_spec ? fwd_port : NULL,
+                                       host, port);
+                if (rc == HC_PERMANENT) {
+                    fprintf(stderr, "persistent: giving up — %s; reconnecting cannot fix this\n",
+                            farm9crypt_last_failure() == FARM9_FAIL_AUTH
+                                ? "authentication failed (wrong password?)"
+                                : "the server speaks an incompatible protocol version");
+                    return 1;
+                }
 
                 if (s_tun_cidr && tun_stop_requested())
                     break;          /* Ctrl-C in VPN mode: stop, don't reconnect */
@@ -906,7 +915,7 @@ int main(int argc, char **argv) {
             log_msg(1, "connected to %s:%s%s", host, port, g_udp_mode ? " (UDP)" : "");
 
             int send_first = g_udp_mode ? 1 : 0;
-            exit_status = handle_client(sockfd, password, 0, send_first, NULL,
+            exit_status = !!handle_client(sockfd, password, 0, send_first, NULL,
                                         fwd_spec ? fwd_host : NULL,
                                         fwd_spec ? fwd_port : NULL,
                                         host, port);

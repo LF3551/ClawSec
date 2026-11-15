@@ -330,12 +330,14 @@ void test_sec_wrong_password_detected(void) {
         close(fds[0]);
         int rc = farm9crypt_init_ecdhe(fds[1], "client-password-2", 17, FARM9_ROLE_CLIENT);
         int inited = farm9crypt_initialized();
+        int reason = farm9crypt_last_failure();
         int status;
         waitpid(pid, &status, 0);
         restore_stderr(saved);
         close(fds[1]);
         ASSERT_EQ(rc, -1, "client must reject the session");
         ASSERT_EQ(inited, 0, "no keys may remain installed after a failed confirmation");
+        ASSERT_EQ(reason, FARM9_FAIL_AUTH, "failure must be reported as authentication");
         ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0, "server must reject the session");
     } TEST_END;
 }
@@ -359,10 +361,12 @@ void test_sec_old_server_detected(void) {
         close(fds[0]);
         int saved; quiet_stderr(&saved);
         int rc = farm9crypt_init_ecdhe(fds[1], SEC_PASS, strlen(SEC_PASS), FARM9_ROLE_CLIENT);
+        int reason = farm9crypt_last_failure();
         restore_stderr(saved);
         close(fds[1]);
         waitpid(pid, NULL, 0);
         ASSERT_EQ(rc, -1, "old server must be rejected");
+        ASSERT_EQ(reason, FARM9_FAIL_VERSION, "failure must be reported as version mismatch");
     } TEST_END;
 }
 

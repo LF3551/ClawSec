@@ -197,6 +197,7 @@ static int hello_check(int sockfd, int server_mode) {
         return -1;
     }
     if (foreign || h[0] != 'C' || h[1] != 'S') {
+        farm9crypt_set_failure(FARM9_FAIL_VERSION);
         fprintf(stderr, "[HANDSHAKE] Error: the %s does not speak ClawSec protocol v%d "
                         "(ClawSec <= 2.8.2, or not ClawSec); upgrade both ends\n",
                 who, FARM9_VERSION);
@@ -204,6 +205,7 @@ static int hello_check(int sockfd, int server_mode) {
     }
     unsigned int v = ((unsigned int)h[2] << 8) | h[3];
     if (v != FARM9_VERSION) {
+        farm9crypt_set_failure(FARM9_FAIL_VERSION);
         fprintf(stderr, "[HANDSHAKE] Error: the %s uses ClawSec protocol v%u, this build "
                         "requires v%d; upgrade both ends to the same release\n",
                 who, v, FARM9_VERSION);

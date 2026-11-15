@@ -351,6 +351,36 @@ else
     echo "  [E2E] -K --max-clients 1 queues the next client ... FAIL (exit $CRC, ${ELAPSED}s)"; FAIL=$((FAIL + 1))
 fi
 
+# ── --persistent: stop on a wrong password, reconnect after a drop ─────
+P=$(free_port)
+"$BIN" -l -p "$P" -k "$KEY" -K >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$P"
+START=$SECONDS
+timeout 20 "$BIN" -k "wrong-password-x" --persistent 127.0.0.1 "$P" < <(sleep 30) >/dev/null 2>"$WORK/pers.err"
+PRC=$?
+if [ "$PRC" -eq 1 ] && [ $((SECONDS - START)) -le 5 ] && grep -q 'giving up' "$WORK/pers.err"; then
+    echo "  [E2E] --persistent gives up on a wrong password ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --persistent gives up on a wrong password ... FAIL (exit $PRC)"; FAIL=$((FAIL + 1))
+fi
+
+P=$(free_port); mkdir -p "$WORK/rx-p1" "$WORK/rx-p2"
+"$BIN" -l -p "$P" -k "$KEY" --recv "$WORK/rx-p1" >/dev/null 2>&1 &
+S1=$!
+wait_port "$P"
+timeout 25 "$BIN" -k "$KEY" --persistent --send "$WORK/src/data.bin" 127.0.0.1 "$P" >/dev/null 2>&1 &
+CLI=$!
+wait "$S1"                                  # first session completes, server exits
+"$BIN" -l -p "$P" -k "$KEY" --recv "$WORK/rx-p2" >/dev/null 2>&1 &
+S2=$!
+for _ in $(seq 60); do [ -e "$WORK/rx-p2/data.bin" ] && break; sleep 0.25; done
+kill "$CLI" "$S2" 2>/dev/null; wait "$CLI" "$S2" 2>/dev/null
+if cmp -s "$PAYLOAD" "$WORK/rx-p1/data.bin" && cmp -s "$PAYLOAD" "$WORK/rx-p2/data.bin"; then
+    echo "  [E2E] --persistent reconnects after the server restarts ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --persistent reconnects after the server restarts ... FAIL"; FAIL=$((FAIL + 1))
+fi
+
 # ── Wrong password: no data, explicit error, failure exit on both ends ───
 P=$(free_port); rm -f "$WORK/wrong.out"
 timeout 15 "$BIN" -l -p "$P" -k "$KEY" < <(sleep 10) > "$WORK/wrong.out" 2>"$WORK/wrong-srv.err" &
