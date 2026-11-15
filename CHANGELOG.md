@@ -37,7 +37,43 @@ All notable changes to ClawSec will be documented in this file.
   this removes the shell from the path entirely (defence in depth) and resolves the
   three open CodeQL `cpp/command-line-injection` alerts in `src/tun.c`.
 
+### Fixed
+- **`-u` (UDP) survives loss and reordering.** A single lost, reordered, forged or
+  corrupted datagram ended the session; a 64-entry anti-replay window now accepts
+  reordered datagrams once and drops invalid ones.
+- **`--mux` reuses stream ids**, so a tunnel is no longer limited to 63 connections
+  in total. Ids are recycled only after both sides acknowledged the close (with a
+  3.0.0 peer ids are not reused, as before).
+- **SYN scan (`--scan` as root) never found anything**: the raw SYN had no TCP
+  checksum and replies were parsed with a fixed IP header length. Fixed (Linux);
+  BSD/macOS use the connect scan, as their raw sockets do not receive TCP replies.
+- **`--persistent` gives up on a wrong password** or an incompatible peer instead of
+  reconnecting forever; network errors still reconnect.
+- TLS camouflage sessions are freed (every `--persistent` reconnect leaked one);
+  LeakSanitizer is now enabled in CI.
+- All `select()` loops replaced with `poll()` (no 1024-descriptor limit).
+- macOS build (O_NOFOLLOW under strict POSIX) and Intel-Mac Homebrew paths.
+
 ### Changed
+- **Release binaries:** Linux binaries are fully static (musl; no OpenSSL, libargon2
+  or zlib needed on the target); macOS binaries for arm64 and x86_64.
+- **Docker image:** multi-stage, ~18 MB, no compilers, base image pinned by digest,
+  runs as uid 10001, received files in `/data`. Kubernetes manifest: ClusterIP by
+  default, non-root, read-only root filesystem, no capabilities.
+- **Build:** new Makefile (dead DOS/Ultrix/IRIX/... targets and WIN32 code removed),
+  `-Wall -Wextra` with zero warnings, hardening flags (FORTIFY, stack protector,
+  PIE, full RELRO on Linux), `make werror`, `make static`, `make fuzz`.
+- **CI:** actions on current majors pinned by commit SHA (Dependabot keeps them and
+  the Docker base image current), least-privilege permissions, `-Werror`,
+  ASan/UBSan/LeakSanitizer, libFuzzer harnesses for the record layer and all
+  parsers, skipped unit tests fail the Linux job.
+- **Tests:** 15 tests that exercised no project code were removed; real
+  file-transfer tests added. Skips are reported separately.
+- **Docs:** traffic-shaping options are described with their limits (`--obfs tls`
+  uses a self-signed certificate, `--fingerprint` approximates a browser, `--ech`
+  does not hide the SNI, `--fallback` is not REALITY); size and dependency claims
+  corrected.
+- `releases/2.6.0` binary removed from git (it is attached to the GitHub release).
 - **Behaviour change:** the SOCKS server no longer reaches loopback/link-local
   destinations unless allowed with `--socks-allow` (e.g. `--socks-allow 127.0.0.1/32`).
 - Tests: unit tests for password sources, the SOCKS policy and name sanitising (the

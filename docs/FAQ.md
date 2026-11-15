@@ -123,7 +123,7 @@ Minimum 12 characters with mix of:
 Without the password, intercepted data is encrypted and authenticated. An attacker would see random bytes and cannot decrypt or modify the data.
 
 ### Does ClawSec work over HTTPS?
-No. ClawSec operates at the TCP/UDP level, not HTTP. It creates its own encrypted channel. However, `--obfs tls` wraps traffic in a real TLS 1.3 session, making it look like HTTPS to network observers.
+No. ClawSec operates at the TCP/UDP level, not HTTP. It creates its own encrypted channel. However, `--obfs tls` runs the session inside TLS 1.3, so passive observers see a TLS connection (anyone who connects can see the self-signed certificate).
 
 ## Troubleshooting
 
@@ -157,7 +157,7 @@ Make sure both sides use `-c` flag:
 ./clawsec -k "Pass" -c server-ip 4444
 ```
 
-## Anti-DPI / Stealth
+## Anti-DPI / Traffic shaping
 
 ### How do I hide ClawSec traffic from DPI?
 Combine `--obfs tls` for TLS 1.3 camouflage with `--fingerprint chrome` to look like real browser traffic:
@@ -170,13 +170,13 @@ Combine `--obfs tls` for TLS 1.3 camouflage with `--fingerprint chrome` to look 
 ```
 
 ### What is TLS fingerprinting?
-DPI systems identify tools by their TLS ClientHello pattern (JA3/JA4 hash). OpenSSL's default ClientHello stands out as a non-browser client. `--fingerprint chrome|firefox|safari` shapes ClawSec's ClientHello to match a real browser — cipher suites, curves, ALPN, extensions.
+DPI systems identify tools by their TLS ClientHello pattern (JA3/JA4 hash). OpenSSL's default ClientHello stands out as a non-browser client. `--fingerprint chrome|firefox|safari` makes ClawSec's ClientHello resemble a browser's (cipher suites, groups, signature algorithms, ALPN, ALPS for Chrome). OpenSSL cannot reproduce extension order or GREASE, so it approximates rather than exactly matches a browser's JA3/JA4.
 
 ### Do I need `--fingerprint` on both sides?
 No. `--fingerprint` is **client-side only** — it shapes the outgoing ClientHello. The server doesn't need it.
 
 ### What is `--fallback`?
-REALITY-like active probing resistance. When a browser/DPI probe connects to your port, they see a real website. Only ClawSec clients that send the correct knock sequence get the encrypted tunnel:
+After the TLS handshake, clients that do not send the ClawSec knock are proxied to another service (e.g. a local web server). Note that probers still see ClawSec's self-signed certificate — unlike REALITY, it does not borrow a real site's TLS identity:
 ```bash
 # Server: DPI probes see real nginx
 ./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80
@@ -201,13 +201,13 @@ Multiplexes up to 64 connections over a single encrypted tunnel. Think of it as 
 ./clawsec -k "Pass" -p 8080 --mux server 4430
 ```
 
-### Can I combine stealth features?
-Yes. Maximum stealth configuration:
+### Can I combine traffic-shaping options?
+Yes. All traffic-shaping options together:
 ```bash
 # Server
 ./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu --pq
 
-# Client (looks exactly like Chrome connecting to a real site, with MITM detection + quantum resistance)
+# Client (Chrome-like ClientHello, TOFU MITM detection, hybrid post-quantum key exchange)
 ./clawsec -k "Pass" --fingerprint chrome --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu --pq server 443
 ```
 
@@ -224,7 +224,7 @@ Post-quantum hybrid key exchange. Adds ML-KEM-768 (CRYSTALS-Kyber) on top of X25
 Yes. Both sides must use `--pq` for the ML-KEM key encapsulation exchange to work. You can combine `--pq` with `--tofu` for identity verification + quantum resistance.
 
 ### What's the difference between `--obfs tls` and `--fingerprint`?
-- `--obfs tls` wraps traffic in a real TLS 1.3 session (required for all stealth features)
+- `--obfs tls` runs the session inside TLS 1.3 (required by the other TLS options)
 - `--fingerprint` additionally shapes the TLS ClientHello to look like a specific browser
 - `--obfs tls` is needed on **both sides**, `--fingerprint` is **client-only**
 - `--fingerprint` auto-enables `--obfs tls`

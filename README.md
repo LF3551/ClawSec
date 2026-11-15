@@ -20,52 +20,28 @@
   </a>
 </p>
 
-Modern encrypted network tool evolved from Cryptcat with state-of-the-art cryptography.
+Encrypted netcat-style network tool (a modern descendant of Cryptcat):
+password-authenticated, forward-secret tunnels for streams, files, port
+forwarding, SOCKS5 and a point-to-point VPN, without certificates.
 
+> **Scope.** ClawSec is a community project that has not been externally
+> audited. For production remote access prefer OpenSSH or WireGuard; see
+> [SECURITY.md](SECURITY.md) for the threat model and known limitations
+> (notably: no PAKE yet, so use a long random password).
 
+## Features
 
-## Why ClawSec?
+| Area | What you get |
+|------|--------------|
+| **Crypto** | AES-256-GCM records with authenticated headers, X25519 ECDHE (forward secrecy), Argon2id password binding, HKDF directional keys, explicit key confirmation, optional `--pq` hybrid with ML-KEM-768 (OpenSSL ≥ 3.5), optional `--tofu` server identity (Ed25519, `known_hosts`) |
+| **Modes** | stdin/stdout stream, chat (`-c`), file transfer with resume + SHA-256 (`--send`/`--recv`), port forwarding (`-L`, `--mux`), reverse tunnel (`-R`), SOCKS5 (`--socks`), TUN VPN (`--tun`, `--tun-udp`, `--default-route`, `--masquerade`), opt-in remote program (`-e`), UDP (`-u`) |
+| **Operations** | `-K` multi-client with `--max-clients`, `--handshake-timeout`, `--persistent` reconnect, `-z` compression, `-P` progress, `-V` verification, IPv4/IPv6, shell completions, man page |
+| **Traffic shaping** | `--obfs http\|tls`, `--fingerprint`, `--ech`, `--fallback`, `--pad`, `--jitter` (see their limits below) |
+| **Recon** | `--scan` (Linux SYN half-open as root, otherwise parallel connect scan, randomised order), `-b` banner grabbing |
+| **Footprint** | ~135 KB dynamically linked; release binaries for Linux are fully static (~5.6 MB, no runtime dependencies); Docker image ~18 MB |
 
-| Feature | ClawSec | Cryptcat | Ncat (--ssl) | socat (openssl) |
-|---------|---------|----------|--------------|---------------|
-| **Encryption** | AES-256-GCM | Twofish (deprecated) | TLS 1.3 | TLS 1.3 |
-| **Key Exchange** | X25519 ECDHE | None | TLS handshake | TLS handshake |
-| **Perfect Forward Secrecy** | ✅ Yes | ❌ No | ✅ Yes | ✅ Yes |
-| **Authentication** | Password-bound ECDHE | None | Certificate | Certificate |
-| **Setup** | Single password | Hardcoded key | Certificate required | Certificate required |
-| **Replay Protection** | ✅ Sequence counters | ❌ No | ✅ TLS | ✅ TLS |
-| **UDP Support** | ✅ `-u` flag | ❌ No | ✅ Yes | ✅ Yes |
-| **IPv6** | ✅ `-4`/`-6` flags | ❌ No | ✅ Yes | ✅ Yes |
-| **Lightweight** | ✅ ~50KB | ✅ Small | ❌ ~3MB (nmap) | ❌ ~400KB |
-| **Drop-in Netcat** | ✅ Yes | ✅ Yes | ⚠️ Partial | ❌ No |
-| **Shell Completions** | ✅ bash/zsh/fish | ❌ No | ❌ No | ❌ No |
-| **Keep-Open** | ✅ `-K` multi-client | ❌ No | ✅ Yes | ✅ Yes |
-| **Port Forwarding** | ✅ `-L` (no SSH) | ❌ No | ❌ No | ✅ Yes |
-| **Reverse Tunnel** | ✅ `-R` (SSH-like reverse forward) | ❌ No | ❌ No | ✅ Yes |
-| **Auto-Reconnect** | ✅ `--persistent` (exponential backoff) | ❌ No | ❌ No | ❌ No |
-| **Traffic Obfuscation** | ✅ `--obfs http/tls` | ❌ No | ❌ No | ❌ No |
-| **TLS Camouflage** | ✅ `--obfs tls` (TLS 1.3) | ❌ No | ❌ No | ❌ No |
-| **TLS Fingerprinting** | ✅ `--fingerprint` (Chrome/FF/Safari) | ❌ No | ❌ No | ❌ No |
-| **TOFU Identity** | ✅ `--tofu` (SSH-like known_hosts) | ❌ No | ❌ No | ❌ No |
-| **Post-Quantum** | ✅ `--pq` (X25519 + ML-KEM-768) | ❌ No | ❌ No | ❌ No |
-| **Encrypted Client Hello** | ✅ `--ech` (GREASE ECH) | ❌ No | ❌ No | ❌ No |
-| **Active Probing Resistance** | ✅ `--fallback` (REALITY-like) | ❌ No | ❌ No | ❌ No |
-| **Stream Multiplexing** | ✅ `--mux` (64 streams) | ❌ No | ❌ No | ❌ No |
-| **Anti-Traffic-Analysis** | ✅ `--pad` + `--jitter` | ❌ No | ❌ No | ❌ No |
-| **Stealth Port Scan** | ✅ `--scan` (SYN/connect, randomized) | ❌ No | ✅ nmap | ❌ No |
-| **Banner Grabbing** | ✅ `-b` (service version detection) | ❌ No | ✅ nmap | ❌ No |
-| **SOCKS5 Proxy** | ✅ `--socks` (encrypted tunnel) | ❌ No | ❌ No | ❌ No |
-| **File Transfer** | ✅ `--send/--recv` (resume + SHA-256) | ❌ No | ❌ No | ❌ No |
-| **TUN VPN** | ✅ `--tun` (zero-config encrypted VPN) | ❌ No | ❌ No | ❌ No |
-| **UDP VPN Transport** | ✅ `--tun-udp` (no TCP-over-TCP) | ❌ No | ❌ No | ❌ No |
-| **Full Tunnel** | ✅ `--default-route` (all traffic via VPN) | ❌ No | ❌ No | ❌ No |
-| **NAT/Masquerade** | ✅ `--masquerade` (exit node mode) | ❌ No | ❌ No | ❌ No |
-| **Compression** | ✅ `-z` zlib | ❌ No | ❌ No | ❌ No |
-| **Progress Bar** | ✅ `-P` built-in | ❌ No | ❌ No | ❌ No |
-| **File Verification** | ✅ `-V` SHA-256 | ❌ No | ❌ No | ❌ No |
-| **Zero Dependencies** | ✅ libssl only | ✅ | ❌ nmap suite | ❌ |
-
-Perfect for: Secure file transfers, reverse shells, encrypted tunnels without certificate management.
+Unlike `ncat --ssl` or `socat openssl`, which use TLS certificates, ClawSec
+authenticates both ends with a shared password.
 
 ## Security Features
 
@@ -74,26 +50,25 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 - **Argon2id**: Memory-hard password binding via libargon2 (identical keys on every platform and OpenSSL version)
 - **Directional keys**: HKDF-SHA256 derives separate client→server and server→client keys (TCP and UDP), so frames cannot be reflected
 - **Key confirmation & version check**: wrong passwords and incompatible peers are rejected during the handshake, with a clear error and exit status 1
-- **Replay Protection**: Strict sequence numbers on TCP, 256-entry sliding window on the UDP VPN channel
+- **Replay Protection**: Strict sequence numbers on TCP; sliding anti-replay windows for UDP (`-u`: 64, `--tun-udp`: 256)
 - **Bounded decryption**: Plaintext is released only after tag verification and never beyond the caller's buffer
 - **Protocol Versioning**: Wire protocol v3 (ClawSec 3.x); peers on a different version are rejected with a clear error
-- **Memory Safety**: Key material wiped with `OPENSSL_cleanse`; tests run under ASan/UBSan in CI
+- **Memory Safety**: Key material wiped with `OPENSSL_cleanse`; CI runs ASan/UBSan/LeakSanitizer, `-Werror` and libFuzzer
 
-### Anti-Censorship / Anti-DPI
+### Traffic shaping (anti-DPI) — what it does and does not do
 
-| Feature | Flag | What it does |
-|---------|------|--------------|
-| TOFU Identity | `--tofu` | SSH-like Ed25519 server identity + known_hosts |
-| Post-Quantum | `--pq` | Hybrid X25519 + ML-KEM-768 (quantum-resistant) |
-| TLS Camouflage | `--obfs tls` | Wraps connection in a real TLS 1.3 session |
-| Browser Mimicry | `--fingerprint chrome\|firefox\|safari` | Shapes ClientHello to match a real browser (JA3/JA4) |
-| Encrypted Client Hello | `--ech` | Hides SNI from DPI with GREASE ECH extension |
-| Active Probing Resistance | `--fallback host:port` | DPI probes see a real website; only ClawSec gets the tunnel |
-| Packet Padding | `--pad` | All packets become uniform 1400 bytes |
-| Timing Jitter | `--jitter N` | Random 0-N ms delay defeats timing correlation |
-| Stealth Port Scan | `--scan range` | Parallel SYN/connect scan with randomized order and jitter |
-| Banner Grabbing | `-b` | Detect service versions on open ports (SSH, HTTP, etc.) |
-| SOCKS5 Proxy | `--socks [host:]port` | Route any app through encrypted tunnel (curl, browser, etc.) |
+These options change how the traffic *looks*; none of them adds secrecy
+beyond the inner encryption, and none makes ClawSec undetectable.
+
+| Flag | What it does | Limits |
+|------|--------------|--------|
+| `--obfs tls` | Runs the session inside a real TLS 1.3 connection | The server presents a **self-signed** certificate with a made-up CDN name; anyone who connects can see that it is not that site |
+| `--obfs http` | Wraps every message in an HTTP POST | Trivially recognisable by a protocol-aware observer |
+| `--fingerprint chrome\|firefox\|safari` | Sets cipher suites, groups, signature algorithms, ALPN (and ALPS for Chrome) like the browser | OpenSSL cannot reproduce extension order, GREASE or other details: the ClientHello **approximates** a browser, it does not match its JA3/JA4 exactly |
+| `--ech` | Adds a GREASE Encrypted Client Hello extension | The visible SNI (a fake CDN name) is still sent in clear; nothing is actually hidden by it |
+| `--fallback host:port` | After the TLS handshake, clients that do not send the ClawSec knock are proxied to another service | Probers still see ClawSec's self-signed certificate; unlike REALITY it does not borrow a real site's TLS identity |
+| `--pad` | Pads stream/chat/`-L` messages to 1400 bytes | Not applied in `--mux`, `--socks`, `-R`, `--tun` or file-transfer modes |
+| `--jitter N` | Random 0–N ms delay before each message | Adds latency; does not hide traffic volume |
 
 ## Quick Start
 
@@ -297,14 +272,14 @@ Options:
   -n name           Chat nickname (default: Server/Client)
   -L host:port      Port forwarding (encrypted tunnel)
   --obfs http       Traffic obfuscation (anti-DPI)
-  --obfs tls        TLS 1.3 camouflage (stealth mode)
-  --ech             Encrypted Client Hello (hide SNI from DPI)
+  --obfs tls        Run inside TLS 1.3 (self-signed certificate)
+  --ech             Add a GREASE Encrypted Client Hello extension
   --mux             Multiplex streams over one tunnel (with -L)
-  --fallback h:p    Proxy non-ClawSec probes to real site (REALITY-like)
+  --fallback h:p    Proxy clients without the ClawSec knock to h:p
   --tofu            Trust On First Use (SSH-like server identity)
   --pq              Post-quantum hybrid (X25519 + ML-KEM-768)
-  --fingerprint p   Mimic browser TLS (chrome, firefox, safari)
-  --scan range      Stealth port scan (1-1024, 22-443, all)
+  --fingerprint p   Browser-like TLS ClientHello (chrome, firefox, safari)
+  --scan range      Port scan, randomised order (1-1024, 22-443, all)
   -b                Banner grab (show service version on open ports)
   --socks [h:]port  SOCKS5 proxy through encrypted tunnel (client listens on
                     127.0.0.1 unless an address is given; no proxy auth)
@@ -388,7 +363,7 @@ tar -czf - /data | ./clawsec -k "pass" server 9999
 ./clawsec -vv -l -p 8080 -k "debug"
 ```
 
-### Stealth Port Scan
+### Port Scan
 ```bash
 # Scan common ports (1-1024)
 ./clawsec --scan 1-1024 target.com
@@ -482,7 +457,7 @@ curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 # Now anyone can access server.com:8080 → tunneled to client's localhost:3000
 # Works like SSH -R but with AES-256-GCM encryption, no certificates needed
 
-# Combine with stealth features for covert channel:
+# Combine with traffic shaping:
 ./clawsec -k "pass" -R 127.0.0.1:22 --pq --obfs tls --persistent server.com 443
 ```
 
@@ -512,7 +487,7 @@ curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 >   can connect by hostname instead of a changing address.
 
 ```bash
-# Zero-config encrypted VPN — like WireGuard but with one command
+# Point-to-point encrypted VPN with one command (one client per server process)
 
 # Server (public IP or port-forwarded):
 sudo ./clawsec -l -k "VpnSecret123" -p 9000 --tun 10.0.0.1/24 --masquerade

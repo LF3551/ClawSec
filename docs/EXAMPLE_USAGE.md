@@ -152,14 +152,19 @@ exit            # Close connection
 ./clawsec -k "Pass" -w 30 server.example.com 8888
 ```
 
-## Stealth Mode (Anti-DPI / Anti-Fingerprint)
+## Traffic Shaping (Anti-DPI)
+
+> These options change how traffic looks; they do not make ClawSec
+> undetectable. `--obfs tls` uses a self-signed certificate, `--fingerprint`
+> approximates (does not exactly match) a browser ClientHello, `--ech` adds a
+> GREASE extension but the SNI is still visible. See the README table.
 
 ### TLS 1.3 camouflage — traffic looks like HTTPS
 ```bash
-# Server on port 443 — indistinguishable from a regular HTTPS server
+# Server on port 443 — the session runs inside TLS 1.3 (self-signed certificate)
 ./clawsec -l -p 443 -k "StealthPass" --obfs tls
 
-# Client — DPI sees a normal TLS 1.3 handshake
+# Client — passive observers see a TLS 1.3 handshake
 ./clawsec -k "StealthPass" --obfs tls server.example.com 443
 ```
 
@@ -172,7 +177,7 @@ exit            # Close connection
 ./clawsec -k "Pass" --obfs http server.example.com 80
 ```
 
-### Maximum stealth — all anti-fingerprint features combined
+### All traffic-shaping options combined
 ```bash
 # Server: TLS + ECH + padding + jitter
 ./clawsec -l -p 443 -k "MaxStealth" --obfs tls --ech --pad --jitter 100
@@ -181,7 +186,7 @@ exit            # Close connection
 ./clawsec -k "MaxStealth" --obfs tls --ech --pad --jitter 100 server.example.com 443
 ```
 
-### Encrypted Client Hello (hide SNI from DPI)
+### GREASE Encrypted Client Hello extension
 ```bash
 # --ech adds GREASE ECH extension to TLS ClientHello
 # DPI cannot see the target hostname in the handshake
@@ -202,7 +207,7 @@ exit            # Close connection
 # Now: curl http://localhost:8080 → encrypted → internal.host:80
 ```
 
-### Mux + TLS + ECH (maximum stealth tunnel)
+### Mux + TLS + ECH
 ```bash
 # Server
 ./clawsec -l -p 443 -k "Pass" -L db.internal:5432 --mux --ech
@@ -211,7 +216,7 @@ exit            # Close connection
 ./clawsec -k "Pass" -p 5432 --mux --ech server.example.com 443
 ```
 
-### Fallback (REALITY-like active probing resistance)
+### Fallback for clients without the ClawSec knock
 ```bash
 # Server: DPI probes see a real nginx website
 ./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80
@@ -219,16 +224,16 @@ exit            # Close connection
 # Client: sends knock before ECDHE handshake
 ./clawsec -k "Pass" --fallback 127.0.0.1:80 server.example.com 443
 
-# Test: curl sees the real site, not ClawSec
+# Test: curl gets the fallback service (note the self-signed certificate)
 # curl https://server.example.com  → nginx welcome page
 ```
 
-### Ultimate stealth: fallback + fingerprint + ECH + pad + jitter + TOFU + PQ
+### Everything combined: fallback + fingerprint + ECH + pad + jitter + TOFU + PQ
 ```bash
-# Server: real site fallback + maximum anti-fingerprint + PQ + identity
+# Server: fallback service + all traffic shaping + PQ + identity
 ./clawsec -l -p 443 -k "MaxPass" --fallback 127.0.0.1:80 --ech --pad --jitter 100 --tofu --pq
 
-# Client: looks exactly like Chrome to DPI, with TOFU + quantum-resistant key exchange
+# Client: Chrome-like ClientHello, TOFU and hybrid post-quantum key exchange
 ./clawsec -k "MaxPass" --fallback 127.0.0.1:80 --fingerprint chrome --ech --pad --jitter 100 --tofu --pq server.example.com 443
 ```
 
@@ -292,7 +297,7 @@ exit            # Close connection
 
 ## Port Scanning & Banner Grabbing
 
-### Stealth port scan with randomized order
+### Port scan with randomized order
 ```bash
 # Scan common ports (1-1024)
 ./clawsec --scan 1-1024 target.example.com
@@ -338,7 +343,7 @@ curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 # Use with SSH through SOCKS5
 ssh -o ProxyCommand='nc -x 127.0.0.1:1080 %h %p' user@internal.host
 
-# Combine with stealth mode
+# Combine with traffic shaping
 ./clawsec -k "Pass" --socks 1080 --pq --obfs tls server.example.com 443
 ```
 
@@ -382,7 +387,7 @@ ssh -o ProxyCommand='nc -x 127.0.0.1:1080 %h %p' user@internal.host
 ./clawsec -k "Pass" -R 127.0.0.1:22 server.example.com 9999
 # ssh -p 2222 server.example.com → arrives at client's sshd
 
-# Covert reverse tunnel (stealth)
+# Reverse tunnel inside TLS with post-quantum key exchange
 ./clawsec -k "Pass" -R 127.0.0.1:22 --pq --obfs tls --persistent server.com 443
 ```
 
@@ -411,7 +416,7 @@ ssh -o ProxyCommand='nc -x 127.0.0.1:1080 %h %p' user@internal.host
 - Dynamic IP? Use DDNS (noip.com, duckdns.org) for a stable hostname
 
 ```bash
-# Zero-config encrypted VPN
+# Point-to-point encrypted VPN (one client per server process)
 
 # Server (public IP or port-forwarded) — VPN gateway with NAT:
 sudo ./clawsec -l -k "VpnSecret" -p 9000 --tun 10.0.0.1/24 --masquerade
@@ -436,7 +441,7 @@ ping google.com        # goes through VPN
 # Quantum-resistant VPN with auto-reconnect:
 sudo ./clawsec -k "Pass" --tun 10.0.0.2/24 --default-route --pq --persistent vpn.example.com 9000
 
-# Stealth VPN (disguised as HTTPS traffic):
+# VPN inside TLS 1.3 on port 443:
 sudo ./clawsec -k "Pass" --tun 10.0.0.2/24 --default-route --obfs tls --persistent vpn.example.com 443
 
 # Dynamic IP server with DDNS:
