@@ -10,6 +10,10 @@
 #define _POSIX_C_SOURCE 200809L
 #include "test.h"
 #include "socks5.h"
+#include "farm9crypt.h"
+#include <string.h>
+
+#define SOCKS_TEST_PASS "socks-unit-test-pass"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -72,15 +76,29 @@ void test_socks5_client_binds(void) {
         char port_str[8];
         snprintf(port_str, sizeof(port_str), "%d", port);
 
-        /* Fork: child runs socks5_client (will block on accept) */
+        /* Fork: child runs socks5_client over a real (password-keyed) session */
         pid_t pid = fork();
         if (pid == 0) {
             close(fds[1]);
+            if (farm9crypt_init_password(SOCKS_TEST_PASS, strlen(SOCKS_TEST_PASS),
+                                         FARM9_ROLE_CLIENT) != 0)
+                _exit(1);
             socks5_client(fds[0], "127.0.0.1", port_str);
             close(fds[0]);
             _exit(0);
         }
         close(fds[0]);
+
+        /* Act as a ClawSec 4.0 server: answer the 4.1 mux probe with "fail",
+         * so the client falls back to the legacy protocol */
+        ASSERT(farm9crypt_init_password(SOCKS_TEST_PASS, strlen(SOCKS_TEST_PASS),
+                                        FARM9_ROLE_SERVER) == 0, "session");
+        char probe[16];
+        int pl = farm9crypt_read(fds[1], probe, sizeof(probe));
+        ASSERT(pl == 3 && probe[0] == 0 && probe[1] == 'M' && probe[2] == 'X',
+               "client must offer multiplexed SOCKS first");
+        char legacy = 1;
+        ASSERT(farm9crypt_write(fds[1], &legacy, 1) == 1, "answer probe");
 
         test_sleep_ms(200); /* wait for bind+listen */
 
@@ -105,5 +123,6 @@ void test_socks5_client_binds(void) {
         close(fds[1]);
         kill(pid, SIGTERM);
         waitpid(pid, NULL, 0);
+        farm9crypt_cleanup();
     } TEST_END;
 }

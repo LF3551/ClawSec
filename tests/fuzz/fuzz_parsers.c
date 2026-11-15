@@ -35,7 +35,7 @@ static int valid_port_string(const char *p) {
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t len) {
     if (len < 1 || len > 4096) return 0;
-    int which = data[0] % 9;
+    int which = data[0] % 12;
     data++; len--;
 
     char *str = malloc(len + 1);
@@ -126,6 +126,26 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t len) {
     case 8:
         (void)persist_heartbeat_check(str, (int)len);
         break;
+    case 9: {                                   /* mux v2 OPEN from the tunnel */
+        unsigned char fl;
+        char host[256];
+        uint16_t port;
+        int has;
+        if (mux_decode_open(data, len, &fl, host, sizeof(host), &port, &has) == 0 && has &&
+            strlen(host) >= sizeof(host)) abort();
+        break;
+    }
+    case 10:                                    /* SOCKS5 greeting from a local app */
+        if (mux_socks_parse_greeting(data, len) > (int)len) abort();
+        break;
+    case 11: {                                  /* SOCKS5 request from a local app */
+        char host[256];
+        uint16_t port;
+        unsigned char code;
+        int n = mux_socks_parse_request(data, len, host, sizeof(host), &port, &code);
+        if (n > (int)len || (n > 0 && strlen(host) >= sizeof(host))) abort();
+        break;
+    }
     }
     free(str);
     return 0;

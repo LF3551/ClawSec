@@ -17,6 +17,7 @@
 #include "net.h"
 #include "farm9crypt.h"
 #include "acl.h"
+#include "mux.h"
 
 /*
  * SOCKS5 protocol constants
@@ -41,6 +42,14 @@
 #define SOCKS_TUNNEL_OK     0
 #define SOCKS_TUNNEL_FAIL   1
 #define SOCKS_TUNNEL_DENIED 2
+
+/* ClawSec 4.1+: the client offers multiplexed SOCKS with this 3-byte
+ * message. A 4.1+ server answers SOCKS_MUX_ACCEPT and both ends switch to
+ * mux v2 (concurrent connections, explicit stream close). Older servers
+ * treat it as a malformed request and answer SOCKS_TUNNEL_FAIL, so the
+ * client keeps the legacy one-connection-at-a-time protocol. */
+static const char SOCKS_MUX_PROBE[3] = { 0x00, 'M', 'X' };
+#define SOCKS_MUX_ACCEPT 'M'
 
 /* Read exactly n bytes */
 static int read_exact(int fd, void *buf, size_t n) {
@@ -175,12 +184,14 @@ fail:
 }
 
 /*
- * Client-side SOCKS5: listen on listen_host:listen_port, for each connection
- * do SOCKS5 handshake and forward through tunnel. The proxy has no
- * authentication, so callers should bind it to loopback (the default).
+ * Client-side SOCKS5: listen on listen_host:listen_port and forward each
+ * CONNECT through the tunnel. The proxy has no authentication, so callers
+ * should bind it to loopback (the default).
  *
- * Note: single-threaded sequential — one SOCKS connection at a time
- * through the tunnel.
+ * With a ClawSec 4.1+ server all connections run concurrently over mux v2.
+ * With an older server the legacy protocol handles one connection at a
+ * time, and a connection to a destination that keeps its socket open blocks
+ * later requests (that protocol has no way to end a stream).
  */
 void socks5_client(int tunnel_fd, const char *listen_host, const char *listen_port) {
     int listen_fd = net_listen_on(listen_host, listen_port);
@@ -191,6 +202,21 @@ void socks5_client(int tunnel_fd, const char *listen_host, const char *listen_po
     }
 
     log_msg(1, "SOCKS5 proxy listening on %s:%s", listen_host ? listen_host : "*", listen_port);
+
+    char answer[8], probe[sizeof(SOCKS_MUX_PROBE)];
+    memcpy(probe, SOCKS_MUX_PROBE, sizeof(probe));
+    if (farm9crypt_write(tunnel_fd, probe, sizeof(probe)) < 0 ||
+        farm9crypt_read(tunnel_fd, answer, sizeof(answer)) < 1) {
+        close(listen_fd);
+        return;
+    }
+    if (answer[0] == SOCKS_MUX_ACCEPT) {
+        mux_socks_client(tunnel_fd, listen_fd);
+        close(listen_fd);
+        return;
+    }
+    fprintf(stderr, "Warning: the server runs ClawSec < 4.1: SOCKS connections are handled "
+                    "one at a time; upgrade the server for concurrent connections\n");
 
     for (;;) {
         int client_fd = accept(listen_fd, NULL, NULL);
@@ -214,6 +240,14 @@ void socks5_server(int tunnel_fd) {
         char buf[512];
         int rlen = farm9crypt_read(tunnel_fd, buf, sizeof(buf));
         if (rlen <= 0) break;
+
+        if (rlen == (int)sizeof(SOCKS_MUX_PROBE) &&
+            memcmp(buf, SOCKS_MUX_PROBE, sizeof(SOCKS_MUX_PROBE)) == 0) {
+            char yes = SOCKS_MUX_ACCEPT;
+            if (farm9crypt_write(tunnel_fd, &yes, 1) < 0) break;
+            mux_socks_server(tunnel_fd);
+            return;
+        }
 
         if (rlen < 4) {
             char fail = 1;

@@ -26,7 +26,7 @@ HARDEN   = -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
 LDHARDEN =
 DFLAGS   =
 XFLAGS   =
-XLIBS    = -lssl -lcrypto -largon2 -lstdc++ -lz
+XLIBS    = -lssl -lcrypto -largon2 -lpthread -lstdc++ -lz
 STATIC   =
 STRIP    = -s
 
@@ -77,12 +77,12 @@ $(OBJS): $(HEADERS)
 
 linux:
 	$(MAKE) -e clawsec XFLAGS='-DLINUX' \
-		XLIBS='-lssl -lcrypto -largon2 -lutil -lstdc++ -lz' \
+		XLIBS='-lssl -lcrypto -largon2 -lutil -lpthread -lstdc++ -lz' \
 		LDHARDEN='-pie -Wl,-z,relro,-z,now'
 
 alpine:
 	$(MAKE) -e clawsec XFLAGS='-DLINUX -DGENERIC' \
-		XLIBS='-lssl -lcrypto -largon2 -lutil -lstdc++ -lz' \
+		XLIBS='-lssl -lcrypto -largon2 -lutil -lpthread -lstdc++ -lz' \
 		LDHARDEN='-pie -Wl,-z,relro,-z,now'
 
 static:

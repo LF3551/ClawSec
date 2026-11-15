@@ -103,6 +103,8 @@ extern void test_mux_encode_decode(void);
 extern void test_mux_frame_types(void);
 extern void test_mux_max_payload(void);
 extern void test_mux_max_frame_roundtrip(void);
+extern void test_mux_open_payload(void);
+extern void test_mux_socks_parse(void);
 
 /* test_fallback.c */
 extern void test_fallback_knock_roundtrip(void);
@@ -304,6 +306,8 @@ int main(void) {
     test_mux_frame_types();
     test_mux_max_payload();
     test_mux_max_frame_roundtrip();
+    test_mux_open_payload();
+    test_mux_socks_parse();
 
     /* Fallback tests */
     test_fallback_knock_roundtrip();
