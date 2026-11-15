@@ -1,0 +1,56 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Never paste passwords or key files.** Security issues go to the
+        [private advisory form](https://github.com/LF3551/ClawSec/security/advisories/new) instead.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `clawsec --version` on both ends
+      placeholder: "ClawSec 4.0.0 (wire protocol 4) / ClawSec 4.0.0 (wire protocol 4)"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation
+      options:
+        - Release binary (static)
+        - Homebrew
+        - AUR
+        - Docker image
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "Ubuntu 24.04 x86_64 (server), macOS 15 arm64 (client)"
+    validations:
+      required: true
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands
+      description: Exact commands on both ends, password replaced by `***`
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output with -v
+      description: stderr of both ends with `-v`
+      render: text

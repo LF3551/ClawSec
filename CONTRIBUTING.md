@@ -2,6 +2,9 @@
 
 Thank you for your interest in contributing to ClawSec!
 
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues
+privately as described in [SECURITY.md](SECURITY.md), not in public issues.
+
 ## Development Setup
 
 

@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use ClawSec in research or teaching, please cite it as below."
+type: software
+title: "ClawSec: encrypted netcat with a password-authenticated key exchange"
+abstract: >-
+  ClawSec is an encrypted netcat alternative for secure tunnels without
+  certificates: data streams, file transfer, port forwarding, SOCKS5 and a TUN
+  VPN, protected by a SPAKE2 password-authenticated key exchange (RFC 9382),
+  AES-256-GCM and optional post-quantum ML-KEM-768.
+authors:
+  - family-names: Aleinikov
+    given-names: Aleksei
+    email: contact@alekseialeinikov.com
+repository-code: "https://github.com/LF3551/ClawSec"
+license: BSD-3-Clause
+version: 4.0.0
+date-released: "2026-11-15"
+keywords:
+  - netcat
+  - encryption
+  - PAKE
+  - SPAKE2
+  - AES-GCM
+  - post-quantum
+  - ML-KEM
+  - tunnel
+  - VPN
