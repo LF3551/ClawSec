@@ -49,6 +49,17 @@ static void tls_ctx_common(SSL_CTX *ctx) {
 #endif
 }
 
+void obfs_tls_cleanup(void) {
+    if (g_ssl) {
+        SSL_free(g_ssl);
+        g_ssl = NULL;
+    }
+    if (g_ssl_ctx) {
+        SSL_CTX_free(g_ssl_ctx);
+        g_ssl_ctx = NULL;
+    }
+}
+
 void obfs_shutdown_write(int fd) {
     if (g_obfs_mode == OBFS_TLS && g_ssl) {
         if (!(SSL_get_shutdown(g_ssl) & SSL_SENT_SHUTDOWN))
@@ -265,6 +276,7 @@ static int tls_generate_self_signed(SSL_CTX *ctx) {
 
 int obfs_tls_accept(int fd) {
     /* Server side: wrap fd in TLS with auto-generated cert */
+    obfs_tls_cleanup();                 /* previous session (e.g. -K, reconnect) */
     g_ssl_ctx = SSL_CTX_new(TLS_server_method());
     if (!g_ssl_ctx) return -1;
 
@@ -348,6 +360,7 @@ static void ech_grease_free_cb(SSL *s, unsigned int ext_type,
 int obfs_tls_connect(int fd) {
     /* Client side: connect to TLS server, skip cert verification
        (we have our own crypto layer inside — cert is just camouflage) */
+    obfs_tls_cleanup();                 /* previous session (--persistent) */
     g_ssl_ctx = SSL_CTX_new(TLS_client_method());
     if (!g_ssl_ctx) return -1;
 

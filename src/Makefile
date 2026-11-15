@@ -225,11 +225,11 @@ test: farm9crypt.o aesgcm.o ecdhe.o argon2kdf.o obfs.o mux.o fallback.o fingerpr
 	$(LD) $(XFLAGS) -I. -I$(TESTDIR) -o test_clawsec $(TEST_SRC) farm9crypt.o aesgcm.o ecdhe.o argon2kdf.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o net.o util.o portscan.o socks5.o filetx.o reverse.o persistent.o tun.o acl.o secret.o $(XLIBS)
 	./test_clawsec
 
-# Sanitizer build of the unit tests (Linux, GCC/Clang).
-# Leak detection is off: TLS camouflage objects are not freed on teardown yet.
+# Sanitizer build of the unit tests (Linux, GCC/Clang): AddressSanitizer
+# (incl. LeakSanitizer) + UndefinedBehaviorSanitizer.
 test-asan:
 	$(MAKE) clean
-	ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
+	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 	$(MAKE) -e test CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
 
