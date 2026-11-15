@@ -99,8 +99,11 @@ check "hub utun 10.233.0.1 + fd00:233::1 ($HDEV)" \
 check "auto clients got 10.233.0.2/.3 with fd00:233::2/::3" \
       "$([ -n "$(utun_with 10.233.0.2)" ] && [ -n "$(utun_with 10.233.0.3)" ] &&
          [ -n "$(utun6_with fd00:233::2)" ] && [ -n "$(utun6_with fd00:233::3)" ] && echo 1 || echo 0)"
+# netstat abbreviates networks on macOS: 10.233/24 == 10.233.0.0/24
+netstat -rn -f inet | awk '$1 ~ /^10\.233(\.0)?(\.0)?\/24$/' > "$WORK/routes.txt"
 check "client subnet routed to the hub's utun" \
-      "$(netstat -rn -f inet | awk -v d="$HDEV" '$1 ~ /^10\.233\.0(\.0)?\/24$/ && $NF==d' | grep -q . && echo 1 || echo 0)"
+      "$(awk -v d="$HDEV" '$NF==d' "$WORK/routes.txt" | grep -q . && echo 1 || echo 0)"
+grep -q . "$WORK/routes.txt" || netstat -rn -f inet | grep -E '10\.233' > "$WORK/routes.txt"
 pfctl -a com.apple/clawsec6 -s nat 2>/dev/null > "$WORK/nat6.txt"
 check "IPv6 NAT rule in the com.apple/clawsec6 anchor" \
       "$(grep -q 'fd00:233::/64' "$WORK/nat6.txt" && echo 1 || echo 0)"
@@ -114,6 +117,7 @@ check "IPv6 pf anchor flushed after SIGTERM" \
       "$([ -z "$(pfctl -a com.apple/clawsec6 -s nat 2>/dev/null)" ] && echo 1 || echo 0)"
 
 if [ "$FAIL" -ne 0 ]; then
+    echo "--- routes 10.233"; cat "$WORK/routes.txt" 2>/dev/null
     echo "--- hub log"; cat "$WORK/hub.log" 2>/dev/null
     for i in 1 2; do echo "--- hub client $i"; cat "$WORK/hc$i.log" 2>/dev/null; done
     echo "--- server log"; cat "$WORK/srv.log"
