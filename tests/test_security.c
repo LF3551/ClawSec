@@ -331,10 +331,11 @@ void test_sec_wrong_password_detected(void) {
         int rc = farm9crypt_init_ecdhe(fds[1], "client-password-2", 17, FARM9_ROLE_CLIENT);
         int inited = farm9crypt_initialized();
         int reason = farm9crypt_last_failure();
+        close(fds[1]);              /* the server sees EOF instead of the 5 s timeout */
+        fds[1] = -1;
         int status;
         waitpid(pid, &status, 0);
         restore_stderr(saved);
-        close(fds[1]);
         ASSERT_EQ(rc, -1, "client must reject the session");
         ASSERT_EQ(inited, 0, "no keys may remain installed after a failed confirmation");
         ASSERT_EQ(reason, FARM9_FAIL_AUTH, "failure must be reported as authentication");

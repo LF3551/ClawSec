@@ -34,6 +34,7 @@
 #include "version.h"
 #include "secret.h"
 #include "acl.h"
+#include "iplimit.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -59,6 +60,24 @@ static const char *s_bind_port = NULL;     /* -p <port> (also used by --tun-udp 
 /* -K: live handler processes (decremented by the SIGCHLD handler) */
 static volatile sig_atomic_t g_active_children = 0;
 static int g_max_clients = 16;              /* --max-clients */
+static int g_max_per_ip = 8;                /* --max-per-ip (0 = unlimited) */
+static int g_auth_fail_limit = 5;           /* --auth-fail-limit per 10 min (0 = off) */
+#define AUTH_FAIL_WINDOW 600                /* seconds */
+#define AUTH_BLOCK_TIME  600                /* seconds */
+
+/* Handler exit codes (-K) */
+#define CHILD_OK          0
+#define CHILD_ERROR       1
+#define CHILD_AUTH_FAILED 3
+
+/* Exited handlers, recorded by the SIGCHLD handler and consumed by the accept
+ * loop (iplimit accounting). Live handlers <= 4096, so the ring cannot
+ * overflow between two drains. */
+#define EXIT_RING 4096
+static volatile pid_t s_exit_pid[EXIT_RING];
+static volatile int s_exit_status[EXIT_RING];
+static volatile sig_atomic_t s_exit_head = 0;   /* written by the handler only */
+static sig_atomic_t s_exit_tail = 0;            /* read side: SIGCHLD blocked */
 static int g_handshake_timeout = 15;        /* --handshake-timeout (seconds, 0 = off) */
 static char s_password[SECRET_MAX + 1];     /* session password (never in argv) */
 
@@ -66,8 +85,13 @@ static void sigchld_handler(int sig) {
     (void)sig;
     int saved_errno = errno;
     g_child_exited = 1;
-    while (waitpid(-1, NULL, WNOHANG) > 0) {
+    pid_t pid;
+    int status;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
         if (g_active_children > 0) g_active_children--;
+        s_exit_pid[s_exit_head % EXIT_RING] = pid;
+        s_exit_status[s_exit_head % EXIT_RING] = status;
+        s_exit_head++;
     }
     errno = saved_errno;
 }
@@ -90,6 +114,29 @@ static void ignore_sigpipe(void) {
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = SIG_IGN;
     sigaction(SIGPIPE, &sa, NULL);
+}
+
+/* -K: account for finished handlers (call with SIGCHLD blocked) */
+static void reap_handler_exits(void) {
+    while (s_exit_tail != s_exit_head) {
+        int i = s_exit_tail % EXIT_RING;
+        pid_t pid = s_exit_pid[i];
+        int st = s_exit_status[i];
+        s_exit_tail++;
+        int auth_failed = WIFEXITED(st) && WEXITSTATUS(st) == CHILD_AUTH_FAILED;
+        char key[IPLIMIT_KEY_LEN];
+        int fails = iplimit_finished(pid, auth_failed, time(NULL), key);
+        if (auth_failed && key[0]) {
+            if (g_auth_fail_limit && fails >= g_auth_fail_limit)
+                log_msg(0, "authentication failure from %s (%d/%d): blocking it for %d s",
+                        key, fails, g_auth_fail_limit, AUTH_BLOCK_TIME);
+            else if (g_auth_fail_limit)
+                log_msg(1, "authentication failure from %s (%d/%d)", key, fails,
+                        g_auth_fail_limit);
+            else
+                log_msg(1, "authentication failure from %s", key);
+        }
+    }
 }
 
 static void install_sigchld(void) {
@@ -150,7 +197,7 @@ static int handle_client_inner(int sockfd, const char *password, int is_server,
             }
             log_msg(1, "knock verified — ClawSec client");
         } else {
-            /* Client sends knock before ECDHE */
+            /* Client sends knock before the handshake */
             if (fallback_send_knock(sockfd) < 0) {
                 fprintf(stderr, "ERROR: Failed to send knock\n");
                 close(sockfd);
@@ -165,33 +212,33 @@ static int handle_client_inner(int sockfd, const char *password, int is_server,
                                      send_first, peer_host, peer_port) != 0) {
             if (setup_timed_out(errno))
                 fprintf(stderr, "ERROR: handshake timed out after %d s\n", g_handshake_timeout);
-            fprintf(stderr, "ERROR: Post-quantum hybrid handshake failed\n");
+            fprintf(stderr, "ERROR: post-quantum hybrid handshake failed\n");
             close(sockfd);
             return farm9crypt_last_failure() != FARM9_FAIL_NONE ? HC_PERMANENT : 1;
         }
         if (g_tofu)
-            log_msg(1, "PFS session established (X25519 + ML-KEM-768 + Ed25519 TOFU + password KDF)");
+            log_msg(1, "session established (SPAKE2 + ML-KEM-768 + Ed25519 TOFU)");
         else
-            log_msg(1, "PFS session established (X25519 + ML-KEM-768 + password KDF)");
+            log_msg(1, "session established (SPAKE2 + ML-KEM-768)");
     } else if (g_tofu) {
         if (farm9crypt_init_ecdhe_tofu(sockfd, password, strlen(password),
                                        send_first, peer_host, peer_port) != 0) {
             if (setup_timed_out(errno))
                 fprintf(stderr, "ERROR: handshake timed out after %d s\n", g_handshake_timeout);
-            fprintf(stderr, "ERROR: ECDHE+TOFU handshake failed\n");
+            fprintf(stderr, "ERROR: handshake failed (TOFU)\n");
             close(sockfd);
             return farm9crypt_last_failure() != FARM9_FAIL_NONE ? HC_PERMANENT : 1;
         }
-        log_msg(1, "PFS session established (X25519 + Ed25519 TOFU + password KDF)");
+        log_msg(1, "session established (SPAKE2 + Ed25519 TOFU)");
     } else {
         if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), send_first) != 0) {
             if (setup_timed_out(errno))
                 fprintf(stderr, "ERROR: handshake timed out after %d s\n", g_handshake_timeout);
-            fprintf(stderr, "ERROR: ECDHE handshake failed\n");
+            fprintf(stderr, "ERROR: handshake failed\n");
             close(sockfd);
             return farm9crypt_last_failure() != FARM9_FAIL_NONE ? HC_PERMANENT : 1;
         }
-        log_msg(1, "PFS session established (X25519 + password KDF)");
+        log_msg(1, "session established (SPAKE2 password-authenticated key exchange)");
     }
 
     /* Session established: no artificial bound on the data phase */
@@ -392,6 +439,10 @@ static void usage(const char *prog) {
             "                    (with --mux on the client: [host:]port, default 127.0.0.1)\n"
             "  -K                Keep-open: accept multiple clients (fork per client)\n"
             "  --max-clients <n> With -K: concurrent handlers (default 16)\n"
+            "  --max-per-ip <n>  With -K: concurrent handlers per address, IPv6 per /64\n"
+            "                    (default 8, 0=unlimited)\n"
+            "  --auth-fail-limit <n>  With -K: refuse an address for 10 min after n wrong\n"
+            "                    passwords within 10 min (default 5, 0=off)\n"
             "  --handshake-timeout <s>  Abort session setup after s seconds (default 15, 0=off)\n"
             "  -L <host:port>    Port forwarding: forward decrypted traffic to host:port\n"
             "  -R <host:port>    Reverse tunnel. Server: address to listen on (127.0.0.1,\n"
@@ -408,7 +459,7 @@ static void usage(const char *prog) {
             "  --fallback <h:p>  Proxy clients without the ClawSec knock to h:p\n"
             "  --fingerprint <p> Browser-like TLS ClientHello (chrome, firefox, safari)\n"
             "  --tofu            Trust On First Use (SSH-like server identity)\n"
-            "  --pq              Post-quantum hybrid (X25519 + ML-KEM-768)\n"
+            "  --pq              Post-quantum hybrid (SPAKE2 + ML-KEM-768)\n"
             "  --scan <range>    Port scan (SYN as root on Linux, else connect; random order)\n"
             "                    range: 1-1024, 22-443, all (default: 1-1024)\n"
             "  -b                Banner grab (show service version on open ports)\n"
@@ -441,6 +492,8 @@ static void usage(const char *prog) {
 enum {
     OPT_KEY_FILE = 256,
     OPT_MAX_CLIENTS,
+    OPT_MAX_PER_IP,
+    OPT_AUTH_FAIL_LIMIT,
     OPT_HANDSHAKE_TIMEOUT,
     OPT_SOCKS_ALLOW,
 };
@@ -493,6 +546,8 @@ int main(int argc, char **argv) {
         {"version",     no_argument,       NULL, 'I'},
         {"key-file",    required_argument, NULL, OPT_KEY_FILE},
         {"max-clients", required_argument, NULL, OPT_MAX_CLIENTS},
+        {"max-per-ip", required_argument, NULL, OPT_MAX_PER_IP},
+        {"auth-fail-limit", required_argument, NULL, OPT_AUTH_FAIL_LIMIT},
         {"handshake-timeout", required_argument, NULL, OPT_HANDSHAKE_TIMEOUT},
         {"socks-allow", required_argument, NULL, OPT_SOCKS_ALLOW},
         {NULL, 0, NULL, 0}
@@ -533,6 +588,24 @@ int main(int argc, char **argv) {
                 return 1;
             }
             g_max_clients = (int)v;
+            break;
+        }
+        case OPT_MAX_PER_IP: {
+            long v = parse_count(optarg, 4096);
+            if (v < 0) {
+                fprintf(stderr, "ERROR: --max-per-ip must be 0-4096\n");
+                return 1;
+            }
+            g_max_per_ip = (int)v;
+            break;
+        }
+        case OPT_AUTH_FAIL_LIMIT: {
+            long v = parse_count(optarg, 1000);
+            if (v < 0) {
+                fprintf(stderr, "ERROR: --auth-fail-limit must be 0-1000\n");
+                return 1;
+            }
+            g_auth_fail_limit = (int)v;
             break;
         }
         case OPT_HANDSHAKE_TIMEOUT: {
@@ -727,6 +800,12 @@ int main(int argc, char **argv) {
     if (strlen(password) < 8)
         log_msg(1, "Warning: password should be at least 8 characters for security");
 
+    /* Argon2id once per process (not per connection; children inherit it) */
+    if (farm9crypt_prepare_password(password, strlen(password)) != 0) {
+        fprintf(stderr, "ERROR: password key derivation failed\n");
+        return 1;
+    }
+
     /* Parse port forwarding target */
     char fwd_host[256] = {0};
     char fwd_port[32] = {0};
@@ -815,6 +894,7 @@ int main(int argc, char **argv) {
             /* Multi-client mode: fork per connection, at most g_max_clients
              * at a time (each handshake costs ~19 MiB of Argon2id memory) */
             install_sigchld();
+            iplimit_configure(g_max_per_ip, g_auth_fail_limit, AUTH_FAIL_WINDOW, AUTH_BLOCK_TIME);
             sigset_t chld, prev;
             sigemptyset(&chld);
             sigaddset(&chld, SIGCHLD);
@@ -827,10 +907,34 @@ int main(int argc, char **argv) {
                     sigsuspend(&prev);
                 sigprocmask(SIG_SETMASK, &prev, NULL);
 
-                int client_fd = net_accept(listen_fd);
+                struct sockaddr_storage peer;
+                socklen_t peer_len = sizeof(peer);
+                int client_fd = net_accept_peer(listen_fd, &peer, &peer_len);
+                char ipkey[IPLIMIT_KEY_LEN];
+                int have_key = iplimit_key((struct sockaddr *)&peer, peer_len, ipkey) == 0;
+
                 sigprocmask(SIG_BLOCK, &chld, &prev);
+                reap_handler_exits();
+                if (have_key) {
+                    int retry = 0;
+                    int verdict = iplimit_admit(ipkey, time(NULL), &retry);
+                    if (verdict != IPLIMIT_OK) {
+                        sigprocmask(SIG_SETMASK, &prev, NULL);
+                        if (verdict == IPLIMIT_BLOCKED)
+                            log_msg(1, "refused %s: blocked for %d s after repeated "
+                                       "authentication failures", ipkey, retry);
+                        else
+                            log_msg(1, "refused %s: %d handlers already running for this "
+                                       "address (--max-per-ip)", ipkey, g_max_per_ip);
+                        close(client_fd);
+                        continue;
+                    }
+                }
                 pid_t pid = fork();
-                if (pid > 0) g_active_children++;
+                if (pid > 0) {
+                    g_active_children++;
+                    if (have_key) iplimit_started(ipkey, pid, time(NULL));
+                }
                 sigprocmask(SIG_SETMASK, &prev, NULL);
                 if (pid < 0) {
                     perror("fork");
@@ -845,7 +949,9 @@ int main(int argc, char **argv) {
                                                  fwd_spec ? fwd_host : NULL,
                                                  fwd_spec ? fwd_port : NULL,
                                                  NULL, NULL);
-                    _exit(child_rc ? 1 : 0);
+                    if (child_rc == 0) _exit(CHILD_OK);
+                    _exit(farm9crypt_last_failure() == FARM9_FAIL_AUTH ? CHILD_AUTH_FAILED
+                                                                       : CHILD_ERROR);
                 }
                 /* Parent: continue accepting */
                 close(client_fd);
@@ -902,7 +1008,9 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "persistent: giving up — %s; reconnecting cannot fix this\n",
                             farm9crypt_last_failure() == FARM9_FAIL_AUTH
                                 ? "authentication failed (wrong password?)"
-                                : "the server speaks an incompatible protocol version");
+                                : farm9crypt_last_failure() == FARM9_FAIL_CONFIG
+                                    ? "--tofu / --pq differ between client and server"
+                                    : "the server speaks an incompatible protocol version");
                     return 1;
                 }
 

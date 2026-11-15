@@ -1,14 +1,14 @@
 /*
  *  farm9crypt.cc
  *
- *  C interface between netcat and AES-256-GCM encryption (wire protocol v3).
+ *  C interface between netcat and AES-256-GCM encryption (wire protocol v4).
  *
  *  Key schedule:
- *    session_key  = output of the password-bound handshake (ecdhe.cc) or,
+ *    session_key  = output of the SPAKE2 handshake (ecdhe.cc) or,
  *                   for local/test use, Argon2id(password, salt)
- *    k_c2s, k_s2c = HKDF-SHA256(session_key, info = "ClawSec v3 tcp c2s|s2c")
- *    udp_c2s/s2c  = HKDF-SHA256(session_key, info = "ClawSec v3 udp c2s|s2c")
- *    fingerprint  = HKDF-SHA256(session_key, info = "ClawSec v3 fingerprint")
+ *    k_c2s, k_s2c = HKDF-SHA256(session_key, info = "ClawSec v4 tcp c2s|s2c")
+ *    udp_c2s/s2c  = HKDF-SHA256(session_key, info = "ClawSec v4 udp c2s|s2c")
+ *    fingerprint  = HKDF-SHA256(session_key, info = "ClawSec v4 fingerprint")
  *  Each endpoint encrypts with its own direction key and decrypts with the
  *  peer's, so a frame can never be reflected back to its sender.
  *
@@ -69,15 +69,11 @@ static_assert(sizeof(struct farm9_header) == FARM9_HEADER_LEN,
 #define FARM9_SEQ_LIMIT ((uint64_t)UINT32_MAX + 1)   /* first sequence number we must not use */
 
 /* HKDF labels: bound to protocol version, distinct per purpose and direction */
-#define LABEL_TCP_C2S "ClawSec v3 tcp c2s"
-#define LABEL_TCP_S2C "ClawSec v3 tcp s2c"
-#define LABEL_UDP_C2S "ClawSec v3 udp c2s"
-#define LABEL_UDP_S2C "ClawSec v3 udp s2c"
-#define LABEL_FINGERPRINT "ClawSec v3 fingerprint"
-#define LABEL_CONFIRM_C2S "ClawSec v3 confirm c2s"
-#define LABEL_CONFIRM_S2C "ClawSec v3 confirm s2c"
-#define CONFIRM_MSG       "ClawSec v3 key confirmation"
-#define CONFIRM_LEN 32
+#define LABEL_TCP_C2S "ClawSec v4 tcp c2s"
+#define LABEL_TCP_S2C "ClawSec v4 tcp s2c"
+#define LABEL_UDP_C2S "ClawSec v4 udp c2s"
+#define LABEL_UDP_S2C "ClawSec v4 udp s2c"
+#define LABEL_FINGERPRINT "ClawSec v4 fingerprint"
 
 static int debug = false;
 static int initialized = false;
@@ -88,8 +84,6 @@ static AESGCM* encryptor = NULL;
 static unsigned char udp_tx_key[FARM9_KEY_LEN];
 static unsigned char udp_rx_key[FARM9_KEY_LEN];
 static unsigned char session_fp[32];
-static unsigned char confirm_tx_key[FARM9_KEY_LEN];   /* wiped after confirmation */
-static unsigned char confirm_rx_key[FARM9_KEY_LEN];
 static uint64_t send_seq = 0;    /* Next outgoing sequence number */
 static uint64_t recv_seq = 0;    /* Next expected incoming sequence number */
 static int last_failure = FARM9_FAIL_NONE;
@@ -174,8 +168,6 @@ static void reset_state(void) {
     secure_zero(udp_tx_key, sizeof(udp_tx_key));
     secure_zero(udp_rx_key, sizeof(udp_rx_key));
     secure_zero(session_fp, sizeof(session_fp));
-    secure_zero(confirm_tx_key, sizeof(confirm_tx_key));
-    secure_zero(confirm_rx_key, sizeof(confirm_rx_key));
     send_seq = 0;
     recv_seq = 0;
     udp_any = 0;
@@ -192,7 +184,6 @@ static int install_session(unsigned char session_key[FARM9_KEY_LEN], int server_
                            const char* label) {
     unsigned char c2s[FARM9_KEY_LEN], s2c[FARM9_KEY_LEN];
     unsigned char udp_c2s[FARM9_KEY_LEN], udp_s2c[FARM9_KEY_LEN];
-    unsigned char cf_c2s[FARM9_KEY_LEN], cf_s2c[FARM9_KEY_LEN];
     int rc = -1;
 
     reset_state();
@@ -201,9 +192,7 @@ static int install_session(unsigned char session_key[FARM9_KEY_LEN], int server_
         hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_TCP_S2C, s2c, sizeof(s2c)) != 0 ||
         hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_UDP_C2S, udp_c2s, sizeof(udp_c2s)) != 0 ||
         hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_UDP_S2C, udp_s2c, sizeof(udp_s2c)) != 0 ||
-        hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_FINGERPRINT, session_fp, sizeof(session_fp)) != 0 ||
-        hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_CONFIRM_C2S, cf_c2s, sizeof(cf_c2s)) != 0 ||
-        hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_CONFIRM_S2C, cf_s2c, sizeof(cf_s2c)) != 0) {
+        hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_FINGERPRINT, session_fp, sizeof(session_fp)) != 0) {
         fprintf(stderr, "[%s] Error: HKDF key derivation failed\n", label);
         goto out;
     }
@@ -216,8 +205,6 @@ static int install_session(unsigned char session_key[FARM9_KEY_LEN], int server_
     }
     memcpy(udp_tx_key, server_mode ? udp_s2c : udp_c2s, FARM9_KEY_LEN);
     memcpy(udp_rx_key, server_mode ? udp_c2s : udp_s2c, FARM9_KEY_LEN);
-    memcpy(confirm_tx_key, server_mode ? cf_s2c : cf_c2s, FARM9_KEY_LEN);
-    memcpy(confirm_rx_key, server_mode ? cf_c2s : cf_s2c, FARM9_KEY_LEN);
 
     initialized = true;
     rc = 0;
@@ -231,53 +218,9 @@ out:
     secure_zero(s2c, sizeof(s2c));
     secure_zero(udp_c2s, sizeof(udp_c2s));
     secure_zero(udp_s2c, sizeof(udp_s2c));
-    secure_zero(cf_c2s, sizeof(cf_c2s));
-    secure_zero(cf_s2c, sizeof(cf_s2c));
     return rc;
 }
 
-/*
- * Explicit key confirmation after a handshake: each side sends
- * HMAC-SHA256(confirm_key_own_direction, CONFIRM_MSG) and verifies the
- * peer's. Both send before reading (32 bytes, never blocks), so a wrong
- * password is reported immediately on both ends instead of surfacing as a
- * silent disconnect after the first data frame.
- */
-static int confirm_session(int sockfd, const char* label) {
-    unsigned char mine[CONFIRM_LEN], expect[CONFIRM_LEN], got[CONFIRM_LEN];
-    unsigned int len = 0;
-    int rc = -1;
-
-    if (!HMAC(EVP_sha256(), confirm_tx_key, FARM9_KEY_LEN,
-              (const unsigned char*)CONFIRM_MSG, strlen(CONFIRM_MSG), mine, &len) ||
-        len != CONFIRM_LEN ||
-        !HMAC(EVP_sha256(), confirm_rx_key, FARM9_KEY_LEN,
-              (const unsigned char*)CONFIRM_MSG, strlen(CONFIRM_MSG), expect, &len) ||
-        len != CONFIRM_LEN) {
-        fprintf(stderr, "[%s] Error: key confirmation failed (HMAC)\n", label);
-        goto out;
-    }
-    if (ecdhe_send(sockfd, mine, CONFIRM_LEN) < 0 ||
-        ecdhe_recv(sockfd, got, CONFIRM_LEN) < 0) {
-        fprintf(stderr, "[%s] Error: connection closed during key confirmation "
-                        "(wrong password on the other side?)\n", label);
-        goto out;
-    }
-    if (CRYPTO_memcmp(got, expect, CONFIRM_LEN) != 0) {
-        last_failure = FARM9_FAIL_AUTH;
-        fprintf(stderr, "[%s] Error: authentication failed - wrong password "
-                        "(or the handshake was tampered with)\n", label);
-        goto out;
-    }
-    rc = 0;
-
-out:
-    secure_zero(confirm_tx_key, sizeof(confirm_tx_key));
-    secure_zero(confirm_rx_key, sizeof(confirm_rx_key));
-    secure_zero(expect, sizeof(expect));
-    if (rc != 0) reset_state();
-    return rc;
-}
 
 /* Initialize with Argon2id key derivation from password + salt */
 extern "C" int farm9crypt_init_password_with_salt(const char* password, size_t pass_len,
@@ -336,8 +279,7 @@ extern "C" int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pa
         secure_zero(key, sizeof(key));
         return -1;
     }
-    if (install_session(key, server_mode, "ECDHE") != 0) return -1;
-    return confirm_session(sockfd, "ECDHE");
+    return install_session(key, server_mode, "SPAKE2");
 }
 
 extern "C" int farm9crypt_init_ecdhe_tofu(int sockfd, const char* password, size_t pass_len,
@@ -349,8 +291,7 @@ extern "C" int farm9crypt_init_ecdhe_tofu(int sockfd, const char* password, size
         secure_zero(key, sizeof(key));
         return -1;
     }
-    if (install_session(key, server_mode, "ECDHE-TOFU") != 0) return -1;
-    return confirm_session(sockfd, "ECDHE-TOFU");
+    return install_session(key, server_mode, "SPAKE2-TOFU");
 }
 
 extern "C" int farm9crypt_init_ecdhe_pq(int sockfd, const char* password, size_t pass_len,
@@ -362,8 +303,7 @@ extern "C" int farm9crypt_init_ecdhe_pq(int sockfd, const char* password, size_t
         secure_zero(key, sizeof(key));
         return -1;
     }
-    if (install_session(key, server_mode, "ECDHE-PQ") != 0) return -1;
-    return confirm_session(sockfd, "ECDHE-PQ");
+    return install_session(key, server_mode, "SPAKE2-PQ");
 }
 
 /* Clean up resources */
@@ -690,4 +630,8 @@ extern "C" int farm9crypt_write(int sockfd, char* buf, int size) {
     }
 
     return size;  /* Return original plaintext size */
+}
+
+extern "C" int farm9crypt_prepare_password(const char* password, size_t pass_len) {
+    return ecdhe_prepare_password(password, pass_len);
 }

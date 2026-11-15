@@ -170,6 +170,26 @@ extern void test_acl_allow_list(void);
 extern void test_acl_rejects_bad_lists(void);
 extern void test_filetx_sanitize_real(void);
 
+/* test_spake2.c */
+extern void test_spake2_rfc9382_vectors(void);
+extern void test_spake2_properties(void);
+extern void test_spake2_rejects_bad_points(void);
+
+/* test_pake.c */
+extern void test_pake_wrong_password_reported_on_server(void);
+extern void test_pake_old_v3_server(void);
+extern void test_pake_old_v3_client(void);
+extern void test_pake_option_mismatch(void);
+extern void test_pake_pq_roundtrip(void);
+extern void test_pake_mitm_transcript_tamper(void);
+extern void test_pake_mitm_passthrough(void);
+
+/* test_iplimit.c */
+extern void test_iplimit_keys(void);
+extern void test_iplimit_concurrency(void);
+extern void test_iplimit_auth_lockout(void);
+extern void test_iplimit_eviction_keeps_blocks(void);
+
 /* test_reverse.c */
 extern void test_persist_backoff_initial(void);
 extern void test_persist_backoff_exponential(void);
@@ -350,6 +370,26 @@ int main(void) {
     test_acl_allow_list();
     test_acl_rejects_bad_lists();
     test_filetx_sanitize_real();
+
+    /* SPAKE2 (RFC 9382) */
+    test_spake2_rfc9382_vectors();
+    test_spake2_properties();
+    test_spake2_rejects_bad_points();
+
+    /* Protocol v4 handshake */
+    test_pake_wrong_password_reported_on_server();
+    test_pake_old_v3_server();
+    test_pake_old_v3_client();
+    test_pake_option_mismatch();
+    test_pake_pq_roundtrip();
+    test_pake_mitm_transcript_tamper();
+    test_pake_mitm_passthrough();
+
+    /* -K per-address limits */
+    test_iplimit_keys();
+    test_iplimit_concurrency();
+    test_iplimit_auth_lockout();
+    test_iplimit_eviction_keeps_blocks();
 
     /* Reverse tunnel + persistent tests */
     test_persist_backoff_initial();

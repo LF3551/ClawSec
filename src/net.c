@@ -272,6 +272,12 @@ int net_parse_listen_spec(const char *spec, const char *default_host,
 int net_accept(int listen_fd) {
     struct sockaddr_storage ss;
     socklen_t slen = sizeof(ss);
+    return net_accept_peer(listen_fd, &ss, &slen);
+}
+
+int net_accept_peer(int listen_fd, struct sockaddr_storage *peer, socklen_t *peer_len) {
+    struct sockaddr_storage ss;
+    socklen_t slen = sizeof(ss);
     int fd = accept(listen_fd, (struct sockaddr *)&ss, &slen);
     if (fd < 0) fatal("accept failed");
 
@@ -280,6 +286,11 @@ int net_accept(int listen_fd) {
                     host, sizeof(host), serv, sizeof(serv),
                     NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
         log_msg(1, "connect from %s:%s", host, serv);
+    }
+    if (peer && peer_len) {
+        socklen_t n = slen < *peer_len ? slen : *peer_len;
+        memcpy(peer, &ss, n);
+        *peer_len = n;
     }
     return fd;
 }

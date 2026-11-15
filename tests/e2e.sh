@@ -400,6 +400,47 @@ else
     echo "  [E2E] -K --max-clients 1 queues the next client ... FAIL (exit $CRC, ${ELAPSED}s)"; FAIL=$((FAIL + 1))
 fi
 
+# ── -K --auth-fail-limit: an address is refused after repeated wrong passwords
+P=$(free_port); mkdir -p "$WORK/rx-lock"
+"$BIN" -l -p "$P" -k "$KEY" -K --auth-fail-limit 2 --recv "$WORK/rx-lock" \
+    >/dev/null 2>"$WORK/lock.err" & PIDS+=($!)
+wait_port "$P"
+for _ in 1 2; do
+    timeout 10 "$BIN" -k "wrong-password-x" 127.0.0.1 "$P" < /dev/null >/dev/null 2>&1
+    sleep 0.3
+done
+START=$SECONDS
+timeout 10 "$BIN" -k "$KEY" --send "$WORK/src/data.bin" 127.0.0.1 "$P" >/dev/null 2>&1
+LRC=$?
+ELAPSED=$((SECONDS - START))
+if [ "$LRC" -ne 0 ] && [ "$ELAPSED" -le 2 ] && [ ! -e "$WORK/rx-lock/data.bin" ] &&
+   grep -q 'authentication failure from 127.0.0.1 (2/2): blocking' "$WORK/lock.err"; then
+    echo "  [E2E] -K --auth-fail-limit 2 blocks the address (correct password refused) ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] -K --auth-fail-limit 2 blocks the address ... FAIL (exit $LRC, ${ELAPSED}s)"; FAIL=$((FAIL + 1))
+fi
+
+# ── -K --max-per-ip: one address cannot take every slot ────────────────
+P=$(free_port); mkdir -p "$WORK/rx-ip"
+"$BIN" -l -p "$P" -k "$KEY" -K --max-per-ip 1 --handshake-timeout 20 --recv "$WORK/rx-ip" \
+    >/dev/null 2>/dev/null & PIDS+=($!)
+wait_port "$P"
+silent_client "$P" 3; SIL=$!
+sleep 0.5
+START=$SECONDS
+timeout 10 "$BIN" -k "$KEY" --send "$WORK/src/data.bin" 127.0.0.1 "$P" >/dev/null 2>&1
+IRC1=$?
+ELAPSED=$((SECONDS - START))
+wait "$SIL" 2>/dev/null; sleep 0.5            # the silent client leaves, its slot frees up
+timeout 20 "$BIN" -k "$KEY" --send "$WORK/src/data.bin" 127.0.0.1 "$P" >/dev/null 2>&1
+IRC2=$?
+if [ "$IRC1" -ne 0 ] && [ "$ELAPSED" -le 2 ] && [ "$IRC2" -eq 0 ] &&
+   cmp -s "$PAYLOAD" "$WORK/rx-ip/data.bin"; then
+    echo "  [E2E] -K --max-per-ip 1 refuses a 2nd connection, then serves ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] -K --max-per-ip 1 ... FAIL (exit $IRC1 in ${ELAPSED}s, then $IRC2)"; FAIL=$((FAIL + 1))
+fi
+
 # ── --persistent: stop on a wrong password, reconnect after a drop ─────
 P=$(free_port)
 "$BIN" -l -p "$P" -k "$KEY" -K >/dev/null 2>&1 & PIDS+=($!)
