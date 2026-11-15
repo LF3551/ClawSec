@@ -62,6 +62,8 @@ extern void test_parse_forward_spec_ipv4(void);
 extern void test_parse_forward_spec_ipv6(void);
 extern void test_parse_forward_spec_hostname(void);
 extern void test_parse_forward_spec_invalid(void);
+extern void test_parse_listen_spec(void);
+extern void test_listen_on_loopback_only(void);
 
 /* test_zlib.c */
 extern void test_zlib_roundtrip(void);
@@ -235,6 +237,8 @@ int main(void) {
     test_parse_forward_spec_ipv6();
     test_parse_forward_spec_hostname();
     test_parse_forward_spec_invalid();
+    test_parse_listen_spec();
+    test_listen_on_loopback_only();
 
     /* Compression tests */
     test_zlib_roundtrip();

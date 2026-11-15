@@ -47,7 +47,8 @@ int mux_read_frame(int sockfd, mux_header_t *hdr, void *buf, size_t buflen);
 int mux_relay_server(int enc_fd, const char *fwd_host, const char *fwd_port);
 
 /* Client-side mux: accept local connections, mux through encrypted tunnel */
-int mux_relay_client(int enc_fd, const char *local_port);
+/* listen_host: address for the local listener (NULL = all interfaces) */
+int mux_relay_client(int enc_fd, const char *listen_host, const char *local_port);
 
 extern int g_mux;
 

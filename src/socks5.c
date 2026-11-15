@@ -171,50 +171,22 @@ fail:
 }
 
 /*
- * Client-side SOCKS5: listen on local_port, for each connection
- * do SOCKS5 handshake and forward through tunnel.
+ * Client-side SOCKS5: listen on listen_host:listen_port, for each connection
+ * do SOCKS5 handshake and forward through tunnel. The proxy has no
+ * authentication, so callers should bind it to loopback (the default).
  *
  * Note: single-threaded sequential — one SOCKS connection at a time
- * through the tunnel. For concurrent, use --mux + --socks together.
+ * through the tunnel.
  */
-void socks5_client(int tunnel_fd, const char *local_port) {
-    struct addrinfo hints, *res;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;
-
-    if (getaddrinfo(NULL, local_port, &hints, &res) != 0) {
-        fprintf(stderr, "ERROR: SOCKS5 cannot bind to port %s\n", local_port);
-        return;
-    }
-
-    int listen_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+void socks5_client(int tunnel_fd, const char *listen_host, const char *listen_port) {
+    int listen_fd = net_listen_on(listen_host, listen_port);
     if (listen_fd < 0) {
-        freeaddrinfo(res);
-        fprintf(stderr, "ERROR: SOCKS5 socket failed\n");
+        fprintf(stderr, "ERROR: SOCKS5 proxy cannot listen on %s:%s\n",
+                listen_host ? listen_host : "*", listen_port);
         return;
     }
 
-    int yes = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-
-    if (bind(listen_fd, res->ai_addr, res->ai_addrlen) < 0) {
-        freeaddrinfo(res);
-        close(listen_fd);
-        fprintf(stderr, "ERROR: SOCKS5 bind to port %s failed: %s\n",
-                local_port, strerror(errno));
-        return;
-    }
-    freeaddrinfo(res);
-
-    if (listen(listen_fd, 5) < 0) {
-        close(listen_fd);
-        fprintf(stderr, "ERROR: SOCKS5 listen failed\n");
-        return;
-    }
-
-    log_msg(1, "SOCKS5 proxy listening on 127.0.0.1:%s", local_port);
+    log_msg(1, "SOCKS5 proxy listening on %s:%s", listen_host ? listen_host : "*", listen_port);
 
     for (;;) {
         int client_fd = accept(listen_fd, NULL, NULL);

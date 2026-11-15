@@ -79,9 +79,10 @@ static int reverse_relay(int tunnel_fd, int plain_fd) {
  * 3. Wait for ROK from tunnel client
  * 4. Relay data between incoming connection and tunnel
  */
-int reverse_server(int tunnel_fd, const char *rev_port) {
-    int listen_fd = net_listen(rev_port);
-    log_msg(1, "reverse: listening on *:%s (forwarding through tunnel)", rev_port);
+int reverse_server(int tunnel_fd, const char *rev_host, const char *rev_port) {
+    int listen_fd = net_listen_on(rev_host, rev_port);
+    if (listen_fd < 0) return -1;
+    log_msg(1, "reverse: listening on %s:%s (forwarding through tunnel)", rev_host, rev_port);
 
     for (;;) {
         int client_fd = net_accept(listen_fd);
