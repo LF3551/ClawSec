@@ -2,15 +2,20 @@
 
 All notable changes to ClawSec will be documented in this file.
 
-## [Unreleased]
+## [3.0.0] - 2026-11-15
+
+Major release: security fixes that required a new, incompatible wire protocol.
+**Upgrade both endpoints**: 3.x does not interoperate with 2.x (`clawsec --version`
+shows the release and protocol version). The wire protocol number now follows the
+release major version (protocol 1 → 3).
 
 ### Security
-- **Wire protocol v2 (breaking: not compatible with ≤ 2.8.2).** The 16-byte frame
+- **Wire protocol v3 (breaking: not compatible with ≤ 2.8.2).** The 16-byte frame
   header (magic, version, flags, sequence number, length) is now authenticated as
-  AES-GCM associated data. In v1 a captured frame could be replayed by editing its
+  AES-GCM associated data. In protocol v1 a captured frame could be replayed by editing its
   unauthenticated sequence number.
 - **Directional keys.** HKDF-SHA256 derives independent client→server and
-  server→client keys from the session key. In v1 both directions shared one key,
+  server→client keys from the session key. In protocol v1 both directions shared one key,
   so a node accepted its own frames reflected back to it.
 - **Receive-buffer overflow fixed.** `farm9crypt_read()` decrypted into the caller's
   buffer without honouring its size, before verifying the tag. A frame forged by an
@@ -44,8 +49,12 @@ All notable changes to ClawSec will be documented in this file.
   The deprecated `farm9crypt_init(char*)` (which read a raw key with `strlen`) was
   removed. `farm9crypt_export_key()` was replaced by `farm9crypt_export_udp_keys()`.
 - Session fingerprint is derived with HKDF (still identical on both ends).
+- Packaging: AUR `pkgver`, Homebrew formula (also fixed its build directory:
+  `src`, not `unix`) and `scripts/build-release.sh` default to 3.0.0.
 
 ### Added
+- `--version`: prints the release and wire protocol version (also in shell completions
+  and the man page).
 - `tests/test_security.c`: regression tests for each issue above.
 - `tests/e2e.sh` (`make e2e`): end-to-end tests of the real binary — stream modes,
   `--obfs http|tls`, `--tofu`, `--pq`, `--mux`, `--socks`, `-R`, `--send/--recv`,

@@ -3,7 +3,7 @@
  *
  *  C interface between netcat and AES-GCM encryption.
  *
- *  Wire protocol v2:
+ *  Wire protocol v3 (ClawSec 3.x):
  *  - AES-256-GCM authenticated encryption; the 16-byte frame header
  *    (magic, version, flags, sequence, length) is authenticated as AAD
  *  - Independent keys per direction (client->server / server->client),
@@ -91,7 +91,7 @@ int farm9crypt_get_fingerprint(unsigned char *out, size_t len);
 
 /* Protocol constants */
 #define FARM9_MAGIC 0x434C4157     /* "CLAW" */
-#define FARM9_VERSION 0x0002       /* Protocol version 2 (header-authenticated, directional keys) */
+#define FARM9_VERSION 0x0003       /* Protocol version 3 (ClawSec 3.x: authenticated header, directional keys) */
 #define FARM9_IV_LEN 12            /* AES-GCM IV length */
 #define FARM9_TAG_LEN 16           /* AES-GCM auth tag length */
 #define FARM9_SALT_LEN 16          /* KDF salt length */

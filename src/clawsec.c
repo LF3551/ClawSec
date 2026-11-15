@@ -31,6 +31,7 @@
 #include "reverse.h"
 #include "persistent.h"
 #include "tun.h"
+#include "version.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -354,7 +355,8 @@ static void usage(const char *prog) {
             "  -6                Force IPv6 only\n"
             "  -c                Chat mode (timestamps, roles)\n"
             "  -w <sec>          Connect timeout in seconds\n"
-            "  -v                Verbose output\n");
+            "  -v                Verbose output\n"
+            "  --version         Print version and wire protocol, then exit\n");
 #ifdef GAPING_SECURITY_HOLE
     fprintf(stderr,
             "  -e <program>      Execute program after connect (encrypted)\n");
@@ -422,6 +424,7 @@ int main(int argc, char **argv) {
         {"default-route", no_argument,     NULL, 'G'},
         {"tun-udp",     no_argument,       NULL, 'B'},
         {"help",        no_argument,       NULL, 'h'},
+        {"version",     no_argument,       NULL, 'I'},
         {NULL, 0, NULL, 0}
     };
 
@@ -435,6 +438,9 @@ int main(int argc, char **argv) {
     while ((opt = getopt_long(argc, argv, optstring, long_opts, NULL)) != -1) {
         switch (opt) {
         case 'h': usage(argv[0]); return 0;
+        case 'I':
+            printf("ClawSec %s (wire protocol %d)\n", CLAWSEC_VERSION, FARM9_VERSION);
+            return 0;
         case 'b': banner_grab = 1; break;
         case 'l': listen_mode = 1; break;
         case 'K': keep_open = 1; break;

@@ -34,7 +34,7 @@ extern void test_invalid_salt(void);
 extern void test_replay_protection(void);
 extern void test_bad_magic(void);
 
-/* test_security.c — protocol v2 regression tests */
+/* test_security.c — protocol v3 regression tests */
 extern void test_sec_roles_roundtrip(void);
 extern void test_sec_reflection_rejected(void);
 extern void test_sec_edited_seq_replay_rejected(void);
@@ -207,7 +207,7 @@ int main(void) {
     test_replay_protection();
     test_bad_magic();
 
-    /* Protocol v2 security regressions */
+    /* Protocol v3 security regressions */
     test_sec_roles_roundtrip();
     test_sec_reflection_rejected();
     test_sec_edited_seq_replay_rejected();
