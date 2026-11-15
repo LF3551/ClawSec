@@ -14,6 +14,8 @@
 #include "farm9crypt.h"
 #include "util.h"
 #include "options.h"
+#include <openssl/crypto.h>
+#include <openssl/rand.h>
 
 #define TVPN_HDR 6
 
@@ -89,11 +91,28 @@ int vpn_server_control(int tunnel_fd, const unsigned char *msg, int len, void *c
         /* refuse fast, so the client falls back to the TCP channel at once */
         return farm9crypt_write(tunnel_fd, (char *)"TUDN", 4) == 4 ? 0 : -1;
     }
+    if (len == 4 + 16 && memcmp(msg, "TUDP", 4) == 0 && c->hub_fd >= 0) {
+        /* hub with --tun-udp: answer with our token, hand the keys to the hub */
+        unsigned char m[HUB_UDP_START_LEN], reply[4 + 16];
+        m[0] = HUB_UDP_START;
+        if (farm9crypt_export_udp_keys(m + 1, m + 33) != 0 || RAND_bytes(m + 65, 16) != 1)
+            return -1;
+        memcpy(m + 81, msg + 4, 16);                  /* client token */
+        memcpy(m + 97, &g_opt.session_user_ip.s_addr, 4);
+        memcpy(reply, "TUDP", 4);
+        memcpy(reply + 4, m + 65, 16);
+        int ok = farm9crypt_write(tunnel_fd, (char *)reply, (int)sizeof(reply)) ==
+                     (int)sizeof(reply) &&
+                 send(c->hub_fd, m, sizeof(m), 0) == (ssize_t)sizeof(m);
+        OPENSSL_cleanse(m, sizeof(m));
+        log_msg(1, "vpn: UDP channel offered to the client");
+        return ok ? 0 : -1;
+    }
     return 0;                                         /* unknown control message */
 }
 
 int hub_session(int tunnel_fd, int hub_fd) {
-    vpn_server_ctx_t ctx = { NULL, hub_fd, 0, 0 };
+    vpn_server_ctx_t ctx = { NULL, hub_fd, g_opt.tun_udp, 0 };
     char buf[TVPN_HDR + 2048];
 
     /* Configuration phase: a 4.2 client asks for its address; a 4.1 client

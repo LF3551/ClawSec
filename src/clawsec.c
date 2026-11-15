@@ -513,11 +513,6 @@ int main(int argc, char **argv) {
                         "IPv6 address from the server\n");
         return 1;
     }
-    if (g_opt.tun_cidr && listen_mode && keep_open && g_opt.tun_udp) {
-        fprintf(stderr, "ERROR: --tun-udp is not available with -K yet (multi-client VPN "
-                        "uses the TCP channel)\n");
-        return 1;
-    }
 
     /* Per-user login: option checks */
     if ((add_user || set_user || del_user) && !users_file) {

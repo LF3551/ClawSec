@@ -195,6 +195,15 @@ typedef struct {
     char v4[INET_ADDRSTRLEN];
     char v6[INET6_ADDRSTRLEN];
     unsigned long long rx_pkts, rx_bytes, tx_pkts, tx_bytes;   /* from / to the client */
+    /* --tun-udp: the hub runs this client's UDP data channel itself */
+    int udp;                         /* 0 none, 1 keys known (waiting for the probe), 2 active */
+    unsigned char utx[32], urx[32], utok[16], ctok[16];
+    struct in_addr uip;              /* the user's fixed address (users file ip=), or 0 */
+    struct sockaddr_in uaddr;        /* client's UDP address */
+    uint64_t useq;
+    tun_replay_t ureplay;
+    time_t upending_since;
+    int udp_warned;
 } hub_client_t;
 
 static hub_client_t *s_hub_clients;   /* (defined again below: tentative) */
@@ -255,11 +264,116 @@ static void hub_child_exited(pid_t pid) {
             hub_drop_client(s_hub_pool, &s_hub_clients[k], k);
 }
 
+static void hub_udp_clear(hub_client_t *c) {
+    OPENSSL_cleanse(c->utx, sizeof(c->utx));
+    OPENSSL_cleanse(c->urx, sizeof(c->urx));
+    OPENSSL_cleanse(c->utok, sizeof(c->utok));
+    OPENSSL_cleanse(c->ctok, sizeof(c->ctok));
+    c->udp = 0;
+}
+
 static void hub_drop_client(vpn_pool_t *pool, hub_client_t *c, int k) {
     vpn_pool_release(pool, k);
     if (c->fd >= 0) close(c->fd);
     c->fd = -1;
     c->assigned = 0;
+    hub_udp_clear(c);
+}
+
+/* --tun-udp: the hub's UDP socket on the server port (IPv4, like the client) */
+static int hub_udp_socket(const char *port) {
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)atoi(port));
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+    int one = 1, buf = 4 * 1024 * 1024;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof(buf));
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buf, sizeof(buf));
+    if (bind(fd, (struct sockaddr *)&a, sizeof(a)) != 0) {
+        close(fd);
+        return -1;
+    }
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    return fd;
+}
+
+static void hub_note_address(hub_client_t *c, int k, const vpn_cfg_t *cfg, const char *how) {
+    inet_ntop(AF_INET, &cfg->v4, c->v4, sizeof(c->v4));
+    c->v6[0] = '\0';
+    if (cfg->has_v6) inet_ntop(AF_INET6, &cfg->v6, c->v6, sizeof(c->v6));
+    log_msg(0, "vpn hub: client %d (pid %d) at %s%s%s%s", k, (int)c->pid, c->v4,
+            cfg->has_v6 ? " " : "", c->v6, how);
+    c->assigned = 1;
+}
+
+/* One datagram on the hub's UDP socket */
+static void hub_udp_input(int udp_fd, int tun_fd, vpn_pool_t *pool, hub_client_t *cl, int max,
+                          const unsigned char *dg, int n, const struct sockaddr_in *from) {
+    unsigned char pkt[TUN_MTU + 64];
+    int plen = 0;
+    uint32_t seq = 0;
+    for (int k = 0; k < max; k++) {                     /* known client address */
+        hub_client_t *c = &cl[k];
+        if (c->fd < 0 || c->udp != 2 || c->uaddr.sin_port != from->sin_port ||
+            c->uaddr.sin_addr.s_addr != from->sin_addr.s_addr)
+            continue;
+        if (tun_udp_open(c->urx, dg, n, pkt, &plen, &seq) != 0 ||
+            tun_replay_accept(&c->ureplay, seq) != 0)
+            return;                                      /* forged, corrupted or replayed */
+        if (plen == 4 && memcmp(pkt, "THB\n", 4) == 0) return;
+        if (!c->assigned) {                              /* ClawSec < 4.2: learn the address */
+            struct in_addr src;
+            if (plen < 20 || (pkt[0] >> 4) != 4) return;
+            memcpy(&src.s_addr, pkt + 12, 4);
+            vpn_cfg_t cfg;
+            int st = c->uip.s_addr && src.s_addr != c->uip.s_addr
+                         ? VPN_CFG_OUTSIDE : vpn_pool_assign(pool, src, k, &cfg);
+            if (st != VPN_CFG_OK) {
+                if (!c->udp_warned)
+                    log_msg(0, "vpn hub: client %d (UDP) uses an address it cannot have: %s",
+                            k, vpn_cfg_status_str(st));
+                c->udp_warned = 1;
+                return;
+            }
+            hub_note_address(c, k, &cfg, " (learned)");
+        }
+        if (vpn_pool_src_ok(pool, k, pkt, (size_t)plen)) {
+            tun_device_write(tun_fd, (const char *)pkt, plen);
+            c->rx_pkts++;
+            c->rx_bytes += (unsigned long long)plen;
+        } else if (!vpn_packet_local_noise(pkt, (size_t)plen) && !c->spoof_warned) {
+            log_msg(0, "vpn hub: client %d sent a packet with a source address that is not "
+                       "its own: dropped", k);
+            c->spoof_warned = 1;
+        }
+        return;
+    }
+    for (int k = 0; k < max; k++) {                     /* probe of a pending client */
+        hub_client_t *c = &cl[k];
+        if (c->fd < 0 || c->udp != 1) continue;
+        unsigned char tok[64];
+        int tl = 0;
+        if (tun_udp_decrypt(c->urx, dg, n, tok, &tl, &seq) != 0 || seq != 0 || tl != 16 ||
+            CRYPTO_memcmp(tok, c->utok, 16) != 0)
+            continue;
+        c->uaddr = *from;
+        c->udp = 2;
+        c->useq = 1;
+        tun_replay_init(&c->ureplay);
+        unsigned char ack[TUN_UDP_OVERHEAD + 64];
+        int al = 0;
+        if (tun_udp_encrypt(c->utx, 0, c->ctok, 16, ack, &al) == 0)
+            for (int i = 0; i < 3; i++)          /* duplicates are dropped by the client */
+                (void)sendto(udp_fd, ack, (size_t)al, 0, (const struct sockaddr *)from,
+                             sizeof(*from));
+        char a[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &from->sin_addr, a, sizeof(a));
+        log_msg(1, "vpn hub: client %d UDP channel ready (%s:%u)", k, a, ntohs(from->sin_port));
+        return;
+    }
 }
 
 int run_vpn_hub(int listen_fd, const char *password) {
@@ -296,7 +410,16 @@ int run_vpn_hub(int listen_fd, const char *password) {
     iplimit_configure(g_opt.max_per_ip, g_opt.auth_fail_limit, AUTH_FAIL_WINDOW, AUTH_BLOCK_TIME);
     int max = g_opt.max_clients;
     hub_client_t *cl = calloc((size_t)max, sizeof(*cl));
-    struct pollfd *pfd = calloc((size_t)max + 4, sizeof(*pfd));
+    struct pollfd *pfd = calloc((size_t)max + 5, sizeof(*pfd));
+    int udp_fd = -1;
+    if (g_opt.tun_udp) {
+        udp_fd = hub_udp_socket(g_opt.bind_port);
+        if (udp_fd < 0) {
+            fprintf(stderr, "ERROR: --tun-udp: cannot bind UDP port %s: %s\n", g_opt.bind_port,
+                    strerror(errno));
+            return 1;
+        }
+    }
     children_reports_init();
     int control_fd = g_opt.control_path ? control_listen(g_opt.control_path) : -1;
     if (g_opt.control_path && control_fd < 0) return 1;
@@ -332,8 +455,9 @@ int run_vpn_hub(int listen_fd, const char *password) {
         pfd[1] = (struct pollfd){ room ? listen_fd : -1, POLLIN, 0 };
         pfd[2] = (struct pollfd){ control_fd, POLLIN, 0 };
         pfd[3] = (struct pollfd){ children_reports_fd(), POLLIN, 0 };
-        for (int k = 0; k < max; k++) pfd[k + 4] = (struct pollfd){ cl[k].fd, POLLIN, 0 };
-        int rc = poll(pfd, (nfds_t)max + 4, 1000);
+        pfd[4] = (struct pollfd){ udp_fd, POLLIN, 0 };
+        for (int k = 0; k < max; k++) pfd[k + 5] = (struct pollfd){ cl[k].fd, POLLIN, 0 };
+        int rc = poll(pfd, (nfds_t)max + 5, 1000);
         if (rc < 0) {
             if (errno == EINTR) continue;
             perror("vpn hub: poll");
@@ -342,17 +466,45 @@ int run_vpn_hub(int listen_fd, const char *password) {
 
         /* TUN -> the client that owns the destination */
         if (pfd[3].revents & POLLIN) children_reports_read();
+        if (pfd[4].revents & POLLIN) {
+            for (int burst = 0; burst < 64; burst++) {
+                unsigned char dg[TUN_UDP_OVERHEAD + TUN_MTU + 64];
+                struct sockaddr_in from;
+                socklen_t fl = sizeof(from);
+                ssize_t n = recvfrom(udp_fd, dg, sizeof(dg), 0, (struct sockaddr *)&from, &fl);
+                if (n <= 0) break;
+                if (fl == sizeof(from) && from.sin_family == AF_INET)
+                    hub_udp_input(udp_fd, tun_fd, pool, cl, max, dg, (int)n, &from);
+            }
+        }
+        {   /* a UDP offer the client never followed up is forgotten */
+            time_t now = time(NULL);
+            for (int k = 0; k < max; k++)
+                if (cl[k].fd >= 0 && cl[k].udp == 1 && now - cl[k].upending_since > 15)
+                    hub_udp_clear(&cl[k]);
+        }
         if (pfd[2].revents & POLLIN) control_serve(control_fd, hub_status, NULL);
         if (pfd[0].revents & POLLIN) {
             for (int burst = 0; burst < 64; burst++) {
                 int n = tun_device_read(tun_fd, buf, sizeof(buf));
                 if (n <= 0) break;
                 int owner = vpn_pool_route(pool, (unsigned char *)buf, (size_t)n);
-                if (owner >= 0 && owner < max && cl[owner].fd >= 0)
-                    if (send(cl[owner].fd, buf, (size_t)n, 0) == n) {   /* non-blocking: dropped if full */
-                        cl[owner].tx_pkts++;
-                        cl[owner].tx_bytes += (unsigned long long)n;
+                if (owner < 0 || owner >= max || cl[owner].fd < 0) continue;
+                hub_client_t *c = &cl[owner];
+                if (c->udp == 2 && c->useq <= UINT32_MAX) {     /* UDP data channel */
+                    unsigned char dg[TUN_UDP_OVERHEAD + TUN_MTU + 64];
+                    int dl = 0;
+                    if (tun_udp_seal(c->utx, (uint32_t)c->useq++, (unsigned char *)buf, n,
+                                     dg, &dl) == 0 &&
+                        sendto(udp_fd, dg, (size_t)dl, 0, (struct sockaddr *)&c->uaddr,
+                               sizeof(c->uaddr)) == dl) {
+                        c->tx_pkts++;
+                        c->tx_bytes += (unsigned long long)n;
                     }
+                } else if (send(c->fd, buf, (size_t)n, 0) == n) {   /* non-blocking: dropped if full */
+                    c->tx_pkts++;
+                    c->tx_bytes += (unsigned long long)n;
+                }
             }
         }
 
@@ -388,6 +540,7 @@ int run_vpn_hub(int listen_fd, const char *password) {
                     close(listen_fd);
                     close(tun_fd);
                     if (control_fd >= 0) close(control_fd);
+                    if (udp_fd >= 0) close(udp_fd);
                     close(sv[0]);
                     for (int i = 0; i < max; i++)
                         if (cl[i].fd >= 0) close(cl[i].fd);
@@ -415,7 +568,7 @@ int run_vpn_hub(int listen_fd, const char *password) {
 
         /* Sessions -> TUN, address requests */
         for (int k = 0; k < max; k++) {
-            if (cl[k].fd < 0 || !(pfd[k + 4].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+            if (cl[k].fd < 0 || !(pfd[k + 5].revents & (POLLIN | POLLHUP | POLLERR))) continue;
             for (int burst = 0; burst < 64; burst++) {
                 ssize_t n = recv(cl[k].fd, buf, sizeof(buf), 0);            /* non-blocking socket */
                 if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) break;
@@ -424,6 +577,18 @@ int run_vpn_hub(int listen_fd, const char *password) {
                     break;
                 }
                 unsigned char t = (unsigned char)buf[0];
+                if (t == HUB_UDP_START && n == HUB_UDP_START_LEN && udp_fd >= 0) {
+                    hub_client_t *c = &cl[k];
+                    memcpy(c->utx, buf + 1, 32);
+                    memcpy(c->urx, buf + 33, 32);
+                    memcpy(c->utok, buf + 65, 16);
+                    memcpy(c->ctok, buf + 81, 16);
+                    memcpy(&c->uip.s_addr, buf + 97, 4);
+                    OPENSSL_cleanse(buf, (size_t)n);
+                    c->udp = 1;
+                    c->upending_since = time(NULL);
+                    continue;
+                }
                 if (t == HUB_ASSIGN && n == HUB_ASSIGN_LEN) {
                     struct in_addr want;
                     memcpy(&want.s_addr, buf + 1, 4);
@@ -473,6 +638,8 @@ int run_vpn_hub(int listen_fd, const char *password) {
             close(cl[k].fd);
         }
     }
+    for (int k = 0; k < max; k++) hub_udp_clear(&cl[k]);
+    if (udp_fd >= 0) close(udp_fd);
     free(cl);
     free(pfd);
     tun_disable_nat();

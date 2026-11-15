@@ -7,6 +7,7 @@
  * Messages hub <-> session that are not IP packets start with 0xC_:
  *   session -> hub  HUB_ASSIGN  want_v4(4) legacy(1)
  *   hub -> session  HUB_RESULT  status(1) TCFG reply (VPN_CFG_REP_LEN)
+ *   session -> hub  HUB_UDP_START  keys and tokens of the client's UDP channel
  */
 #ifndef CLAWSEC_HUB_H
 #define CLAWSEC_HUB_H
@@ -15,7 +16,14 @@
 
 #define HUB_ASSIGN 0xC1
 #define HUB_RESULT 0xC2
+#define HUB_UDP_START 0xC6       /* session -> hub: UDP channel keys (see below) */
 #define HUB_ASSIGN_LEN (1 + 4 + 1)
+/* HUB_UDP_START tx_key(32) rx_key(32) hub_token(16) client_token(16)
+ * user_ip(4, users file ip= or 0): the
+ * hub validates the client's UDP probe and then encrypts/decrypts that
+ * client's UDP data channel itself (it sees the plaintext packets anyway,
+ * as it writes them to the TUN device) */
+#define HUB_UDP_START_LEN (1 + 32 + 32 + 16 + 16 + 4)
 #define HUB_RESULT_LEN (1 + 1 + VPN_CFG_REP_LEN)
 
 typedef struct {

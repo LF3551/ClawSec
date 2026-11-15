@@ -305,11 +305,66 @@ nat6_test() {
     for n in "$S" "$C" "$I"; do ip netns del "$n"; done
 }
 
+# Multi-client hub with the UDP data channel (-K --tun-udp): the hub runs
+# every client's UDP channel; datagrams are counted on the server's UDP port
+hub_udp_test() {   # hub_udp_test <label> [extra options for both ends]
+    local label=$1; shift
+    local S=clawsec-hu-srv C1=clawsec-hu-c1 C2=clawsec-hu-c2 n i
+    for n in "$S" "$C1" "$C2"; do ip netns add "$n"; ip netns exec "$n" ip link set lo up; done
+    for i in 1 2; do
+        local C; C=$([ $i = 1 ] && echo "$C1" || echo "$C2")
+        ip link add "huv$i" type veth peer name "hup$i"
+        ip link set "huv$i" netns "$S"; ip link set "hup$i" netns "$C"
+        ip netns exec "$S" ip addr add "192.168.23$i.1/24" dev "huv$i"
+        ip netns exec "$S" ip link set "huv$i" up
+        ip netns exec "$C" ip addr add "192.168.23$i.2/24" dev "hup$i"
+        ip netns exec "$C" ip link set "hup$i" up
+    done
+    ip netns exec "$S" sysctl -qw net.ipv4.ip_forward=1
+    ip netns exec "$S" iptables -I INPUT -p udp --dport 9000
+    ip netns exec "$S" timeout 40 "$BIN" -l -p 9000 -k "$KEY" -K --tun 10.234.0.1/24 --tun-udp \
+        "$@" </dev/null >/dev/null 2>"$WORK/hu.log" &
+    local SV=$! CL=()
+    sleep 0.8
+    for i in 1 2; do
+        local C; C=$([ $i = 1 ] && echo "$C1" || echo "$C2")
+        ip netns exec "$C" timeout 40 "$BIN" -v -k "$KEY" --tun auto --tun-udp "$@" \
+            "192.168.23$i.1" 9000 </dev/null >/dev/null 2>"$WORK/hu-c$i.log" &
+        CL+=($!)
+    done
+    for _ in $(seq 60); do
+        grep -q 'client UDP channel ready' "$WORK/hu-c1.log" 2>/dev/null &&
+            grep -q 'client UDP channel ready' "$WORK/hu-c2.log" 2>/dev/null && break
+        sleep 0.1
+    done
+    sleep 0.3
+    local A2 U0 U1 ok=1
+    A2=$(ip netns exec "$C2" ip -o -4 addr show | awk '/tun/ {split($4,a,"/"); print a[1]}')
+    U0=$(ip netns exec "$S" iptables -nvxL INPUT | awk '/udp dpt:9000/ {print $1}')
+    ip netns exec "$C1" ping -c5 -i0.2 -W2 10.234.0.1 >/dev/null 2>&1 || ok=0
+    ip netns exec "$C1" ping -c3 -i0.2 -W2 "$A2" >/dev/null 2>&1 || ok=0
+    U1=$(ip netns exec "$S" iptables -nvxL INPUT | awk '/udp dpt:9000/ {print $1}')
+    [ $((U1 - U0)) -ge 8 ] || ok=0
+    grep -q 'using the TCP channel' "$WORK/hu-c1.log" && ok=0
+    if [ "$ok" -eq 1 ]; then
+        echo "  [E2E] VPN hub --tun-udp $label (+$((U1 - U0)) UDP datagrams) ... PASS"; PASS=$((PASS + 1))
+    else
+        echo "  [E2E] VPN hub --tun-udp $label ... FAIL"; FAIL=$((FAIL + 1))
+        cat "$WORK/hu.log" "$WORK/hu-c1.log"
+    fi
+    kill "${CL[@]}" "$SV" 2>/dev/null; wait "${CL[@]}" "$SV" 2>/dev/null
+    for n in "$S" "$C1" "$C2"; do ip netns del "$n"; done
+}
+
 vpn_test "tcp relay"
 vpn_test "--tun-udp" --tun-udp
 vpn_test "tcp relay --pad" --pad
 vpn_test "--tun-udp --pad" --tun-udp --pad
 hub_test
+if command -v iptables >/dev/null; then
+    hub_udp_test ""
+    hub_udp_test "--pad" --pad
+fi
 if command -v ip6tables >/dev/null || command -v nft >/dev/null; then
     nat6_test
 else

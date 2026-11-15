@@ -149,7 +149,8 @@ Supports macOS (utun) and Linux (/dev/net/tun). A client may use
 \fB\-\-tun auto\fR to get its addresses from a ClawSec 4.2+ server, or ask
 for a specific one. With \fB\-K\fR the server is a hub for many clients: one
 device, one process per client, addresses from the \fB\-\-tun\fR subnet
-(/8\-/30), routing by destination and a source-address check per client.
+(/8\-/30), routing by destination and a source-address check per client. \fB\-\-tun\-udp\fR is supported:
+the hub runs each client's UDP data channel on the server port.
 .TP
 .BI \-\-tun6 " ip6/prefix"
 Server: IPv6 inside the tunnel (prefix 64\-120, e.g. \fBfd00:c1a5::1/64\fR).

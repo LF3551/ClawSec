@@ -363,6 +363,16 @@ static int udp_open(const unsigned char *key, const unsigned char *in, int in_le
     return 0;
 }
 
+int tun_udp_seal(const unsigned char *key, uint32_t seq, const unsigned char *pkt, int len,
+                 unsigned char *out, int *out_len) {
+    return udp_seal(key, seq, pkt, len, out, out_len);
+}
+
+int tun_udp_open(const unsigned char *key, const unsigned char *in, int in_len,
+                 unsigned char *pkt, int *pkt_len, uint32_t *seq) {
+    return udp_open(key, in, in_len, pkt, pkt_len, seq);
+}
+
 /* ── Public wrappers for testing ──────────────────────── */
 
 int tun_udp_encrypt(const unsigned char *key, uint32_t seq,
@@ -381,52 +391,47 @@ int tun_udp_decrypt(const unsigned char *key,
 
 /* ── Replay protection: sliding window ───────────────── */
 
-#define REPLAY_WINDOW_SIZE 256
+#define REPLAY_WINDOW_SIZE TUN_REPLAY_WINDOW
 
-static uint32_t replay_max_seq = 0;
-static uint64_t replay_bitmap[REPLAY_WINDOW_SIZE / 64] = {0};
-
-static void replay_reset(void) {
-    replay_max_seq = 0;
-    memset(replay_bitmap, 0, sizeof(replay_bitmap));
+void tun_replay_init(tun_replay_t *r) {
+    memset(r, 0, sizeof(*r));
 }
 
-static int replay_check_and_update(uint32_t seq) {
+int tun_replay_accept(tun_replay_t *r, uint32_t seq) {
     /* seq 0 is reserved for the negotiation probe/ACK and never valid data */
     if (seq == 0) return -1;
 
-    if (seq > replay_max_seq) {
+    if (seq > r->max_seq) {
         /* Advance window */
-        uint32_t shift = seq - replay_max_seq;
+        uint32_t shift = seq - r->max_seq;
         if (shift >= REPLAY_WINDOW_SIZE) {
-            memset(replay_bitmap, 0, sizeof(replay_bitmap));
+            memset(r->bitmap, 0, sizeof(r->bitmap));
         } else {
             /* Shift bitmap left by 'shift' bits */
             for (uint32_t s = 0; s < shift; s++) {
-                for (int i = (REPLAY_WINDOW_SIZE / 64) - 1; i > 0; i--) {
-                    replay_bitmap[i] = (replay_bitmap[i] << 1) | (replay_bitmap[i-1] >> 63);
-                }
-                replay_bitmap[0] <<= 1;
+                for (int i = (REPLAY_WINDOW_SIZE / 64) - 1; i > 0; i--)
+                    r->bitmap[i] = (r->bitmap[i] << 1) | (r->bitmap[i - 1] >> 63);
+                r->bitmap[0] <<= 1;
             }
         }
-        replay_max_seq = seq;
-        /* Mark current seq as seen (bit 0) */
-        replay_bitmap[0] |= 1;
-        return 0; /* accept */
+        r->max_seq = seq;
+        r->bitmap[0] |= 1;                 /* current seq seen (bit 0) */
+        return 0;
     }
 
-    /* seq <= replay_max_seq: check if within window */
-    uint32_t diff = replay_max_seq - seq;
+    /* seq <= max_seq: check if within window */
+    uint32_t diff = r->max_seq - seq;
     if (diff >= REPLAY_WINDOW_SIZE) return -1; /* too old */
-
-    uint32_t idx = diff / 64;
-    uint32_t bit = diff % 64;
-    if (replay_bitmap[idx] & (1ULL << bit)) return -1; /* already seen */
-
-    /* Mark as seen */
-    replay_bitmap[idx] |= (1ULL << bit);
+    uint32_t idx = diff / 64, bit = diff % 64;
+    if (r->bitmap[idx] & (1ULL << bit)) return -1; /* already seen */
+    r->bitmap[idx] |= (1ULL << bit);
     return 0;
 }
+
+/* the single-session relay's window */
+static tun_replay_t s_replay;
+static void replay_reset(void) { tun_replay_init(&s_replay); }
+static int replay_check_and_update(uint32_t seq) { return tun_replay_accept(&s_replay, seq); }
 
 void tun_udp_replay_reset(void) {
     replay_reset();
