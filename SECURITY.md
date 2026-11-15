@@ -263,7 +263,12 @@ test password guesses offline (no PAKE yet) — use a long random password
 Details: [CHANGELOG.md](CHANGELOG.md),
 [releases/3.1.0/RELEASE_NOTES.md](releases/3.1.0/RELEASE_NOTES.md) and
 [releases/3.0.0/RELEASE_NOTES.md](releases/3.0.0/RELEASE_NOTES.md).
-No CVE identifiers have been assigned.
+GitHub Security Advisories:
+[GHSA-p24v-84fh-v7r2](https://github.com/LF3551/ClawSec/security/advisories/GHSA-p24v-84fh-v7r2) (record layer, high),
+[GHSA-vx49-pc8w-vgrx](https://github.com/LF3551/ClawSec/security/advisories/GHSA-vx49-pc8w-vgrx) (receiver file writes),
+[GHSA-f39q-c788-x6h5](https://github.com/LF3551/ClawSec/security/advisories/GHSA-f39q-c788-x6h5) (SOCKS exposure/SSRF),
+[GHSA-jxhr-v32g-6pjx](https://github.com/LF3551/ClawSec/security/advisories/GHSA-jxhr-v32g-6pjx) (denial of service).
+No CVE identifiers have been requested.
 
 ### Open issues
 See *Current Limitations* above (most importantly: no PAKE yet).
