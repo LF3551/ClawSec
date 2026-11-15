@@ -193,6 +193,38 @@ typedef struct {
     int spoof_warned;
 } hub_client_t;
 
+/* Hub <-> session socket: one IP packet per message. SOCK_SEQPACKET reports
+ * the session's end as EOF; macOS/BSD have no AF_UNIX SOCK_SEQPACKET, so
+ * they use (reliable) AF_UNIX datagrams and rely on the SIGCHLD hook. */
+#if defined(__linux__) && !defined(HUB_FORCE_DGRAM)   /* (tests: macOS behaviour) */
+#define HUB_SOCK_TYPE SOCK_SEQPACKET
+#else
+#define HUB_SOCK_TYPE SOCK_DGRAM
+#endif
+
+static int hub_socketpair(int sv[2]) {
+    if (socketpair(AF_UNIX, HUB_SOCK_TYPE, 0, sv) != 0) return -1;
+    int buf = 1024 * 1024;                     /* macOS default: ~2 packets */
+    for (int i = 0; i < 2; i++) {
+        setsockopt(sv[i], SOL_SOCKET, SO_SNDBUF, &buf, sizeof(buf));
+        setsockopt(sv[i], SOL_SOCKET, SO_RCVBUF, &buf, sizeof(buf));
+    }
+    return 0;
+}
+
+static hub_client_t *s_hub_clients;
+static int s_hub_max;
+static vpn_pool_t *s_hub_pool;
+
+static void hub_drop_client(vpn_pool_t *pool, hub_client_t *c, int k);
+
+/* A session process ended (works without EOF on datagram sockets) */
+static void hub_child_exited(pid_t pid) {
+    for (int k = 0; k < s_hub_max; k++)
+        if (s_hub_clients[k].fd >= 0 && s_hub_clients[k].pid == pid)
+            hub_drop_client(s_hub_pool, &s_hub_clients[k], k);
+}
+
 static void hub_drop_client(vpn_pool_t *pool, hub_client_t *c, int k) {
     vpn_pool_release(pool, k);
     if (c->fd >= 0) close(c->fd);
@@ -240,6 +272,10 @@ int run_vpn_hub(int listen_fd, const char *password) {
         return 1;
     }
     for (int k = 0; k < max; k++) cl[k].fd = -1;
+    s_hub_clients = cl;
+    s_hub_max = max;
+    s_hub_pool = pool;
+    g_child_exit_hook = hub_child_exited;
     {
         char a4[INET_ADDRSTRLEN], a6[INET6_ADDRSTRLEN] = "";
         inet_ntop(AF_INET, &scfg.v4, a4, sizeof(a4));
@@ -290,7 +326,12 @@ int run_vpn_hub(int listen_fd, const char *password) {
                 for (int i = 0; i < max; i++)
                     if (cl[i].fd < 0) { k = i; break; }
             int sv[2];
-            if (client_fd >= 0 && (k < 0 || socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) != 0)) {
+            if (client_fd >= 0 && k < 0) {
+                log_msg(0, "vpn hub: no free client slot, connection refused");
+                close(client_fd);
+                client_fd = -1;
+            } else if (client_fd >= 0 && hub_socketpair(sv) != 0) {
+                log_msg(0, "vpn hub: socketpair: %s", strerror(errno));
                 close(client_fd);
                 client_fd = -1;
             }
@@ -376,6 +417,7 @@ int run_vpn_hub(int listen_fd, const char *password) {
         }
     }
 
+    g_child_exit_hook = NULL;
     log_msg(1, "vpn hub: stopping");
     for (int k = 0; k < max; k++) {
         if (cl[k].fd >= 0) {
