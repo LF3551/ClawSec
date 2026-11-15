@@ -47,7 +47,7 @@ static int hexval(int c) {
 }
 
 /* Parse "name:v1:hex". Returns 1 and fills name/w, 0 for blank/comment, -1 if malformed */
-static int parse_line(char *line, char name[USER_NAME_MAX + 1], unsigned char w[32]) {
+int users_parse_line(char *line, char name[USER_NAME_MAX + 1], unsigned char w[32]) {
     line[strcspn(line, "\r\n")] = '\0';
     char *p = line;
     while (*p == ' ' || *p == '\t') p++;
@@ -77,7 +77,7 @@ int users_lookup(const char *path, const char *name, unsigned char w[32]) {
     int found = 0, lineno = 0, bad = 0;
     while (fgets(line, sizeof(line), f)) {
         lineno++;
-        int r = parse_line(line, uname, tmp);
+        int r = users_parse_line(line, uname, tmp);
         if (r < 0) {
             if (!bad) fprintf(stderr, "users: %s:%d: malformed line ignored\n", path, lineno);
             bad = 1;
@@ -112,7 +112,7 @@ int users_set(const char *path, const char *name, const unsigned char w[32]) {
         unsigned char tmp[32];
         while (fgets(line, sizeof(line), in)) {
             memcpy(copy, line, sizeof(copy));
-            int r = parse_line(copy, uname, tmp);
+            int r = users_parse_line(copy, uname, tmp);
             if (r == 1 && strcmp(uname, name) == 0) {
                 if (replaced) continue;  /* drop duplicates */
                 replaced = 1;
