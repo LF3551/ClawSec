@@ -80,15 +80,20 @@ cd "$WORK/cwd" || die "cannot enter scratch directory"
 # ── Stream mode: stdin -> encrypted tunnel -> stdout ──────────────────────
 stream_test() {   # stream_test <label> [extra options...]
     local label=$1; shift
-    local port out
+    local port out srv crc src
     port=$(free_port); out="$WORK/stream.out"; rm -f "$out"
-    # Keep the server's stdin open so it does not half-close the session early
-    (sleep 20 | timeout 25 "$BIN" -l -p "$port" -k "$KEY" "$@" > "$out" 2>/dev/null) &
-    local srv=$!
-    wait_port "$port" || { echo "  [E2E] $label ... FAIL (server not listening)"; FAIL=$((FAIL + 1)); return; }
+    # Keep the server's stdin open (no early half-close) without a pipeline
+    timeout 25 "$BIN" -l -p "$port" -k "$KEY" "$@" < <(sleep 20) > "$out" 2>/dev/null &
+    srv=$!
+    wait_port "$port" || { echo "  [E2E] $label ... FAIL (server not listening)"; FAIL=$((FAIL + 1)); kill "$srv" 2>/dev/null; return; }
     timeout 20 "$BIN" -k "$KEY" "$@" 127.0.0.1 "$port" < "$PAYLOAD" > /dev/null 2>&1
-    sleep 0.3; kill "$srv" 2>/dev/null; wait "$srv" 2>/dev/null
-    check "$label" "$PAYLOAD" "$out"
+    crc=$?
+    wait "$srv"; src=$?
+    if cmp -s "$PAYLOAD" "$out" && [ "$crc" -eq 0 ] && [ "$src" -eq 0 ]; then
+        echo "  [E2E] $label ... PASS"; PASS=$((PASS + 1))
+    else
+        echo "  [E2E] $label ... FAIL (client exit $crc, server exit $src)"; FAIL=$((FAIL + 1))
+    fi
 }
 
 echo

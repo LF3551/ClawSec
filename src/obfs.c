@@ -38,6 +38,26 @@ static int g_ech       = 0;
 static SSL_CTX *g_ssl_ctx = NULL;
 static SSL     *g_ssl     = NULL;
 
+/* The inner protocol has no end-of-stream marker, so a TCP EOF without TLS
+ * close_notify is treated like a plain-TCP FIN (orderly end of data) rather
+ * than an error. close_notify is still sent on every orderly half-close. */
+static void tls_ctx_common(SSL_CTX *ctx) {
+#ifdef SSL_OP_IGNORE_UNEXPECTED_EOF
+    SSL_CTX_set_options(ctx, SSL_OP_IGNORE_UNEXPECTED_EOF);
+#else
+    (void)ctx;
+#endif
+}
+
+void obfs_shutdown_write(int fd) {
+    if (g_obfs_mode == OBFS_TLS && g_ssl) {
+        if (!(SSL_get_shutdown(g_ssl) & SSL_SENT_SHUTDOWN))
+            (void)SSL_shutdown(g_ssl);     /* sends close_notify */
+        return;
+    }
+    (void)shutdown(fd, SHUT_WR);
+}
+
 void obfs_set_mode(int mode) {
     g_obfs_mode = mode;
 }
@@ -250,6 +270,7 @@ int obfs_tls_accept(int fd) {
 
     /* Force TLS 1.3 only — most modern, hardest to fingerprint */
     SSL_CTX_set_min_proto_version(g_ssl_ctx, TLS1_3_VERSION);
+    tls_ctx_common(g_ssl_ctx);
 
     if (tls_generate_self_signed(g_ssl_ctx) < 0) {
         SSL_CTX_free(g_ssl_ctx); g_ssl_ctx = NULL;
@@ -331,6 +352,7 @@ int obfs_tls_connect(int fd) {
     if (!g_ssl_ctx) return -1;
 
     SSL_CTX_set_min_proto_version(g_ssl_ctx, TLS1_3_VERSION);
+    tls_ctx_common(g_ssl_ctx);
     /* No cert verification — the inner ECDHE+PBKDF2 layer provides authentication */
     SSL_CTX_set_verify(g_ssl_ctx, SSL_VERIFY_NONE, NULL);
 
