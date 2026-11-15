@@ -5,6 +5,32 @@ All notable changes to ClawSec will be documented in this file.
 ## [Unreleased]
 
 ### Security
+- **Password off the command line.** New `--key-file <file>` and the
+  `CLAWSEC_PASSWORD` environment variable (removed from the environment after
+  reading, so `-e` programs do not inherit it); without either, ClawSec prompts on
+  the terminal without echo. `-k` still works but prints a warning and is
+  overwritten in argv (`/proc/<pid>/cmdline`, `ps`). Docker, docker-compose,
+  Kubernetes and systemd configs no longer pass the password as an argument, and
+  the Docker image no longer has a default password (`ChangeMe`); systemd uses
+  `LoadCredential`.
+- **`--recv` wrote through symlinks.** A symlink (or hard link) in the receive
+  directory with the incoming file name was followed: the resume logic appended
+  data to the link target, corrupting an unrelated file. The receiver now writes to
+  its own `<name>.clawsec-part` (O_NOFOLLOW, regular file, single link, own uid) and
+  renames it into place only after SHA-256 verification; a mismatch discards only the
+  partial file. Received names lose control characters and leading dots. Chat
+  `/file` uses the same sanitiser and never overwrites or follows links.
+- **Handshake timeout and `-K` limit.** A client that connected and stayed silent
+  held the single-session server forever, and `-K` forked without limit (each
+  handshake costs ~19 MiB for Argon2id). Session setup now times out after
+  `--handshake-timeout` seconds (default 15), and `-K` runs at most `--max-clients`
+  handlers (default 16).
+- **SOCKS server destination policy.** The server connected to any destination,
+  including itself (127.0.0.1) and cloud metadata (169.254.169.254). It now denies
+  loopback, link-local/metadata, multicast and reserved ranges by default (checked on
+  the resolved addresses it connects to, including IPv4-mapped and NAT64 forms), or
+  allows only `--socks-allow` CIDRs. Denials are reported to the SOCKS client as
+  "connection not allowed by ruleset".
 - TUN/VPN mode no longer runs any command through a shell: `ip`, `ifconfig`,
   `route`, `iptables`, `nft`, `pfctl` and `sysctl` are executed with
   `fork()`/`execvp()` and an argument vector. Input was already validated in 3.0.0;
@@ -12,6 +38,12 @@ All notable changes to ClawSec will be documented in this file.
   three open CodeQL `cpp/command-line-injection` alerts in `src/tun.c`.
 
 ### Changed
+- **Behaviour change:** the SOCKS server no longer reaches loopback/link-local
+  destinations unless allowed with `--socks-allow` (e.g. `--socks-allow 127.0.0.1/32`).
+- Tests: unit tests for password sources, the SOCKS policy and name sanitising (the
+  old sanitiser test checked a copy of the logic); e2e covers all of the above. The
+  e2e script clears proxy environment variables (with `NO_PROXY=localhost`, curl
+  bypassed `--socks5`, so local SOCKS checks passed vacuously; CI was unaffected).
 - Release automation fixes after 3.0.0: Linux release binaries are built on Ubuntu
   24.04 (older glibc baseline); the `--pq` e2e scenario is skipped where OpenSSL has
   no ML-KEM; Docker images are published for linux/amd64 and linux/arm64 and can be
