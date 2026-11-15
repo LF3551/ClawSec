@@ -1,6 +1,9 @@
 /*
  * test_rekey.c — --rekey key updates (one-way ratchet per direction)
  */
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE        /* MSG_DONTWAIT */
+#endif
 #define _POSIX_C_SOURCE 200809L
 #include "test.h"
 #include <errno.h>
