@@ -149,6 +149,7 @@ fuzz:
 		$(TESTDIR)/fuzz/fuzz_frame.c $(TEST_OBJS) $(XLIBS)
 	clang $(FUZZ_FLAGS) -fsanitize=fuzzer -I. -I$(TESTDIR)/fuzz -o fuzz_parsers \
 		$(TESTDIR)/fuzz/fuzz_parsers.c $(TEST_OBJS) $(XLIBS)
+	rm -f *.o   # sanitizer/clang objects must not leak into a normal build
 	mkdir -p fuzz-corpus/frame fuzz-corpus/parsers
 	UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=1 \
 		./fuzz_frame -max_total_time=$(FUZZ_SECONDS) -print_final_stats=1 fuzz-corpus/frame

@@ -84,8 +84,8 @@ advanced statistical analysis.
 .B tls
 Wrap the entire connection in a real TLS 1.3 session with an
 auto-generated EC certificate and randomized CDN-like SNI hostname.
-From the outside, traffic is indistinguishable from HTTPS. This is
-the recommended mode for maximum stealth.
+Passive observers see a TLS 1.3 connection; the server uses a
+self-signed certificate, which anyone who connects can see.
 .RE
 .TP
 .B \-\-pad
@@ -112,11 +112,10 @@ specify the local listening port (default host 127.0.0.1). Supports up to
 63 streams per tunnel session (stream IDs are not reused yet).
 .TP
 .BI \-\-fallback " host:port"
-REALITY-like active probing resistance. When a non-ClawSec client
-(browser, DPI probe, scanner) connects to the TLS port, the
-connection is transparently proxied to a real website running at
-\fIhost:port\fR. Only ClawSec clients that send the correct knock
-sequence proceed to the encrypted tunnel. Automatically enables
+After the TLS handshake, a client that does not send the ClawSec knock
+(browser, probe, scanner) is transparently proxied to the service at
+\fIhost:port\fR; only clients that send the knock proceed to the
+encrypted tunnel. Probers still see ClawSec's self-signed certificate. Automatically enables
 TLS mode. Both client and server must use \fB\-\-fallback\fR.
 .TP
 .B \-\-tofu
@@ -312,7 +311,7 @@ Server: clawsec \-l \-p 443 \-k "pass" \-\-obfs http
 Client: clawsec \-k "pass" \-\-obfs http host 443
 .fi
 .SS Encrypted Client Hello (ECH)
-Hide SNI from deep packet inspection:
+Add a GREASE Encrypted Client Hello extension (the SNI stays visible):
 .PP
 .nf
 Server: clawsec \-l \-p 443 \-k "pass" \-\-obfs tls
@@ -325,8 +324,8 @@ Multiple connections over one encrypted link:
 Server: clawsec \-l \-p 4430 \-k "pass" \-L internal:80 \-\-mux
 Client: clawsec \-k "pass" \-p 8080 \-\-mux server 4430
 .fi
-.SS Fallback (REALITY-like)
-Proxy DPI probes to a real website:
+.SS Fallback
+Proxy clients without the knock to another service:
 .PP
 .nf
 Server: clawsec \-l \-p 443 \-k "pass" \-\-fallback nginx.local:80
@@ -343,7 +342,7 @@ Server: clawsec \-l \-p 443 \-k "pass" \-\-fallback nginx:80
 Client: clawsec \-k "pass" \-\-fingerprint chrome \-\-fallback nginx:80 server 443
 .fi
 .PP
-DPI sees a Chrome-like TLS ClientHello connecting to a real website.
+Observers see a Chrome-like (not identical) TLS ClientHello.
 .SS TOFU (Trust On First Use)
 SSH-like server identity verification:
 .PP
@@ -405,7 +404,7 @@ Recv:   clawsec \-l \-p 4444 \-k "pass" \-\-recv ./incoming
 Send:   clawsec \-k "pass" \-\-send backup.tar.gz server 4444
 .fi
 .SS Port Scanner
-Stealth port scanning with banner grabbing:
+Port scanning with banner grabbing:
 .PP
 .nf
 clawsec \-\-scan 1\-1024 \-b target.com
@@ -494,7 +493,7 @@ $ tar czf \- /data | clawsec \-k "pass" host 9999
 $ clawsec \-l \-p 9999 \-k "pass" | tar xzf \-
 .fi
 .PP
-Maximum stealth (looks like Chrome connecting to a real website):
+All traffic-shaping options (Chrome-like ClientHello, fallback service):
 .PP
 .nf
 Server:  clawsec \-l \-p 443 \-k "pass" \-\-fallback 127.0.0.1:80 \-\-ech \-\-pad
