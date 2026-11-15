@@ -4,6 +4,6 @@
 #ifndef CLAWSEC_VERSION_H
 #define CLAWSEC_VERSION_H
 
-#define CLAWSEC_VERSION "4.1.0"
+#define CLAWSEC_VERSION "4.2.0"
 
 #endif
