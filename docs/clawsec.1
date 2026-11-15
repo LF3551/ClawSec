@@ -170,6 +170,12 @@ Port scanner. Scan target host for open ports with randomized order.
 Range syntax: \fB1-1024\fR, \fB80\fR, \fBall\fR (1-65535).
 Does not require encryption password.
 .TP
+.BI \-\-scan\-rate " pps"
+SYN scan speed in probes per second (default 1000, max 100000). As root on
+Linux the SYN scan sends probes at this rate while collecting replies,
+probes unanswered ports once more and reports them as filtered; replies
+are matched by a keyed initial sequence number. IPv4 and IPv6.
+.TP
 .B \-b
 Banner grabbing. During port scan, detect service versions on open ports.
 .TP

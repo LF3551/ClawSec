@@ -25,6 +25,11 @@
 #include "util.h"
 #include "net.h"
 
+#include <openssl/rand.h>
+#include <openssl/sha.h>
+
+int g_scan_rate = SCAN_RATE_DEFAULT;
+
 /* Fisher-Yates shuffle */
 static void shuffle_ports(int *arr, int n) {
     for (int i = n - 1; i > 0; i--) {
@@ -152,97 +157,213 @@ static int64_t now_ms(void) {
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
+/* Initial sequence number for a probe: keyed hash of the target port, so a
+ * SYN-ACK is accepted only if it acknowledges exactly our probe. */
+static uint32_t syn_cookie(const unsigned char key[16], int port) {
+    unsigned char in[18], md[SHA256_DIGEST_LENGTH];
+    memcpy(in, key, 16);
+    in[16] = (unsigned char)(port >> 8);
+    in[17] = (unsigned char)port;
+    SHA256(in, sizeof(in), md);
+    return ((uint32_t)md[0] << 24) | ((uint32_t)md[1] << 16) | ((uint32_t)md[2] << 8) | md[3];
+}
+
+enum { SYN_UNKNOWN = 0, SYN_OPEN, SYN_CLOSED };
+
+typedef struct {
+    int fd, af;
+    struct sockaddr_storage target, local;
+    socklen_t tlen;
+    uint16_t sport;
+    unsigned char key[16];
+    unsigned char *state;          /* indexed by port */
+    int answered, open;
+} syn_ctx_t;
+
+static int syn_send(syn_ctx_t *c, int port) {
+    unsigned char seg[20];
+    memset(seg, 0, sizeof(seg));
+    uint32_t seq = syn_cookie(c->key, port);
+    seg[0] = (unsigned char)(c->sport >> 8); seg[1] = (unsigned char)c->sport;
+    seg[2] = (unsigned char)(port >> 8);     seg[3] = (unsigned char)port;
+    seg[4] = (unsigned char)(seq >> 24); seg[5] = (unsigned char)(seq >> 16);
+    seg[6] = (unsigned char)(seq >> 8);  seg[7] = (unsigned char)seq;
+    seg[12] = 5 << 4;                        /* data offset: 5 words */
+    seg[13] = 0x02;                          /* SYN */
+    seg[14] = 0x04; seg[15] = 0x00;          /* window 1024 */
+    struct sockaddr_storage to = c->target;
+    if (c->af == AF_INET) {
+        struct sockaddr_in *t4 = (struct sockaddr_in *)&to;
+        uint16_t ck = tcp_checksum(((struct sockaddr_in *)&c->local)->sin_addr,
+                                   t4->sin_addr, seg, sizeof(seg));
+        memcpy(seg + 16, &ck, 2);
+        t4->sin_port = 0;                    /* raw IPv4: must be 0 or the protocol */
+    } else {
+        ((struct sockaddr_in6 *)&to)->sin6_port = 0;   /* kernel fills the checksum */
+    }
+    for (;;) {
+        if (sendto(c->fd, seg, sizeof(seg), 0, (struct sockaddr *)&to, c->tlen) >= 0) return 0;
+        if (errno == EINTR) continue;
+        if (errno == ENOBUFS || errno == EAGAIN) {   /* local queue full: back off */
+            struct timespec ts = { 0, 1000000 };
+            nanosleep(&ts, NULL);
+            continue;
+        }
+        return -1;
+    }
+}
+
+/* Process every queued reply */
+static void syn_drain(syn_ctx_t *c) {
+    unsigned char buf[256];
+    for (;;) {
+        struct sockaddr_storage from;
+        socklen_t flen = sizeof(from);
+        ssize_t n = recvfrom(c->fd, buf, sizeof(buf), MSG_DONTWAIT,
+                             (struct sockaddr *)&from, &flen);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return;                                  /* EAGAIN: nothing queued */
+        }
+        const unsigned char *t;
+        if (c->af == AF_INET) {                      /* IPv4 raw: IP header included */
+            if (n < 20) continue;
+            size_t ihl = (size_t)(buf[0] & 0x0F) * 4;
+            if (ihl < 20 || (size_t)n < ihl + 20) continue;
+            if (memcmp(buf + 12, &((struct sockaddr_in *)&c->target)->sin_addr, 4) != 0)
+                continue;
+            t = buf + ihl;
+        } else {                                     /* IPv6 raw: TCP segment only */
+            if (n < 20 || from.ss_family != AF_INET6 ||
+                memcmp(&((struct sockaddr_in6 *)&from)->sin6_addr,
+                       &((struct sockaddr_in6 *)&c->target)->sin6_addr, 16) != 0)
+                continue;
+            t = buf;
+        }
+        int port = (t[0] << 8) | t[1], dport = (t[2] << 8) | t[3];
+        if (dport != c->sport || port < 1 || c->state[port] != SYN_UNKNOWN) continue;
+        uint32_t ack = ((uint32_t)t[8] << 24) | ((uint32_t)t[9] << 16) |
+                       ((uint32_t)t[10] << 8) | t[11];
+        if (ack != syn_cookie(c->key, port) + 1) continue;      /* not our probe */
+        if ((t[13] & 0x12) == 0x12) {                           /* SYN+ACK: open */
+            c->state[port] = SYN_OPEN;
+            c->open++;
+            printf("  %5d/tcp  open\n", port);
+            fflush(stdout);
+        } else if (t[13] & 0x04) {                              /* RST: closed */
+            c->state[port] = SYN_CLOSED;
+        } else {
+            continue;
+        }
+        c->answered++;
+    }
+}
+
+/* Wait until `until` (ms), processing replies as they arrive */
+static void syn_wait(syn_ctx_t *c, int64_t until) {
+    for (;;) {
+        syn_drain(c);
+        int64_t left = until - now_ms();
+        if (left <= 0) return;
+        struct pollfd p = { c->fd, POLLIN, 0 };
+        if (poll(&p, 1, (int)left) < 0 && errno != EINTR) return;
+    }
+}
+
+/*
+ * Pipelined SYN scan: probes are sent at --scan-rate packets per second
+ * while replies are collected; ports that did not answer are probed once
+ * more, then reported as filtered. Replies are matched by address, ports
+ * and a keyed ISN (syn_cookie), so stray or spoofed packets are ignored.
+ */
 static int try_syn_scan(const char *host, int *ports, int nports,
                         int jitter_ms, int timeout_ms, int *open_count) {
-    if (g_af_family == AF_INET6) return 0;          /* IPv4 only */
-    int rawfd = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
-    if (rawfd < 0) return 0;                        /* not root: fall back */
-
     struct addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
+    hints.ai_family = g_af_family;
     hints.ai_socktype = SOCK_STREAM;
-    if (getaddrinfo(host, NULL, &hints, &res) != 0) {
-        close(rawfd);
-        return 0;
-    }
-    struct sockaddr_in target;
-    memset(&target, 0, sizeof(target));
-    target.sin_family = AF_INET;
-    target.sin_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr;
+    if (getaddrinfo(host, NULL, &hints, &res) != 0) return 0;
+
+    syn_ctx_t c;
+    memset(&c, 0, sizeof(c));
+    c.af = res->ai_family;
+    c.tlen = res->ai_addrlen;
+    memcpy(&c.target, res->ai_addr, res->ai_addrlen);
     freeaddrinfo(res);
+    if (c.af != AF_INET && c.af != AF_INET6) return 0;
+
+    c.fd = socket(c.af, SOCK_RAW, IPPROTO_TCP);
+    if (c.fd < 0) return 0;                          /* not root: fall back */
+    if (c.af == AF_INET6) {
+        int off = 16;                                /* TCP checksum offset */
+        if (setsockopt(c.fd, IPPROTO_IPV6, IPV6_CHECKSUM, &off, sizeof(off)) < 0) {
+            close(c.fd);
+            return 0;
+        }
+    }
+    int rcvbuf = 4 * 1024 * 1024;
+    setsockopt(c.fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
 
     /* Source address the kernel would use towards the target */
-    struct sockaddr_in local;
-    memset(&local, 0, sizeof(local));
-    int probe = socket(AF_INET, SOCK_DGRAM, 0);
-    if (probe < 0) { close(rawfd); return 0; }
-    struct sockaddr_in to = target;
-    to.sin_port = htons(80);
-    socklen_t slen = sizeof(local);
-    if (connect(probe, (struct sockaddr *)&to, sizeof(to)) < 0 ||
-        getsockname(probe, (struct sockaddr *)&local, &slen) < 0) {
-        close(probe); close(rawfd);
+    int probe = socket(c.af, SOCK_DGRAM, 0);
+    struct sockaddr_storage to = c.target;
+    if (c.af == AF_INET) ((struct sockaddr_in *)&to)->sin_port = htons(80);
+    else ((struct sockaddr_in6 *)&to)->sin6_port = htons(80);
+    socklen_t llen = sizeof(c.local);
+    if (probe < 0 || connect(probe, (struct sockaddr *)&to, c.tlen) < 0 ||
+        getsockname(probe, (struct sockaddr *)&c.local, &llen) < 0) {
+        if (probe >= 0) close(probe);
+        close(c.fd);
         return 0;
     }
     close(probe);
 
-    uint16_t src_port = (uint16_t)(40000 + (rand() % 20000));
-    *open_count = 0;
+    c.state = calloc(65536, 1);
+    if (!c.state || RAND_bytes(c.key, sizeof(c.key)) != 1) {
+        free(c.state);
+        close(c.fd);
+        return 0;
+    }
+    uint16_t r16;
+    RAND_bytes((unsigned char *)&r16, sizeof(r16));
+    c.sport = (uint16_t)(40000 + r16 % 20000);
 
-    for (int i = 0; i < nports; i++) {
-        target.sin_port = htons((uint16_t)ports[i]);
+    int rate = g_scan_rate > 0 ? g_scan_rate : SCAN_RATE_DEFAULT;
+    int64_t gap_us = 1000000 / rate;
+    int64_t t0 = now_ms();
 
-        /* 20-byte TCP header with SYN */
-        unsigned char seg[20];
-        memset(seg, 0, sizeof(seg));
-        uint32_t seq = (uint32_t)rand();
-        seg[0] = (unsigned char)(src_port >> 8); seg[1] = (unsigned char)src_port;
-        seg[2] = (unsigned char)(ports[i] >> 8); seg[3] = (unsigned char)ports[i];
-        seg[4] = (unsigned char)(seq >> 24); seg[5] = (unsigned char)(seq >> 16);
-        seg[6] = (unsigned char)(seq >> 8);  seg[7] = (unsigned char)seq;
-        seg[12] = 5 << 4;                    /* data offset: 5 words */
-        seg[13] = 0x02;                      /* SYN */
-        seg[14] = 0x04; seg[15] = 0x00;      /* window 1024 */
-        uint16_t ck = tcp_checksum(local.sin_addr, target.sin_addr, seg, sizeof(seg));
-        memcpy(seg + 16, &ck, 2);
-
-        if (sendto(rawfd, seg, sizeof(seg), 0, (struct sockaddr *)&target, sizeof(target)) < 0) {
-            close(rawfd);
-            return 0;
-        }
-
-        /* Collect packets until the reply for this probe or the deadline */
-        int64_t deadline = now_ms() + timeout_ms;
-        for (;;) {
-            int left = (int)(deadline - now_ms());
-            if (left <= 0) break;
-            int rfd[1] = { rawfd }, rdy[1];
-            if (wait_readable(rfd, rdy, 1, left) <= 0) break;
-            unsigned char buf[128];
-            ssize_t n = recv(rawfd, buf, sizeof(buf), 0);
-            if (n < 20) continue;
-            size_t ihl = (size_t)(buf[0] & 0x0F) * 4;   /* IP header length */
-            if (ihl < 20 || (size_t)n < ihl + 20) continue;
-            struct in_addr from;
-            memcpy(&from.s_addr, buf + 12, 4);
-            const unsigned char *t = buf + ihl;
-            int sport = (t[0] << 8) | t[1], dport = (t[2] << 8) | t[3];
-            if (from.s_addr != target.sin_addr.s_addr || sport != ports[i] || dport != src_port)
-                continue;                               /* someone else's packet */
-            if ((t[13] & 0x12) == 0x12) {               /* SYN+ACK: open */
-                printf("  %5d/tcp  open\n", ports[i]);
-                (*open_count)++;
+    for (int round = 0; round < 2 && c.answered < nports; round++) {
+        struct timespec start;
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        int64_t sent = 0;
+        for (int i = 0; i < nports; i++) {
+            if (c.state[ports[i]] != SYN_UNKNOWN) continue;
+            /* pace: the k-th probe of the round leaves at k * gap */
+            int64_t due_ms = (int64_t)start.tv_sec * 1000 + start.tv_nsec / 1000000 +
+                             sent * gap_us / 1000;
+            syn_wait(&c, due_ms);
+            if (syn_send(&c, ports[i]) < 0) {
+                free(c.state);
+                close(c.fd);
+                return 0;
             }
-            break;                                      /* RST etc.: closed */
+            sent++;
+            if (jitter_ms > 0) {
+                jitter_delay(jitter_ms);             /* jitter replaces pacing */
+                clock_gettime(CLOCK_MONOTONIC, &start);
+                sent = 0;
+            }
         }
-
-        src_port++;
-        if (src_port > 60000) src_port = 40000;
-        jitter_delay(jitter_ms);
+        syn_wait(&c, now_ms() + timeout_ms);         /* late replies */
     }
 
-    close(rawfd);
+    int filtered = nports - c.answered;
+    if (g_verbose)
+        log_msg(1, "SYN scan: %d ports in %lld ms (%d open, %d closed, %d filtered/no reply)",
+                nports, (long long)(now_ms() - t0), c.open, c.answered - c.open, filtered);
+    *open_count = c.open;
+    free(c.state);
+    close(c.fd);
     return 1;
 }
 #else
