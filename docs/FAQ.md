@@ -248,8 +248,11 @@ cd src && make clean && make macos
 ```bash
 docker build -t clawsec .
 
-# For chat mode
-docker run -p 8888:8888 clawsec -l -p 8888 -k "Password" -c
+# Server (password via environment, not on the command line)
+docker run -e CLAWSEC_PASSWORD="$(openssl rand -base64 24)" -p 8888:8888 clawsec
+
+# Chat mode
+docker run -it -e CLAWSEC_PASSWORD="..." -p 8888:8888 clawsec -l -p 8888 -c
 ```
 
 The published image is built without `-e`. For a reverse shell, build the
@@ -257,7 +260,7 @@ binary yourself with `make linux DFLAGS=-DGAPING_SECURITY_HOLE`.
 
 ### How do I use docker-compose?
 ```bash
-docker-compose up
+CLAWSEC_PASSWORD="$(openssl rand -base64 24)" docker compose up
 ```
 
 ## Kubernetes

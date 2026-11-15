@@ -132,11 +132,13 @@ make netbsd   # NetBSD
 # Build image
 docker build -t clawsec .
 
-# Run server
-docker run -p 8888:8888 clawsec -l -p 8888 -k "YourPassword"
+# Run server (the image has no default password; pass it via the environment)
+docker run -e CLAWSEC_PASSWORD="$(openssl rand -base64 24)" -p 8888:8888 clawsec
 
-# Or use docker-compose
-docker-compose up
+# Or use docker compose
+CLAWSEC_PASSWORD="$(openssl rand -base64 24)" docker compose up
+
+# Prebuilt multi-arch images: ghcr.io/lf3551/clawsec, lf3551/clawsec
 ```
 
 ### Basic Usage
@@ -273,12 +275,18 @@ apk add openssl-dev argon2-dev zlib-dev gcc g++ make musl-dev linux-headers
 Usage: clawsec [options] hostname port
        clawsec -l -p port [options]
 
-Required:
-  -k password       Encryption password (REQUIRED)
+Password (one of; precedence top to bottom):
+  -k password       On the command line (visible in ps/history; discouraged)
+  --key-file file   First line of a file (mode 0600)
+  CLAWSEC_PASSWORD  Environment variable
+  (none)            Prompt on the terminal, no echo
 
 Connection:
   -l                Listen mode for inbound connections
   -p port           Local port number
+  -K                Keep-open: one handler process per client
+  --max-clients n   With -K: concurrent handlers (default 16)
+  --handshake-timeout s  Abort session setup after s seconds (default 15, 0 = off)
 
 Options:
   -c                Chat mode with timestamps and colors
@@ -287,7 +295,6 @@ Options:
   -P                Show transfer progress bar
   -V                SHA-256 end-to-end file verification
   -n name           Chat nickname (default: Server/Client)
-  -K                Keep-open: accept multiple clients
   -L host:port      Port forwarding (encrypted tunnel)
   --obfs http       Traffic obfuscation (anti-DPI)
   --obfs tls        TLS 1.3 camouflage (stealth mode)
@@ -301,6 +308,8 @@ Options:
   -b                Banner grab (show service version on open ports)
   --socks [h:]port  SOCKS5 proxy through encrypted tunnel (client listens on
                     127.0.0.1 unless an address is given; no proxy auth)
+  --socks-allow l   SOCKS server: allow only destinations in CIDR list l
+                    (default: all except loopback, link-local/metadata, multicast)
   --pad             Pad packets to uniform 1400 bytes
   --jitter ms       Random delay 0-N ms between packets
   -w secs           Timeout for connects
@@ -423,6 +432,12 @@ tar -czf - /data | ./clawsec -k "pass" server 9999
 # The proxy has no authentication, so it listens on loopback by default.
 # Share it with your LAN only deliberately: --socks 0.0.0.0:1080
 
+# Server-side destination policy: by default every destination is allowed
+# EXCEPT the server itself (127.0.0.0/8, ::1), link-local / cloud metadata
+# (169.254.169.254, fd00:ec2::254, ...), multicast and reserved ranges.
+# Restrict it to an explicit list (replaces the defaults):
+./clawsec -l -k "strongpass" -p 9999 --socks 0 --socks-allow 10.0.0.0/8,192.168.1.0/24
+
 # Now use any SOCKS5-aware application:
 curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 # Firefox: Settings → Network → SOCKS5 → 127.0.0.1:1080
@@ -443,9 +458,11 @@ curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 # Features:
 # - AES-256-GCM encrypted transfer
 # - SHA-256 end-to-end verification
-# - Automatic resume on interrupted transfers
+# - Automatic resume on interrupted transfers (data is kept in
+#   <name>.clawsec-part and moved into place only after SHA-256 matches)
 # - Progress bar with speed display
-# - Path traversal protection on receiver
+# - Receiver never writes through symlinks/hard links, never creates hidden
+#   files or paths outside the target directory
 
 # Combine with post-quantum crypto and obfuscation:
 ./clawsec -k "pass" --send secret.pdf --pq --obfs tls server.com 4444
@@ -537,18 +554,36 @@ sudo ./clawsec -k "pass" --tun 10.0.0.2/24 --persistent myvpn.ddns.net 9000
 - Dictionary words
 - Short passwords (less than 8 characters)
 
-### Operational Security
+### Passing the password
 
-1. Never hardcode passwords in scripts
-2. Use environment variables for automation
-3. Clear command history after use
-4. Share passwords through secure channels only
+`-k <password>` works, but anything on the command line is visible to other
+local users (`ps`, `/proc/<pid>/cmdline`) and ends up in shell history.
+ClawSec overwrites it in its own argv right away, but prefer:
 
 ```bash
-# Using environment variables
-export CLAW_KEY="YourSecurePassword"
-clawsec -l -p 1234 -k "$CLAW_KEY"
+# 1. A key file (first line; keep it mode 0600)
+openssl rand -base64 24 > ~/.clawsec-key && chmod 600 ~/.clawsec-key
+clawsec -l -p 1234 --key-file ~/.clawsec-key
+
+# 2. The CLAWSEC_PASSWORD environment variable (removed from the environment
+#    after reading, so -e programs and child processes do not inherit it)
+CLAWSEC_PASSWORD="$(cat ~/.clawsec-key)" clawsec server.example.com 1234
+
+# 3. No password option at all: ClawSec prompts on the terminal (no echo)
+clawsec server.example.com 1234
 ```
+
+Precedence: `-k` > `--key-file` > `CLAWSEC_PASSWORD` > prompt.
+Docker, docker-compose, Kubernetes and systemd examples in this repository
+use the environment variable or a systemd credential.
+
+### Operational Security
+
+1. Use a long random password (`openssl rand -base64 24`): there is no PAKE yet
+2. Never put passwords in scripts or command lines; use `--key-file` or `CLAWSEC_PASSWORD`
+3. Share passwords through secure channels only
+4. Expose servers with `-K` and keep the defaults `--max-clients 16` and
+   `--handshake-timeout 15` (or lower) so idle or slow clients cannot pile up
 
 ## Cryptographic Specifications
 
@@ -611,7 +646,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ```bash
 cd src
 
-# Unit/integration tests (133 tests)
+# Unit/integration tests (140 tests)
 make linux && make test          # macOS: make macos && make test-macos
 
 # Same tests under AddressSanitizer + UndefinedBehaviorSanitizer
@@ -744,7 +779,7 @@ This tool is for authorized testing and legitimate use only.
 ```
 ClawSec/
 ├── src/              # Source code (C/C++)
-├── tests/            # Unit tests (133) + end-to-end scripts
+├── tests/            # Unit tests (140) + end-to-end scripts
 ├── docs/             # Documentation (FAQ, examples, man page)
 ├── scripts/          # Build, install, quickstart scripts
 ├── deploy/           # Deployment configs (systemd, k8s, Homebrew)

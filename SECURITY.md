@@ -107,6 +107,10 @@ password is compromised later, recorded traffic cannot be decrypted.
 11. **Bounded Decryption**: Unauthenticated plaintext never reaches caller buffers; writes never exceed the buffer size
 12. **Key Confirmation**: A wrong password or incompatible peer is detected during the handshake, on both ends
 13. **Safe Defaults**: Local listeners (SOCKS proxy, `--mux`) bind to loopback; `-e` (program execution) is not built by default
+14. **Password Handling**: `--key-file` / `CLAWSEC_PASSWORD` / no-echo prompt; `-k` is overwritten in argv; the environment variable is not inherited by child processes
+15. **Resource Limits**: Session setup times out (`--handshake-timeout`, default 15 s); `-K` runs at most `--max-clients` handlers (default 16)
+16. **SOCKS Destination Policy**: The SOCKS server refuses loopback, link-local/cloud-metadata, multicast and reserved destinations (checked on resolved addresses), or allows only `--socks-allow` ranges
+17. **Safe File Reception**: `--recv` writes to a private `<name>.clawsec-part` (O_NOFOLLOW, single link, own uid) and renames it only after SHA-256 verification; chat `/file` never overwrites or follows links
 
 ### ⚠️ Current Limitations
 
@@ -170,13 +174,18 @@ admin                # Too short and common
    - Monitor for unusual connection patterns
 
 3. **Operational Security**
-   - Clear command history after use
-   - Don't hardcode passwords in scripts
-   - Use environment variables for automation:
+   - Don't put passwords on command lines or in scripts: `-k` is visible to other
+     local users (`ps`, `/proc`) until ClawSec overwrites it, and in shell history
+   - Use a key file or the environment:
      ```bash
-     export CLAW_PASSWORD="YourStrongPassword"
-     clawsec -l -p 1234 -k "$CLAW_PASSWORD"
+     clawsec -l -p 1234 --key-file /etc/clawsec/password      # mode 0600
+     CLAWSEC_PASSWORD="$(cat /etc/clawsec/password)" clawsec server 1234
      ```
+     `CLAWSEC_PASSWORD` is removed from the environment after reading, so
+     programs run with `-e` and other child processes do not inherit it
+   - Public servers: keep `--handshake-timeout` (default 15 s) and, with `-K`,
+     `--max-clients` (default 16; each handshake uses ~19 MiB for Argon2id)
+   - SOCKS server: restrict destinations with `--socks-allow` where possible
 
 ## Attack Scenarios & Mitigations
 

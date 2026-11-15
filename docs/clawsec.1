@@ -233,6 +233,27 @@ Chat mode. Display messages with timestamps and colored roles
 .B \-v
 Verbose output. Use \fB\-vv\fR for extra debug information.
 .TP
+.BI \-\-key\-file " file"
+Read the password from the first line of \fIfile\fR (should be mode 0600).
+Without \fB\-k\fR or \fB\-\-key\-file\fR, the password is taken from the
+\fBCLAWSEC_PASSWORD\fR environment variable (removed from the environment
+after reading), or prompted for on the terminal without echo.
+\fB\-k\fR is visible to other users until ClawSec overwrites it.
+.TP
+.BI \-\-max\-clients " n"
+With \fB\-K\fR: at most \fIn\fR concurrent handlers (default 16); further
+clients wait in the listen queue.
+.TP
+.BI \-\-handshake\-timeout " seconds"
+Abort session setup (TLS camouflage, knock, key exchange, key confirmation)
+that takes longer than \fIseconds\fR (default 15, 0 = no limit).
+.TP
+.BI \-\-socks\-allow " list"
+SOCKS server: allow only destinations inside the comma-separated
+address/CIDR \fIlist\fR. Default: everything except loopback, link-local
+(cloud metadata), multicast and reserved ranges. Checked on resolved
+addresses.
+.TP
 .B \-\-version
 Print the ClawSec release and wire protocol version, then exit.
 .TP
@@ -446,6 +467,10 @@ Authenticated frame header and strict sequence numbers (replay and reflection pr
 .PP
 VERSION is 3. The 16-byte header is authenticated as GCM associated data.
 Protocol v3 (ClawSec 3.x) is not compatible with ClawSec 2.8.2 and earlier.
+.SH ENVIRONMENT
+.TP
+.B CLAWSEC_PASSWORD
+Session password when neither \fB\-k\fR nor \fB\-\-key\-file\fR is given.
 .SH EXIT STATUS
 .TP
 .B 0

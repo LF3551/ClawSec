@@ -458,10 +458,11 @@ and restores the previous IP-forwarding setting.
 1. Never use default or weak passwords
 2. Minimum 12 characters recommended
 3. Share passwords through secure channels only
-4. Clear command history after use: `history -c`
-5. Use environment variables for automation:
+4. Keep passwords off the command line (`-k` is visible in `ps` and shell history):
 
 ```bash
-export CLAW_PASS="YourSecurePassword"
-./clawsec -l -p 1234 -k "$CLAW_PASS"
+openssl rand -base64 24 > ~/.clawsec-key && chmod 600 ~/.clawsec-key
+./clawsec -l -p 1234 --key-file ~/.clawsec-key                  # key file
+CLAWSEC_PASSWORD="$(cat ~/.clawsec-key)" ./clawsec host 1234    # environment
+./clawsec host 1234                                             # prompt (no echo)
 ```
