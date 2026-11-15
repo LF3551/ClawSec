@@ -62,36 +62,65 @@ static inline int tun_crypt_write(int fd, const char *msg, int len) {
  * Parse CIDR notation: "10.0.0.1/24"
  * ───────────────────────────────────────────── */
 int tun_parse_cidr(const char *cidr, char *ip, size_t ip_len, int *prefix_len) {
-    if (!cidr || !ip || !prefix_len) return -1;
+    if (!cidr || !ip || !prefix_len || ip_len == 0) return -1;
 
     const char *slash = strchr(cidr, '/');
-    if (!slash) {
-        /* No prefix, default to /24 */
-        if (strlen(cidr) >= ip_len) return -1;
-        strncpy(ip, cidr, ip_len);
-        ip[ip_len - 1] = '\0';
-        *prefix_len = 24;
-        return 0;
-    }
-
-    size_t host_len = slash - cidr;
+    size_t host_len = slash ? (size_t)(slash - cidr) : strlen(cidr);
     if (host_len == 0 || host_len >= ip_len) return -1;
-
     memcpy(ip, cidr, host_len);
     ip[host_len] = '\0';
 
-    *prefix_len = atoi(slash + 1);
-    if (*prefix_len < 8 || *prefix_len > 30) return -1;
+    int prefix = 24;                       /* default when no "/N" is given */
+    if (slash) {
+        const char *ps = slash + 1;
+        size_t n = strlen(ps);
+        if (n == 0 || n > 2) return -1;
+        prefix = 0;
+        for (size_t i = 0; i < n; i++) {
+            if (ps[i] < '0' || ps[i] > '9') return -1;
+            prefix = prefix * 10 + (ps[i] - '0');
+        }
+    }
 
+    /* The address ends up in shell commands: accept only a dotted IPv4 */
+    if (tun_validate_config(ip, prefix) != 0) return -1;
+    *prefix_len = prefix;
     return 0;
 }
 
 int tun_validate_config(const char *ip, int prefix_len) {
     struct in_addr addr;
-    if (inet_pton(AF_INET, ip, &addr) != 1) return -1;
+    if (!ip || inet_pton(AF_INET, ip, &addr) != 1) return -1;
     if (prefix_len < 8 || prefix_len > 30) return -1;
     return 0;
 }
+
+/* Interface names come from the kernel or from `route`/`ip` output and are
+ * interpolated into commands: allow only the usual name characters. */
+int tun_valid_ifname(const char *name) {
+    if (!name || !*name || strlen(name) >= IFNAMSIZ) return 0;
+    for (const char *p = name; *p; p++) {
+        char c = *p;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.'))
+            return 0;
+    }
+    return 1;
+}
+
+static int valid_ipv4(const char *s) {
+    struct in_addr a;
+    return s && inet_pton(AF_INET, s, &a) == 1;
+}
+
+#ifdef __APPLE__
+/* Prefix length -> dotted netmask, e.g. 24 -> "255.255.255.0" */
+static void prefix_to_netmask(int prefix, char *out, size_t out_len) {
+    struct in_addr m;
+    m.s_addr = htonl(prefix <= 0 ? 0 : 0xFFFFFFFFu << (32 - prefix));
+    inet_ntop(AF_INET, &m, out, (socklen_t)out_len);
+}
+#endif
 
 /* ─────────────────────────────────────────────
  * macOS: utun device
@@ -154,8 +183,10 @@ int tun_open(const char *ip, int prefix_len, char *dev_name, size_t dev_name_len
     char peer_ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &peer, peer_ip, sizeof(peer_ip));
 
-    snprintf(cmd, sizeof(cmd), "ifconfig %s inet %s %s netmask 255.255.255.0 up",
-             dev_name, ip, peer_ip);
+    char netmask[INET_ADDRSTRLEN];
+    prefix_to_netmask(prefix_len, netmask, sizeof(netmask));
+    snprintf(cmd, sizeof(cmd), "ifconfig %s inet %s %s netmask %s up",
+             dev_name, ip, peer_ip, netmask);
     if (system(cmd) != 0) {
         fprintf(stderr, "tun: failed to configure %s\n", dev_name);
         close(fd);
@@ -275,49 +306,141 @@ static int tun_write_packet(int tun_fd, const char *buf, int len) {
 /* ─────────────────────────────────────────────
  * NAT / IP forwarding
  * ───────────────────────────────────────────── */
+/* NAT state, so tun_disable_nat() can undo exactly what was done */
+enum { NAT_NONE = 0, NAT_IPTABLES, NAT_NFT, NAT_PF };
+static int  s_nat_backend = NAT_NONE;
+static char s_nat_dev[IFNAMSIZ];
+static char s_nat_subnet[32];
+static char s_prev_forwarding = 0;       /* '0'/'1' before we enabled it, 0 = unknown */
+
+#ifdef __APPLE__
+/* Interface of the current default route, e.g. "en0" */
+static int default_iface(char *out, size_t out_len) {
+    out[0] = '\0';
+    FILE *fp = popen("route -n get default 2>/dev/null | awk '/interface:/{print $2}'", "r");
+    if (!fp) return -1;
+    if (fgets(out, (int)out_len, fp)) out[strcspn(out, "\n")] = '\0';
+    pclose(fp);
+    return tun_valid_ifname(out) ? 0 : -1;
+}
+#endif
+
 int tun_enable_nat(const char *dev_name, const char *subnet) {
+    if (!tun_valid_ifname(dev_name) || !subnet || strlen(subnet) >= sizeof(s_nat_subnet)) {
+        fprintf(stderr, "tun: refusing NAT setup with invalid interface/subnet\n");
+        return -1;
+    }
+    {   /* subnet must be a.b.c.d/N built from a validated address */
+        char ip[INET_ADDRSTRLEN]; int pfx;
+        if (tun_parse_cidr(subnet, ip, sizeof(ip), &pfx) != 0) {
+            fprintf(stderr, "tun: refusing NAT setup with invalid subnet\n");
+            return -1;
+        }
+    }
+    snprintf(s_nat_dev, sizeof(s_nat_dev), "%s", dev_name);
+    snprintf(s_nat_subnet, sizeof(s_nat_subnet), "%s", subnet);
+    char cmd[512];
+
 #ifdef __linux__
-    /* Enable IP forwarding */
+    /* Enable IP forwarding, remembering the previous setting */
+    FILE *f = fopen("/proc/sys/net/ipv4/ip_forward", "r");
+    if (f) {
+        int c = fgetc(f);
+        if (c == '0' || c == '1') s_prev_forwarding = (char)c;
+        fclose(f);
+    }
     (void)system("sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1");
 
-    /* Add iptables masquerade rule */
-    char cmd[512];
     snprintf(cmd, sizeof(cmd),
              "iptables -t nat -A POSTROUTING -s %s ! -o %s -j MASQUERADE 2>/dev/null",
              subnet, dev_name);
-    int rc = system(cmd);
-    if (rc != 0) {
-        /* Try nftables as fallback */
+    if (system(cmd) == 0) {
+        s_nat_backend = NAT_IPTABLES;
+    } else {
+        /* nftables: a dedicated table, removed as a whole on teardown */
         snprintf(cmd, sizeof(cmd),
-                 "nft add rule ip nat POSTROUTING oifname != \"%s\" ip saddr %s masquerade 2>/dev/null",
-                 dev_name, subnet);
-        rc = system(cmd);
+                 "nft add table ip clawsec 2>/dev/null && "
+                 "nft 'add chain ip clawsec postrouting { type nat hook postrouting priority 100 ; }' 2>/dev/null && "
+                 "nft add rule ip clawsec postrouting ip saddr %s oifname != '\"%s\"' masquerade 2>/dev/null",
+                 subnet, dev_name);
+        if (system(cmd) == 0) {
+            s_nat_backend = NAT_NFT;
+        } else {
+            fprintf(stderr, "tun: failed to set up NAT (need iptables or nftables)\n");
+            return -1;
+        }
     }
     log_msg(1, "tun: NAT enabled for %s via %s", subnet, dev_name);
     return 0;
 #elif defined(__APPLE__)
-    /* macOS: enable forwarding + pf NAT */
+    /* NOTE: not exercised by CI (no TUN on macOS runners). */
+    char out_if[IFNAMSIZ];
+    if (default_iface(out_if, sizeof(out_if)) != 0) {
+        fprintf(stderr, "tun: cannot determine default interface for NAT\n");
+        return -1;
+    }
+    FILE *f = popen("sysctl -n net.inet.ip.forwarding 2>/dev/null", "r");
+    if (f) {
+        int c = fgetc(f);
+        if (c == '0' || c == '1') s_prev_forwarding = (char)c;
+        pclose(f);
+    }
     (void)system("sysctl -w net.inet.ip.forwarding=1 >/dev/null 2>&1");
 
-    /* Create a temporary pf anchor */
-    char pf_conf[256];
-    snprintf(pf_conf, sizeof(pf_conf), "/tmp/clawsec_nat.conf");
-    FILE *f = fopen(pf_conf, "w");
-    if (f) {
-        fprintf(f, "nat on en0 from %s to any -> (en0)\n", subnet);
-        fclose(f);
-        char cmd[512];
-        snprintf(cmd, sizeof(cmd), "pfctl -f %s -e 2>/dev/null", pf_conf);
-        (void)system(cmd);
+    /* Load the rule into the com.apple/clawsec anchor (referenced by the
+     * default "nat-anchor com.apple/<any>" rule), never replacing the main ruleset. */
+    char pf_conf[] = "/tmp/clawsec_nat.XXXXXX";
+    int fd = mkstemp(pf_conf);
+    if (fd < 0) { perror("tun: mkstemp"); return -1; }
+    FILE *pf = fdopen(fd, "w");
+    if (!pf) { close(fd); unlink(pf_conf); return -1; }
+    fprintf(pf, "nat on %s from %s to any -> (%s)\n", out_if, subnet, out_if);
+    fclose(pf);
+    snprintf(cmd, sizeof(cmd),
+             "pfctl -a com.apple/clawsec -f %s 2>/dev/null && (pfctl -e 2>/dev/null; true)",
+             pf_conf);
+    int rc = system(cmd);
+    unlink(pf_conf);
+    if (rc != 0) {
+        fprintf(stderr, "tun: failed to load pf NAT rule\n");
+        return -1;
     }
-    log_msg(1, "tun: NAT enabled for %s via %s", subnet, dev_name);
-    (void)dev_name;
+    s_nat_backend = NAT_PF;
+    log_msg(1, "tun: NAT enabled for %s via %s", subnet, out_if);
     return 0;
 #else
-    (void)dev_name; (void)subnet;
     fprintf(stderr, "tun: NAT not supported on this platform\n");
     return -1;
 #endif
+}
+
+void tun_disable_nat(void) {
+    char cmd[512];
+    switch (s_nat_backend) {
+    case NAT_IPTABLES:
+        snprintf(cmd, sizeof(cmd),
+                 "iptables -t nat -D POSTROUTING -s %s ! -o %s -j MASQUERADE 2>/dev/null",
+                 s_nat_subnet, s_nat_dev);
+        (void)system(cmd);
+        break;
+    case NAT_NFT:
+        (void)system("nft delete table ip clawsec 2>/dev/null");
+        break;
+    case NAT_PF:
+        (void)system("pfctl -a com.apple/clawsec -F all 2>/dev/null");
+        break;
+    default:
+        return;
+    }
+    if (s_prev_forwarding == '0') {
+#ifdef __linux__
+        (void)system("sysctl -w net.ipv4.ip_forward=0 >/dev/null 2>&1");
+#elif defined(__APPLE__)
+        (void)system("sysctl -w net.inet.ip.forwarding=0 >/dev/null 2>&1");
+#endif
+    }
+    s_nat_backend = NAT_NONE;
+    log_msg(1, "tun: NAT removed");
 }
 
 /* ─────────────────────────────────────────────
@@ -340,16 +463,31 @@ static int  s_routes_modified = 0;
 /* Forward declaration */
 int tun_restore_default_route(void);
 
-/* Signal handler: restore routes on SIGINT/SIGTERM/SIGPIPE then exit */
+/* Set by SIGINT/SIGTERM/SIGHUP. The handler only records the request
+ * (system() and stdio are not async-signal-safe); the relay loops see it,
+ * return, and the caller restores routes/NAT on the normal path. */
+static volatile sig_atomic_t s_stop_requested = 0;
+
 static void tun_signal_handler(int sig) {
-    tun_restore_default_route();
-    /* Re-raise with default handler so exit code is correct */
-    signal(sig, SIG_DFL);
-    raise(sig);
+    (void)sig;
+    s_stop_requested = 1;
 }
 
-/* Install signal handlers + atexit to guarantee route restoration */
-static void tun_install_route_safety(void) {
+int tun_stop_requested(void) {
+    return s_stop_requested != 0;
+}
+
+static void tun_atexit_cleanup(void) {
+    tun_restore_default_route();
+    tun_disable_nat();
+}
+
+/* Install signal handlers (no SA_RESTART, so blocking select() returns
+ * EINTR) and an atexit hook for paths that call exit() directly. */
+void tun_install_cleanup_handlers(void) {
+    static int installed = 0;
+    if (installed) return;
+    installed = 1;
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = tun_signal_handler;
@@ -358,8 +496,7 @@ static void tun_install_route_safety(void) {
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGHUP, &sa, NULL);
-    sigaction(SIGPIPE, &sa, NULL);
-    atexit((void(*)(void))tun_restore_default_route);
+    atexit(tun_atexit_cleanup);
 }
 
 /* Resolve hostname to IP if needed */
@@ -383,6 +520,11 @@ static int resolve_to_ip(const char *host, char *ip_out, size_t ip_out_len) {
 int tun_set_default_route(const char *server_host, const char *gateway_ip, const char *dev_name) {
     char cmd[512];
     char server_resolved[64];
+
+    if (!valid_ipv4(gateway_ip) || !tun_valid_ifname(dev_name)) {
+        fprintf(stderr, "tun: invalid VPN gateway or interface\n");
+        return -1;
+    }
 
     /* Resolve server hostname to IP */
     if (resolve_to_ip(server_host, server_resolved, sizeof(server_resolved)) < 0) {
@@ -411,8 +553,13 @@ int tun_set_default_route(const char *server_host, const char *gateway_ip, const
         pclose(fp);
     }
 
-    if (s_orig_gateway[0] == '\0') {
-        fprintf(stderr, "tun: cannot determine current default gateway\n");
+    /* Values parsed from `route`/`ip` output go back into commands */
+    if (!valid_ipv4(s_orig_gateway) ||
+        (s_orig_iface[0] && !tun_valid_ifname(s_orig_iface))) {
+        fprintf(stderr, "tun: cannot determine current default gateway "
+                        "(need a default route via an IPv4 gateway)\n");
+        s_orig_gateway[0] = '\0';
+        s_orig_iface[0] = '\0';
         return -1;
     }
 
@@ -446,16 +593,24 @@ int tun_set_default_route(const char *server_host, const char *gateway_ip, const
         pclose(fp);
     }
 
-    if (s_orig_gateway[0] == '\0') {
-        fprintf(stderr, "tun: cannot determine current default gateway\n");
+    /* Values parsed from `route`/`ip` output go back into commands */
+    if (!valid_ipv4(s_orig_gateway) ||
+        (s_orig_iface[0] && !tun_valid_ifname(s_orig_iface))) {
+        fprintf(stderr, "tun: cannot determine current default gateway "
+                        "(need a default route via an IPv4 gateway)\n");
+        s_orig_gateway[0] = '\0';
+        s_orig_iface[0] = '\0';
         return -1;
     }
 
     log_msg(1, "tun: original gateway %s via %s", s_orig_gateway, s_orig_iface);
 
     /* 1. Add host route to VPN server via original gateway */
-    snprintf(cmd, sizeof(cmd), "ip route add %s via %s dev %s",
-             s_server_ip, s_orig_gateway, s_orig_iface);
+    if (s_orig_iface[0])
+        snprintf(cmd, sizeof(cmd), "ip route add %s via %s dev %s",
+                 s_server_ip, s_orig_gateway, s_orig_iface);
+    else
+        snprintf(cmd, sizeof(cmd), "ip route add %s via %s", s_server_ip, s_orig_gateway);
     (void)system(cmd);
 
     /* 2. Replace default route via VPN */
@@ -465,7 +620,7 @@ int tun_set_default_route(const char *server_host, const char *gateway_ip, const
 #endif
 
     s_routes_modified = 1;
-    tun_install_route_safety();
+    tun_install_cleanup_handlers();
     log_msg(1, "tun: default route → %s via %s (full tunnel)", gateway_ip, dev_name);
     return 0;
 }
@@ -527,6 +682,10 @@ int tun_relay(int tun_fd, int tunnel_fd) {
         tv.tv_usec = 0;
 
         int rc = select(maxfd, &rfds, NULL, NULL, &tv);
+        if (tun_stop_requested()) {
+            log_msg(1, "tun: stop requested");
+            break;
+        }
         if (rc < 0) {
             if (errno == EINTR) continue;
             perror("tun: select");
@@ -1082,6 +1241,10 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
         tv.tv_usec = 0;
 
         int rc = select(maxfd, &rfds, NULL, NULL, &tv);
+        if (tun_stop_requested()) {
+            log_msg(1, "tun-udp: stop requested");
+            break;
+        }
         if (rc < 0) {
             if (errno == EINTR) continue;
             perror("tun-udp: select");

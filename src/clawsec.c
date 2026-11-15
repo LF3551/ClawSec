@@ -187,6 +187,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
             return;
         }
         char dev_name[32];
+        tun_install_cleanup_handlers();
         int tun_fd = tun_open(tun_ip, tun_prefix, dev_name, sizeof(dev_name));
         if (tun_fd < 0) {
             fprintf(stderr, "ERROR: Failed to open TUN device (need root/sudo)\n");
@@ -243,6 +244,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
         }
 
         tun_restore_default_route();
+        tun_disable_nat();
         tun_close(tun_fd, dev_name);
         close(sockfd);
         farm9crypt_cleanup();
@@ -511,9 +513,16 @@ int main(int argc, char **argv) {
         case 'Z':
             g_persistent = 1;
             break;
-        case 'N':
+        case 'N': {
+            char ip[64]; int pfx;
+            if (tun_parse_cidr(optarg, ip, sizeof(ip), &pfx) != 0) {
+                fprintf(stderr, "ERROR: Invalid --tun '%s' (use IPv4/prefix, e.g. 10.0.0.1/24, prefix 8-30)\n",
+                        optarg);
+                return 1;
+            }
             s_tun_cidr = optarg;
             break;
+        }
         case 'A':
             g_masquerade = 1;
             break;
@@ -740,6 +749,8 @@ int main(int argc, char **argv) {
                               fwd_spec ? fwd_port : NULL,
                               host, port);
 
+                if (s_tun_cidr && tun_stop_requested())
+                    break;          /* Ctrl-C in VPN mode: stop, don't reconnect */
                 int delay = persist_next_delay(attempt++);
                 fprintf(stderr, "persistent: disconnected, reconnecting in %ds...\n", delay);
                 sleep(delay);

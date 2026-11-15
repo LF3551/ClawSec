@@ -95,10 +95,72 @@ vpn_test() {   # vpn_test <label> [extra options...]
     sleep 0.3
 }
 
+result() {   # result <label> <ok>
+    if [ "$2" -eq 1 ]; then
+        echo "  [E2E] $1 ... PASS"; PASS=$((PASS + 1))
+    else
+        echo "  [E2E] $1 ... FAIL"; FAIL=$((FAIL + 1))
+        echo "--- server log"; cat "$WORK/srv.log"
+        echo "--- client log"; cat "$WORK/cli.log"
+    fi
+}
+
+# Full tunnel (--default-route) + exit node (--masquerade): state must be
+# applied during the session and fully undone after SIGINT / SIGTERM.
+full_tunnel_test() {
+    local ok=1 fwd_before
+    ip -n "$NS_C" route replace default via 192.168.231.1 dev cs-e2e1
+    fwd_before=$(ip netns exec "$NS_S" cat /proc/sys/net/ipv4/ip_forward)
+
+    ip netns exec "$NS_S" timeout 30 "$BIN" -v -l -p 9000 -k "$KEY" \
+        --tun 10.231.0.1/24 --masquerade >/dev/null 2>"$WORK/srv.log" &
+    SRV=$!
+    for _ in $(seq 50); do
+        ip netns exec "$NS_S" grep -q ':2328 [0-9A-F:]* 0A ' /proc/net/tcp /proc/net/tcp6 2>/dev/null && break
+        sleep 0.1
+    done
+    ip netns exec "$NS_C" timeout 30 "$BIN" -v -k "$KEY" 192.168.231.1 9000 \
+        --tun 10.231.0.2/24 --default-route >/dev/null 2>"$WORK/cli.log" &
+    CLI=$!
+    for _ in $(seq 100); do
+        grep -q 'relay started' "$WORK/srv.log" 2>/dev/null &&
+            grep -q 'relay started' "$WORK/cli.log" 2>/dev/null && break
+        sleep 0.1
+    done
+    sleep 0.3
+
+    ip netns exec "$NS_S" iptables -t nat -S POSTROUTING 2>/dev/null |
+        grep -q -- '-s 10.231.0.0/24 .*MASQUERADE' || { echo "    NAT rule missing"; ok=0; }
+    ip -n "$NS_C" route show default | grep -q 'dev tun' || { echo "    default route not via tun"; ok=0; }
+    ip netns exec "$NS_C" ping -c 2 -W 2 10.231.0.1 >/dev/null 2>&1 || { echo "    ping failed"; ok=0; }
+
+    # Ctrl-C on the client: routes restored, device gone
+    kill -INT "$CLI" 2>/dev/null; wait "$CLI" 2>/dev/null; CLI=
+    ip -n "$NS_C" route show default | grep -q 'via 192.168.231.1 dev cs-e2e1' ||
+        { echo "    client default route not restored"; ok=0; }
+    ip -n "$NS_C" link show 2>/dev/null | grep -q ': tun' && { echo "    client tun device left behind"; ok=0; }
+
+    # SIGTERM on the server: NAT rule removed, forwarding restored
+    kill -TERM "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=
+    ip netns exec "$NS_S" iptables -t nat -S POSTROUTING 2>/dev/null |
+        grep -q 'MASQUERADE' && { echo "    NAT rule left behind"; ok=0; }
+    [ "$(ip netns exec "$NS_S" cat /proc/sys/net/ipv4/ip_forward)" = "$fwd_before" ] ||
+        { echo "    ip_forward not restored"; ok=0; }
+
+    result "VPN --default-route + --masquerade, cleanup on SIGINT/SIGTERM" "$ok"
+    ip -n "$NS_C" route del default 2>/dev/null
+    sleep 0.3
+}
+
 echo
 echo "=== ClawSec VPN end-to-end tests ($BIN) ==="
 vpn_test "tcp relay"
 vpn_test "--tun-udp" --tun-udp
+if command -v iptables >/dev/null && ip netns exec "$NS_S" iptables -t nat -S >/dev/null 2>&1; then
+    full_tunnel_test
+else
+    echo "  [E2E] VPN --default-route + --masquerade ... SKIP (iptables unavailable)"
+fi
 
 echo
 echo "=== VPN E2E results: $PASS passed, $FAIL failed ==="

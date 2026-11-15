@@ -191,6 +191,8 @@ extern void test_tun_udp_constants(void);
 extern void test_tun_udp_truncated(void);
 extern void test_tun_udp_bad_magic(void);
 extern void test_tun_udp_replay_window(void);
+extern void test_tun_parse_cidr_rejects_injection(void);
+extern void test_tun_valid_ifname(void);
 
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
@@ -368,6 +370,8 @@ int main(void) {
     test_tun_udp_truncated();
     test_tun_udp_bad_magic();
     test_tun_udp_replay_window();
+    test_tun_parse_cidr_rejects_injection();
+    test_tun_valid_ifname();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
