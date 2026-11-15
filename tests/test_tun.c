@@ -330,3 +330,37 @@ void test_tun_udp_replay_window(void) {
         tun_udp_replay_reset();
     } TEST_END;
 }
+
+/*
+ * Test: CIDR parsing rejects anything that is not a plain IPv4/prefix
+ * (the values are interpolated into ip/ifconfig/iptables commands)
+ */
+void test_tun_parse_cidr_rejects_injection(void) {
+    TEST_BEGIN("tun CIDR rejects shell metacharacters/garbage") {
+        const char *bad[] = { "10.0.0.1;id/24", "10.0.0.1/24;id", "$(id)/24",
+                              "10.0.0.1 /24", "10.0.0.1/2 4", "10.0.0.1/031",
+                              "10.0.0.1/", "/24", "abc/24", "10.0.0.256/24",
+                              "10.0.0.1/24/1", "", NULL };
+        char ip[64];
+        int prefix;
+        for (int i = 0; bad[i]; i++)
+            ASSERT(tun_parse_cidr(bad[i], ip, sizeof(ip), &prefix) != 0, bad[i]);
+    } TEST_END;
+}
+
+/*
+ * Test: interface-name validation
+ */
+void test_tun_valid_ifname(void) {
+    TEST_BEGIN("tun interface names validated") {
+        ASSERT(tun_valid_ifname("tun0"), "tun0");
+        ASSERT(tun_valid_ifname("utun12"), "utun12");
+        ASSERT(tun_valid_ifname("eth0.100"), "vlan");
+        ASSERT(tun_valid_ifname("wg-home_1"), "dash/underscore");
+        ASSERT(!tun_valid_ifname(""), "empty");
+        ASSERT(!tun_valid_ifname(NULL), "NULL");
+        ASSERT(!tun_valid_ifname("eth0;id"), "semicolon");
+        ASSERT(!tun_valid_ifname("eth0 x"), "space");
+        ASSERT(!tun_valid_ifname("aaaaaaaaaaaaaaaaaaaa"), "too long");
+    } TEST_END;
+}

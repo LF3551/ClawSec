@@ -68,6 +68,20 @@ int tun_set_default_route(const char *server_ip, const char *gateway_ip, const c
 /* Restore original default route when VPN disconnects. */
 int tun_restore_default_route(void);
 
+/* Remove the NAT rule added by tun_enable_nat() and restore the previous
+ * IP-forwarding setting. No-op if NAT was not enabled. */
+void tun_disable_nat(void);
+
+/* Returns 1 if an interface name is safe to use (non-empty, < IFNAMSIZ,
+ * only [A-Za-z0-9_.-]). */
+int tun_valid_ifname(const char *name);
+
+/* SIGINT/SIGTERM/SIGHUP set a stop flag that makes the relays return, so
+ * routes, NAT and the device are cleaned up on the normal path; an atexit
+ * hook covers exit() paths. Call before configuring the TUN device. */
+void tun_install_cleanup_handlers(void);
+int  tun_stop_requested(void);
+
 /* ── UDP VPN data channel ─────────────────────────────── */
 
 /* Negotiate UDP VPN channel over the existing TCP tunnel.
