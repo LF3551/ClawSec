@@ -73,6 +73,7 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 - **X25519 ECDHE**: Perfect Forward Secrecy — each session has unique ephemeral keys
 - **Argon2id**: Memory-hard password binding (OpenSSL ≥ 3.2; PBKDF2-SHA256 100k fallback on older OpenSSL)
 - **Directional keys**: HKDF-SHA256 derives separate client→server and server→client keys (TCP and UDP), so frames cannot be reflected
+- **Key confirmation & version check**: wrong passwords and incompatible peers are rejected during the handshake, with a clear error and exit status 1
 - **Replay Protection**: Strict sequence numbers on TCP, 256-entry sliding window on the UDP VPN channel
 - **Bounded decryption**: Plaintext is released only after tag verification and never beyond the caller's buffer
 - **Protocol Versioning**: Wire protocol v3 (ClawSec 3.x); peers on a different version are rejected with a clear error
@@ -92,7 +93,7 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 | Timing Jitter | `--jitter N` | Random 0-N ms delay defeats timing correlation |
 | Stealth Port Scan | `--scan range` | Parallel SYN/connect scan with randomized order and jitter |
 | Banner Grabbing | `-b` | Detect service versions on open ports (SSH, HTTP, etc.) |
-| SOCKS5 Proxy | `--socks port` | Route any app through encrypted tunnel (curl, browser, etc.) |
+| SOCKS5 Proxy | `--socks [host:]port` | Route any app through encrypted tunnel (curl, browser, etc.) |
 
 ## Quick Start
 
@@ -154,7 +155,7 @@ Secure encrypted chat with session fingerprints, read receipts, inline file shar
 - 🔐 **Session fingerprint**: emoji + hex fingerprint shown at connect — verify both sides match to confirm no MITM
 - 📛 **Custom nicknames** (`-n`): display names instead of Server/Client
 - ✓✓ **Read receipts**: automatic delivery confirmations
-- 📎 **Inline file sharing**: `/file path` sends files up to 4MB through the chat
+- 📎 **Inline file sharing**: `/file path` sends small files (up to ~8 KB) through the chat; use `--send`/`--recv` for larger files
 - 🏓 **Encrypted ping**: `/ping` measures RTT through the encrypted tunnel
 - Slash commands: `/file`, `/ping`, `/clear`, `/whoami`, `/help`
 - Colored timestamps: green for local, cyan for remote
@@ -165,9 +166,14 @@ Secure encrypted chat with session fingerprints, read receipts, inline file shar
 
 Get encrypted command-line access to a remote machine.
 
+> `-e` hands a program (here a shell) to anyone who knows the password, so it
+> is **not built by default** since 3.0. Build it in explicitly:
+> `make linux DFLAGS=-DGAPING_SECURITY_HOLE` (or `macos`, `freebsd`, ...).
+
 **Server (target machine):**
 ```bash
-cd ~/ClawSec/unix
+cd ~/ClawSec/src
+make linux DFLAGS=-DGAPING_SECURITY_HOLE
 ./clawsec -l -p 8888 -k "TestPass123" -e /bin/bash
 ```
 
@@ -279,12 +285,14 @@ Options:
   --fingerprint p   Mimic browser TLS (chrome, firefox, safari)
   --scan range      Stealth port scan (1-1024, 22-443, all)
   -b                Banner grab (show service version on open ports)
-  --socks port      SOCKS5 proxy through encrypted tunnel
+  --socks [h:]port  SOCKS5 proxy through encrypted tunnel (client listens on
+                    127.0.0.1 unless an address is given; no proxy auth)
   --pad             Pad packets to uniform 1400 bytes
   --jitter ms       Random delay 0-N ms between packets
   -w secs           Timeout for connects
   --version         Print version and wire protocol
-  -e prog           Execute program after connect (requires GAPING_SECURITY_HOLE)
+  -e prog           Execute program per connection (only in builds made with
+                    DFLAGS=-DGAPING_SECURITY_HOLE)
 ```
 
 ## Examples
@@ -317,7 +325,7 @@ Both sides see:
 
 ### Reverse Shell Mode
 ```bash
-# Server: Provide encrypted shell access
+# Server: Provide encrypted shell access (binary built with DFLAGS=-DGAPING_SECURITY_HOLE)
 ./clawsec -l -p 8888 -k "TestPass123" -e /bin/bash
 
 # Client: Connect and execute commands
@@ -395,8 +403,11 @@ tar -czf - /data | ./clawsec -k "pass" server 9999
 # Server: accept connections and proxy outbound
 ./clawsec -l -k "strongpass" -p 9999 --socks 0
 
-# Client: open local SOCKS5 proxy on port 1080
+# Client: open local SOCKS5 proxy on 127.0.0.1:1080
 ./clawsec -k "strongpass" --socks 1080 server.com 9999
+
+# The proxy has no authentication, so it listens on loopback by default.
+# Share it with your LAN only deliberately: --socks 0.0.0.0:1080
 
 # Now use any SOCKS5-aware application:
 curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
@@ -429,7 +440,9 @@ curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 ### Reverse Tunnel (-R)
 ```bash
 # Expose internal service (e.g. web app on :3000) to remote server
-# Server: listen on 9999, open public port 8080 for reverse
+# Server: listen on 9999, open port 8080 for reverse connections.
+# The server listens exactly on the given address: 0.0.0.0 = public,
+# 127.0.0.1 = only reachable from the server itself.
 ./clawsec -l -k "strongpass" -p 9999 -R 0.0.0.0:8080 -v
 
 # Client (behind NAT/firewall): connect and forward to local :3000
@@ -549,12 +562,16 @@ clawsec -l -p 1234 -k "$CLAW_KEY"
 
 ```
 Client ──TCP connect──▶ Server
-Client ◀──X25519 pubkey (32B)── Server
-Client ──X25519 pubkey (32B)──▶ Server
+Client ◀──hello "CS"+version (4B), X25519 pubkey (32B)── Server
+Client ──hello "CS"+version (4B), X25519 pubkey (32B)──▶ Server
        [Both: session = SHA256(ECDH_secret || Argon2id(password, SHA256(pubkeys)))]
        [Both: k_c2s, k_s2c = HKDF-SHA256(session, "ClawSec v3 tcp c2s" / "... s2c")]
+Client ◀──key confirmation HMAC (32B) each way──▶ Server
 Client ◀──encrypted messages──▶ Server
 ```
+
+A peer on another protocol version (e.g. ClawSec 2.x) is rejected at the
+hello; a wrong password is rejected at key confirmation, on both ends.
 
 > **Password strength matters.** The password is not protected by a PAKE yet:
 > an active attacker who completes a handshake can test password guesses
@@ -580,7 +597,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ```bash
 cd src
 
-# Unit/integration tests (124 tests)
+# Unit/integration tests (131 tests)
 make linux && make test          # macOS: make macos && make test-macos
 
 # Same tests under AddressSanitizer + UndefinedBehaviorSanitizer
@@ -639,16 +656,24 @@ echo "Test message" | ./clawsec localhost 12345 -k "TestPassword"
 ### "Encryption not initialized"
 Missing `-k` password option. Always provide password parameter.
 
-### "Decryption/authentication failed"
-Password mismatch or corrupted data. Verify both endpoints use identical password.
+### "authentication failed - wrong password"
+Key confirmation failed: the two endpoints use different passwords (or the
+handshake was tampered with). Both ends exit with status 1.
 
-### "peer uses protocol vN, this build requires v3"
+### "does not speak ClawSec protocol v3" / "uses ClawSec protocol vN"
 ClawSec 3.x speaks wire protocol 3 and does not interoperate with 2.x.
 Upgrade both endpoints to the same major release; `clawsec --version`
 prints the release and protocol version.
 
+### "Decryption/authentication failed"
+A data frame failed authentication after the handshake: corrupted or
+tampered traffic.
+
+### "-e (execute program) is not built into this binary"
+Since 3.0, `-e` is opt-in: `make linux DFLAGS=-DGAPING_SECURITY_HOLE`.
+
 ### "Connection closed by peer"
-Network error or the peer rejected the session (e.g. wrong password).
+Network error, or the peer closed the session.
 
 ### OpenSSL library errors
 ```bash
@@ -703,7 +728,7 @@ This tool is for authorized testing and legitimate use only.
 ```
 ClawSec/
 ├── src/              # Source code (C/C++)
-├── tests/            # Unit tests (124) + end-to-end scripts
+├── tests/            # Unit tests (131) + end-to-end scripts
 ├── docs/             # Documentation (FAQ, examples, man page)
 ├── scripts/          # Build, install, quickstart scripts
 ├── deploy/           # Deployment configs (systemd, k8s, Homebrew)

@@ -107,8 +107,9 @@ not need \fB\-\-ech\fR; it accepts the extension transparently.
 .B \-\-mux
 Stream multiplexer. Allows multiple logical connections over a
 single encrypted tunnel. In server mode, requires \fB\-L host:port\fR
-to specify the target. In client mode, requires \fB\-p port\fR to
-specify the local listening port. Supports up to 64 concurrent streams.
+to specify the target. In client mode, requires \fB\-p [host:]port\fR to
+specify the local listening port (default host 127.0.0.1). Supports up to
+63 streams per tunnel session (stream IDs are not reused yet).
 .TP
 .BI \-\-fallback " host:port"
 REALITY-like active probing resistance. When a non-ClawSec client
@@ -166,9 +167,11 @@ Does not require encryption password.
 .B \-b
 Banner grabbing. During port scan, detect service versions on open ports.
 .TP
-.BI \-\-socks " port"
+.BI \-\-socks " [host:]port"
 SOCKS5 proxy through encrypted tunnel. Client opens a local SOCKS5
-listener on \fIport\fR; server proxies outbound connections.
+listener on \fIhost\fR:\fIport\fR (default host 127.0.0.1, or ::1 with
+\fB\-6\fR); server proxies outbound connections. The proxy has no
+authentication: bind it to a non-loopback address only deliberately.
 .TP
 .BI \-\-send " file"
 Send a file through encrypted tunnel with SHA-256 verification,
@@ -179,8 +182,10 @@ Receive a file into \fIdir\fR through encrypted tunnel with
 SHA-256 verification and path traversal protection.
 .TP
 .BI \-R " host:port"
-Reverse tunnel. Server listens on an extra port; incoming connections
-are tunneled to the client's local target. SSH-like \fB\-R\fR.
+Reverse tunnel, SSH-like \fB\-R\fR. On the server, \fIhost:port\fR is the
+address to listen on (127.0.0.1 for local only, 0.0.0.0 to expose
+publicly); incoming connections are tunneled to the client, where
+\fIhost:port\fR is the target to connect to.
 .TP
 .B \-\-persistent
 Auto-reconnect with exponential backoff (1s\(en60s, \(+-25% jitter).
@@ -235,8 +240,10 @@ Print the ClawSec release and wire protocol version, then exit.
 Connection timeout in seconds.
 .TP
 .BI \-e " program"
-Execute program after connection (encrypted reverse shell).
-Only available if compiled with GAPING_SECURITY_HOLE.
+Execute program for each connection (encrypted reverse shell).
+Not built by default; build with
+\fBmake linux DFLAGS=\-DGAPING_SECURITY_HOLE\fR. Anyone who knows the
+password gets the program.
 .TP
 .B \-h
 Display usage information.
@@ -421,11 +428,15 @@ Authenticated frame header and strict sequence numbers (replay and reflection pr
 .PP
 .nf
 1. TCP connection established
-2. Server/Client exchange X25519 ephemeral public keys (32 bytes each)
+2. Server/Client exchange a hello ("CS" + protocol version, 4 bytes) and
+   X25519 ephemeral public keys (32 bytes each); a version mismatch is
+   reported immediately
 3. Both compute: shared_secret = ECDH(my_priv, peer_pub)
 4. Both compute: session = SHA256(shared_secret || Argon2id(password, SHA256(pubkeys)))
 5. Both derive directional keys: HKDF-SHA256(session, "ClawSec v3 tcp c2s" / "... s2c")
-6. Encrypted communication begins (wire protocol v3)
+6. Key confirmation: each side sends HMAC-SHA256 under its confirmation
+   key; a wrong password is rejected on both ends
+7. Encrypted communication begins (wire protocol v3)
 .fi
 .SS Wire Format
 .PP

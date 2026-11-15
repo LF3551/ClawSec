@@ -22,6 +22,7 @@ ClawSec implements modern authenticated encryption using **AES-256-GCM** (Galois
   - `ClawSec v3 tcp c2s` / `ClawSec v3 tcp s2c` — stream channel, one key per direction
   - `ClawSec v3 udp c2s` / `ClawSec v3 udp s2c` — `--tun-udp` data channel, one key per direction
   - `ClawSec v3 fingerprint` — session fingerprint shown in chat mode
+  - `ClawSec v3 confirm c2s` / `ClawSec v3 confirm s2c` — key-confirmation MACs (wiped after use)
 - **Property**: Both ECDH agreement AND password knowledge required for decryption; each
   direction and channel uses an independent key, so frames cannot be reflected or moved
   between channels
@@ -66,15 +67,25 @@ release major version, so there is no protocol v2.
 
 ```
 1. TCP connection established
-2. Server sends X25519 ephemeral public key (32 bytes)
-3. Client sends X25519 ephemeral public key (32 bytes)
+2. Server sends hello ("CS" + 16-bit protocol version) and its X25519 ephemeral
+   public key (32 bytes) — before reading anything, so old clients never block
+3. Client checks the hello (version mismatch → explicit error), then sends its
+   own hello and X25519 public key; the server checks the client hello
 4. Both compute: shared_secret = X25519(my_privkey, peer_pubkey)
 5. Both compute: salt = SHA256(server_pubkey || client_pubkey)
 6. Both compute: password_key = Argon2id(password, salt)   (PBKDF2 fallback)
 7. Both compute: session = SHA256(shared_secret || password_key)
-8. Both derive directional keys with HKDF-SHA256 (see Key Derivation)
-9. Encrypted communication begins (seq counters start at 0 in each direction)
+8. Both derive directional traffic, UDP, fingerprint and confirmation keys
+   with HKDF-SHA256 (see Key Derivation)
+9. Key confirmation: each side sends HMAC-SHA256(confirm_key_own_direction,
+   "ClawSec v3 key confirmation") and verifies the peer's in constant time;
+   a mismatch (wrong password) aborts the session on both ends
+10. Encrypted communication begins (seq counters start at 0 in each direction)
 ```
+
+With `--tofu`, step 2 also carries the server identity key and its Ed25519
+signature over the ephemeral key; with `--pq`, an ML-KEM-768 exchange follows
+step 3 and its secret is mixed into step 7.
 
 Perfect Forward Secrecy: ephemeral private keys are never stored. Even if
 password is compromised later, recorded traffic cannot be decrypted.
@@ -94,6 +105,8 @@ password is compromised later, recorded traffic cannot be decrypted.
 9. **Post-Quantum Resistance**: `--pq` adds ML-KEM-768 (CRYSTALS-Kyber) hybrid key exchange on top of X25519, protecting against quantum adversaries
 10. **Reflection Resistance**: Separate keys per direction; a node never accepts its own frames
 11. **Bounded Decryption**: Unauthenticated plaintext never reaches caller buffers; writes never exceed the buffer size
+12. **Key Confirmation**: A wrong password or incompatible peer is detected during the handshake, on both ends
+13. **Safe Defaults**: Local listeners (SOCKS proxy, `--mux`) bind to loopback; `-e` (program execution) is not built by default
 
 ### ⚠️ Current Limitations
 
@@ -103,8 +116,9 @@ password is compromised later, recorded traffic cannot be decrypted.
    client or server (or sits in the middle) learns the X25519 secret and can test password guesses
    offline against captured frames. Use long random passwords (≥ 128 bits, e.g.
    `openssl rand -base64 24`). A PAKE (e.g. CPace) is planned
-3. **Handshake transcript not authenticated**: `--tofu` signs only the server's ephemeral key, not the
-   full transcript (client key, ML-KEM messages); key confirmation is implicit (first frame)
+3. **Handshake transcript not signed**: `--tofu` signs only the server's ephemeral key, not the
+   full transcript (client key, ML-KEM messages). Key confirmation is explicit (HMAC) and both keys
+   enter the KDF salt, but the confirmation does not cover the hello/version bytes
 4. **No certificate pinning**: `--tofu` provides first-use trust, but not CA-signed certificate validation
 5. **Single password per session**: No per-user authentication; all clients share the same password
 6. **PBKDF2 fallback on OpenSSL < 3.2**: not memory-hard; prefer OpenSSL ≥ 3.2 (Argon2id)
@@ -196,7 +210,7 @@ test password guesses offline (no PAKE yet) — use a long random password
 |---------|---------|-----------------|----------------|------------------|
 | Encryption | AES-256-GCM | None | Twofish (deprecated) | TLS 1.3 |
 | Authentication | HMAC (via GCM) | None | None | PKI Certificates |
-| Key Derivation | PBKDF2 | N/A | Direct key | TLS handshake |
+| Key Derivation | Argon2id + HKDF | N/A | Direct key | TLS handshake |
 | Forward Secrecy | Full (X25519 ECDHE) | N/A | No | Full (ECDHE) |
 | Ease of Use | High | High | High | Medium |
 
@@ -215,25 +229,38 @@ test password guesses offline (no PAKE yet) — use a long random password
 
 ## Known Vulnerabilities
 
-### CVE Status
-- No known CVEs for current implementation
-- Based on industry-standard OpenSSL library
-- Regular updates recommended
+### Fixed in 3.0.0 (affect ClawSec ≤ 2.8.2 — upgrade both endpoints)
 
-### Reported Issues
-None at this time.
+| Issue | Impact |
+|---|---|
+| Receive path decrypted into the caller's buffer without a size check, before tag verification | Stack memory overwrite by an on-path attacker without the password |
+| Frame header not authenticated | Replay of captured frames with an edited sequence number |
+| One key for both directions | Reflection of a node's own frames |
+| Stream data starting with `0x01` parsed as chat control messages | Silent data corruption; a peer could write files into the receiver's working directory |
+| SOCKS proxy (unauthenticated) bound to all interfaces | Anyone on the LAN could use the proxy |
+| `--tun` address passed unvalidated to shell commands run as root | Command injection via the `--tun` argument |
+| `-e` built by default | Every binary could hand out a shell |
+
+Details: [CHANGELOG.md](CHANGELOG.md) and
+[releases/3.0.0/RELEASE_NOTES.md](releases/3.0.0/RELEASE_NOTES.md).
+No CVE identifiers have been assigned.
+
+### Open issues
+See *Current Limitations* above (most importantly: no PAKE yet).
 
 ### Security Audits
 - Initial implementation: November 2025
-- Last review: November 2025
+- Last review: November 2026 (internal review for 3.0.0)
 - Status: Not externally audited (community project)
 
 ## Responsible Disclosure
 
-Found a security issue? Please report to:
-- GitHub Issues (for non-critical bugs)
-- Private email for critical vulnerabilities
+Found a security issue? Please report it privately:
+- GitHub private vulnerability report:
+  https://github.com/LF3551/ClawSec/security/advisories/new
+- Email: contact@alekseialeinikov.com
 
+Use GitHub Issues only for non-security bugs.
 **DO NOT** publicly disclose security vulnerabilities before coordinated disclosure.
 
 ## Future Enhancements
