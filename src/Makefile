@@ -34,16 +34,16 @@ COMPILE  = $(CC) $(CFLAGS) $(WARN) $(HARDEN) $(DFLAGS) $(XFLAGS)
 
 OBJS = net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o \
        tofu.o pqkem.o ecdhe.o argon2kdf.o portscan.o socks5.o filetx.o \
-       reverse.o persistent.o tun.o acl.o secret.o spake2.o iplimit.o users.o vpn.o hub.o farm9crypt.o aesgcm.o
+       reverse.o persistent.o tun.o acl.o secret.o spake2.o iplimit.o users.o vpn.o hub.o options.o children.o session.o vpnrun.o farm9crypt.o aesgcm.o
 
 # Objects the unit tests link against (the tests provide main() and globals)
 TEST_OBJS = farm9crypt.o aesgcm.o ecdhe.o argon2kdf.o obfs.o mux.o fallback.o \
             fingerprint.o tofu.o pqkem.o net.o util.o portscan.o socks5.o \
-            filetx.o reverse.o persistent.o tun.o acl.o secret.o spake2.o iplimit.o users.o vpn.o hub.o
+            filetx.o reverse.o persistent.o tun.o acl.o secret.o spake2.o iplimit.o users.o vpn.o hub.o options.o
 
 HEADERS = acl.h aesgcm.h argon2kdf.h ecdhe.h exec.h fallback.h farm9crypt.h \
           filetx.h fingerprint.h mux.h net.h obfs.h persistent.h pqkem.h \
-          portscan.h relay.h reverse.h secret.h socks5.h spake2.h iplimit.h users.h vpn.h hub.h tofu.h tun.h util.h \
+          portscan.h relay.h reverse.h secret.h socks5.h spake2.h iplimit.h users.h vpn.h hub.h options.h children.h session.h vpnrun.h tofu.h tun.h util.h \
           version.h
 
 TESTDIR  = ../tests
