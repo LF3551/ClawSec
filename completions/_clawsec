@@ -31,6 +31,7 @@ _clawsec() {
         '--users[Server: per-user passwords file]:file:_files' \
         '--add-user[Add/change a user in the --users file]:name' \
         '--user[Client: log in as this user]:name' \
+        '--tun6[Server: IPv6 inside the tunnel]:ip6/prefix' \
         '--socks-allow[SOCKS server: allowed destination CIDRs]:cidr list' \
         '--tun[TUN VPN mode with IP/mask]:ip/mask:' \
         '--tun-udp[UDP data channel for VPN (avoids TCP-over-TCP)]' \

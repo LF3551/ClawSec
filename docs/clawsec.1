@@ -1,4 +1,4 @@
-.TH CLAWSEC 1 "November 2026" "ClawSec 4.1.0" "User Commands"
+.TH CLAWSEC 1 "November 2026" "ClawSec 4.2.0" "User Commands"
 .SH NAME
 clawsec \- encrypted netcat with a password-authenticated key exchange (SPAKE2)
 .SH SYNOPSIS
@@ -145,7 +145,17 @@ Can be combined with \fB\-\-tofu\fR.
 TUN VPN mode. Create a virtual network interface and relay encrypted
 IP packets through the tunnel. Assigns the given IP address and subnet
 mask to the TUN device. Requires root/sudo. Example: \fB\-\-tun 10.0.0.1/24\fR.
-Supports macOS (utun) and Linux (/dev/net/tun).
+Supports macOS (utun) and Linux (/dev/net/tun). A client may use
+\fB\-\-tun auto\fR to get its addresses from a ClawSec 4.2+ server, or ask
+for a specific one. With \fB\-K\fR the server is a hub for many clients: one
+device, one process per client, addresses from the \fB\-\-tun\fR subnet
+(/8\-/30), routing by destination and a source-address check per client.
+.TP
+.BI \-\-tun6 " ip6/prefix"
+Server: IPv6 inside the tunnel (prefix 64\-120, e.g. \fBfd00:c1a5::1/64\fR).
+Clients get the address with the same host number as their IPv4 address.
+With \fB\-\-masquerade\fR IPv6 is NATed too; a client's
+\fB\-\-default\-route\fR adds ::/1 and 8000::/1 through the tunnel.
 .TP
 .B \-\-tun\-udp
 Use a UDP data channel for VPN traffic instead of TCP. After the TCP

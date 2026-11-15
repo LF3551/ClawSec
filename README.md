@@ -514,7 +514,7 @@ a time and prints a warning.
 >   can connect by hostname instead of a changing address.
 
 ```bash
-# Point-to-point encrypted VPN with one command (one client per server process)
+# Point-to-point encrypted VPN with one command
 
 # Server (public IP or port-forwarded):
 sudo ./clawsec -l -k "VpnSecret123" -p 9000 --tun 10.0.0.1/24 --masquerade
@@ -543,6 +543,29 @@ sudo ./clawsec -k "pass" --tun 10.0.0.2/24 --persistent myvpn.ddns.net 9000
 # VPS:    ./clawsec -l -k "pass" -p 9000 --tun 10.0.0.1/24 --masquerade
 # Client: sudo ./clawsec -k "pass" vps.example.com 9000 --tun 10.0.0.2/24
 ```
+
+**Many clients, IPv6 (4.2+).** With `-K` the server becomes a hub: one TUN
+device, one process per client, addresses handed out by the server:
+
+```bash
+# Server: IPv4 /24 and an IPv6 ULA prefix, NAT for both, per-user passwords
+sudo clawsec -l -p 9000 -K --tun 10.8.0.1/24 --tun6 fd00:c1a5::1/64 --masquerade \
+     --users /etc/clawsec/users
+
+# Clients: ask the server for an address (10.8.0.2 + fd00:c1a5::2, ...)
+sudo clawsec --user alice --tun auto --default-route vpn.example.com 9000
+sudo clawsec --user bob   --tun 10.8.0.20/24 vpn.example.com 9000   # fixed address
+```
+
+- Each client may only send from its own addresses (anything else is dropped
+  and logged); packets are routed to clients by destination address.
+- Client-to-client traffic passes the server's kernel: it works when IP
+  forwarding is on (`--masquerade` enables it) and can be filtered there.
+- `--default-route` with IPv6 adds `::/1` and `8000::/1` through the tunnel;
+  removed again on exit.
+- ClawSec 4.1 clients still work (the hub learns their address from the
+  first packet). `--tun-udp` is not available with `-K` yet: 4.2 clients fall
+  back to the TCP channel immediately.
 
 ### Password Requirements
 
