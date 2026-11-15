@@ -25,6 +25,10 @@ int obfs_get_mode(void);
 int obfs_tls_accept(int fd);
 int obfs_tls_connect(int fd);
 
+/* Half-close our sending direction: TLS close_notify in --obfs tls mode,
+ * otherwise shutdown(fd, SHUT_WR). Safe to call more than once. */
+void obfs_shutdown_write(int fd);
+
 /*
  * Wrap raw data in HTTP-like framing before sending.
  * Returns bytes of payload on success, -1 on error.

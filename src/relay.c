@@ -667,7 +667,7 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
                     }
                     relay_write(sockfd, sd, sl);
                 }
-                shutdown(sockfd, SHUT_WR);
+                obfs_shutdown_write(sockfd);
                 stdin_closed = 1;
             } else {
                 /* Check for slash commands in chat mode */
