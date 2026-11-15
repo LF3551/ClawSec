@@ -2,6 +2,53 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [4.0.0] - 2026-11-15
+
+New handshake: **wire protocol 4, not compatible with 3.x** — upgrade both
+ends. The record layer (frame format, directional keys) is unchanged. Older
+peers are reported with a clear version error on both ends.
+
+### Security
+- **SPAKE2 password-authenticated key exchange (RFC 9382).** In 3.x the password
+  was mixed into the session key after an unauthenticated X25519 exchange: an
+  active attacker (or a malicious peer) who ran one handshake could test password
+  guesses offline. 4.0 uses SPAKE2 (P256-SHA256-HKDF-HMAC, verified against all
+  RFC 9382 test vectors): an eavesdropper learns nothing about the password and an
+  active attacker gets exactly one guess per connection. Forward secrecy is kept
+  (fresh scalars per session).
+- **Transcript-bound key confirmation.** The confirmation MACs are keyed from
+  `AAD = SHA-256(message 1 || message 2)`, so the hellos (version, options), the
+  `--tofu` identity key and the ML-KEM data are all authenticated; any change
+  aborts the handshake on both ends. `--tofu` now signs the transcript instead of
+  only the server's ephemeral key.
+- **Online guessing limits for `-K` servers.** `--auth-fail-limit N` (default 5)
+  refuses an address for 10 minutes after N failed passwords within 10 minutes;
+  `--max-per-ip N` (default 8) caps concurrent handlers per address. IPv6 clients
+  are grouped per /64. Blocks are always logged; failures with `-v`.
+- **Argon2id once per process.** The password scalar is derived before serving
+  connections, so a connection attempt no longer costs the server 19 MiB of
+  Argon2id work.
+
+### Changed
+- Handshake: 4 messages (server first). `--tofu`/`--pq` are announced in the hello;
+  a mismatch is reported as such (`FARM9_FAIL_CONFIG`) instead of a generic failure.
+- An endpoint that detects an older protocol answers with its own hello, so 3.x
+  peers print a version error instead of waiting for a timeout (except a 4.x UDP
+  client against a 3.x UDP server, which ends at `--handshake-timeout`).
+- Handler exit status 3 marks an authentication failure (used for `-K` accounting).
+- Shell completions and the man page list `--key-file`, `--max-clients`,
+  `--max-per-ip`, `--auth-fail-limit`, `--handshake-timeout`, `--socks-allow`.
+
+### Tests
+- SPAKE2 against all four RFC 9382 test vectors; invalid points rejected.
+- Handshake: v3 server/client rejected without hanging, option mismatch, wrong
+  password reported on the server, man-in-the-middle that changes the ML-KEM
+  ciphertext detected on both ends, transparent relay works.
+- `-K` limits: unit tests (IPv6 /64, lockout window and expiry, table churn) and
+  end-to-end tests (lockout refuses even the correct password; per-address cap).
+- New libFuzzer harness for the SPAKE2 peer message (`fuzz_spake2`).
+- 144 unit tests, 39 end-to-end tests, 4 VPN tests.
+
 ## [3.1.0] - 2026-11-15
 
 Security, reliability and packaging release. **Wire-compatible with 3.0.0**

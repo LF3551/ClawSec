@@ -14,7 +14,7 @@ ClawSec is a modern encrypted network tool that provides AES-256-GCM encryption 
 - Simpler for one-off connections
 
 ### Is ClawSec production-ready?
-ClawSec uses industry-standard cryptography (AES-256-GCM, X25519, Argon2id, HKDF) but has not been independently audited. Use for:
+ClawSec uses standard, well-reviewed cryptography (SPAKE2 per RFC 9382, AES-256-GCM, Argon2id, HKDF) but has not been independently audited. Use for:
 - Development/testing environments
 - Internal network transfers
 - Non-critical data transfer
@@ -98,9 +98,11 @@ sudo systemctl start clawsec
 
 ### Is ClawSec secure?
 ClawSec uses:
+- SPAKE2 password-authenticated key exchange (RFC 9382): no offline password guessing, forward secrecy
+- Transcript-bound mutual key confirmation
 - AES-256-GCM (NIST approved)
-- X25519 ECDHE (Perfect Forward Secrecy)
-- Argon2id password binding (libargon2)
+- Argon2id password scalar (libargon2)
+- Per-address limits and an authentication lockout for `-K` servers
 - Separate HKDF-derived keys per direction
 - Cryptographically secure random IVs
 - GCM authentication tags covering the frame header
@@ -137,9 +139,19 @@ Add the `-k` option with a password:
 Passwords don't match between client and server (detected during the handshake,
 both ends exit with status 1). Verify both use identical passwords.
 
-### "does not speak ClawSec protocol v3"
-The other side runs ClawSec 2.x (or is not ClawSec). 3.x and 2.x are not
-compatible: upgrade both ends. `clawsec --version` shows the protocol.
+### "the other end speaks protocol v3"
+The other side runs an older major release (or is not ClawSec). 4.x does not
+interoperate with 3.x or 2.x: upgrade both ends. `clawsec --version` shows
+the protocol.
+
+### "option mismatch"
+`--tofu` and `--pq` must be set identically on both ends.
+
+### Do I still need a strong password?
+Yes, but for a different reason than before 4.0: SPAKE2 makes offline
+guessing impossible, so an attacker has to connect once per guess. `-K`
+servers throttle that (`--auth-fail-limit`, `--max-per-ip`), but a random
+password (`openssl rand -base64 24`) makes it hopeless.
 
 ### Interactive programs (vim, nano) not working?
 Use `-e` (reverse shell mode, opt-in build — see above), which provides PTY support:
@@ -215,10 +227,10 @@ Yes. All traffic-shaping options together:
 Trust On First Use — like SSH's `known_hosts`. The server generates a persistent Ed25519 identity key. On first connection, the client saves the server's fingerprint. On reconnection, it verifies the fingerprint hasn't changed. If it has — you get a big warning (possible MITM).
 
 ### Do I need `--tofu` on both sides?
-Yes. The server signs its ephemeral key, the client verifies. Both must use `--tofu`.
+Yes. The server signs the handshake transcript with its identity key and the client verifies it. Both must use `--tofu`.
 
 ### What is `--pq`?
-Post-quantum hybrid key exchange. Adds ML-KEM-768 (CRYSTALS-Kyber) on top of X25519 ECDHE. Both classical and quantum-resistant shared secrets are combined, so the session key is secure against both classical and quantum adversaries ("Harvest Now, Decrypt Later" protection). Requires OpenSSL >= 3.5.
+Post-quantum hybrid key exchange. An ML-KEM-768 (FIPS 203) shared secret is mixed into the SPAKE2 session key, so recorded traffic stays confidential against a future quantum adversary ("harvest now, decrypt later"). The password check itself (SPAKE2 on P-256) is not post-quantum. Requires OpenSSL >= 3.5.
 
 ### Do I need `--pq` on both sides?
 Yes. Both sides must use `--pq` for the ML-KEM key encapsulation exchange to work. You can combine `--pq` with `--tofu` for identity verification + quantum resistance.
