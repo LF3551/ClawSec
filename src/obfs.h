@@ -29,6 +29,10 @@ int obfs_tls_connect(int fd);
  * otherwise shutdown(fd, SHUT_WR). Safe to call more than once. */
 void obfs_shutdown_write(int fd);
 
+/* Free the TLS camouflage session (SSL, SSL_CTX). Safe to call repeatedly;
+ * call after the socket is done. */
+void obfs_tls_cleanup(void);
+
 /*
  * Wrap raw data in HTTP-like framing before sending.
  * Returns bytes of payload on success, -1 on error.

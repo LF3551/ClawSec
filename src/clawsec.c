@@ -107,7 +107,7 @@ static char s_mux_host[256], s_mux_lport[8];       /* -p [host:]port with --mux 
 /* Handle one client connection (used by keep-open and normal mode) */
 /* Returns 0 on success, 1 if the session could not be set up or failed.
  * The return value becomes the exit status in single-session modes. */
-static int handle_client(int sockfd, const char *password, int is_server,
+static int handle_client_inner(int sockfd, const char *password, int is_server,
                           int send_first, const char *exec_prog,
                           const char *fwd_host, const char *fwd_port,
                           const char *peer_host, const char *peer_port) {
@@ -355,6 +355,18 @@ static int handle_client(int sockfd, const char *password, int is_server,
     close(sockfd);
     farm9crypt_cleanup();
     return 0;
+}
+
+/* One session: run it, then release per-session TLS state (the socket is
+ * already closed by handle_client_inner). */
+static int handle_client(int sockfd, const char *password, int is_server,
+                         int send_first, const char *exec_prog,
+                         const char *fwd_host, const char *fwd_port,
+                         const char *peer_host, const char *peer_port) {
+    int rc = handle_client_inner(sockfd, password, is_server, send_first, exec_prog,
+                                 fwd_host, fwd_port, peer_host, peer_port);
+    obfs_tls_cleanup();
+    return rc;
 }
 
 static void usage(const char *prog) {
