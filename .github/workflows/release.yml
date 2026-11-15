@@ -18,8 +18,9 @@ on:
         description: 'Existing release tag, e.g. v3.0.0'
         required: true
 
+# Least privilege: read-only by default; jobs that publish ask for more
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.event.release.tag_name || inputs.tag }}
@@ -115,6 +116,10 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write          # upload release assets
+      id-token: write          # Sigstore keyless signing (OIDC)
+      attestations: write      # SLSA build provenance
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -131,18 +136,44 @@ jobs:
           sha256sum clawsec-*.tar.gz > SHA256SUMS
           cat SHA256SUMS
 
+      # SLSA build provenance for every archive, stored by GitHub:
+      #   gh attestation verify clawsec-<ver>-<os>-<arch>.tar.gz -R LF3551/ClawSec
+      - name: Build provenance
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/clawsec-*.tar.gz
+
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+
+      # Keyless signature of the checksum list (identity = this workflow):
+      #   cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+      #     --certificate-identity-regexp '^https://github.com/LF3551/ClawSec/' \
+      #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+      - name: Sign checksums
+        run: |
+          cd dist
+          cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+          cp "${{ steps.provenance.outputs.bundle-path }}" "clawsec-${TAG#v}.provenance.sigstore.json"
+
       - name: Attach to release
         run: |
           cd dist
-          gh release upload "$TAG" clawsec-*.tar.gz SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" clawsec-*.tar.gz SHA256SUMS SHA256SUMS.sigstore.json \
+            "clawsec-${TAG#v}.provenance.sigstore.json" --clobber --repo "$GITHUB_REPOSITORY"
 
   packaging-checksums:
     needs: publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
+      # main is protected (PRs + required checks); the checksum commit is
+      # pushed with a dedicated deploy key, the only bypass of that ruleset
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
+          ssh-key: ${{ secrets.RELEASE_BOT_DEPLOY_KEY }}
 
       - name: Source tarball checksum
         id: src

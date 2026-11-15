@@ -102,6 +102,25 @@ Linux x86_64 and arm64 are fully static (no runtime dependencies, any
 distribution); macOS arm64 and x86_64 use Homebrew's `openssl@3` and `argon2`
 (`brew install openssl@3 argon2`, or use the tap above).
 
+**Verifying a download** (releases from 4.3.0 on are signed in CI with
+Sigstore; nothing to trust but GitHub's OIDC identity of the release workflow):
+
+```bash
+# checksums, signed keylessly by the release workflow
+cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/LF3551/ClawSec/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --ignore-missing -c SHA256SUMS
+
+# SLSA build provenance of an archive (which workflow and commit built it)
+gh attestation verify clawsec-<version>-linux-x86_64.tar.gz -R LF3551/ClawSec
+
+# Docker image signature (SBOM and provenance are attached to the image)
+cosign verify ghcr.io/lf3551/clawsec:<version> \
+  --certificate-identity-regexp '^https://github.com/LF3551/ClawSec/\.github/workflows/docker-publish\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ### Manual Build
 
 ```bash

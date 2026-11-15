@@ -17,12 +17,16 @@ env:
   IMAGE_NAME: ${{ github.repository }}
   DOCKERHUB_IMAGE: lf3551/clawsec
 
+permissions:
+  contents: read
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
+      packages: write          # push to ghcr.io
+      id-token: write          # Sigstore keyless signing (OIDC)
 
     steps:
       - name: Checkout
@@ -86,10 +90,28 @@ jobs:
             type=sha,enable=${{ github.event_name == 'release' }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: mode=max     # SLSA provenance attestation (BuildKit)
+          sbom: true               # SPDX SBOM attestation
           tags: ${{ steps.meta-both.outputs.tags || steps.meta-ghcr.outputs.tags }}
           labels: ${{ steps.meta-both.outputs.labels || steps.meta-ghcr.outputs.labels }}
+
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+
+      # Keyless signature of the pushed digest (identity = this workflow):
+      #   cosign verify ghcr.io/lf3551/clawsec:<version> \
+      #     --certificate-identity-regexp '^https://github.com/LF3551/ClawSec/' \
+      #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+      - name: Sign images
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta-both.outputs.tags || steps.meta-ghcr.outputs.tags }}
+        run: |
+          for image in $(echo "$TAGS" | sed 's/:[^:]*$//' | sort -u); do
+            cosign sign --yes "${image}@${DIGEST}"
+          done
