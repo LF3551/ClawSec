@@ -9,7 +9,7 @@
 #   make netbsd    NetBSD (pkgsrc in /usr/pkg), static
 #   make generic   any POSIX system; pass XFLAGS/XLIBS for include/lib paths
 #
-#   make test / test-macos / test-asan / e2e / e2e-vpn / werror / clean
+#   make test / test-macos / test-asan / fuzz / e2e / e2e-vpn / werror / clean
 #
 # Optional:
 #   DFLAGS=-DGAPING_SECURITY_HOLE   build -e (run a program per connection;
@@ -136,6 +136,25 @@ test-asan:
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 	$(MAKE) -e test HARDEN= CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
 
+# libFuzzer harnesses (needs clang): the record layer and all parsers,
+# under ASan + UBSan. FUZZ_SECONDS per harness; the corpus is kept in
+# fuzz-corpus/ between runs.
+FUZZ_SECONDS = 60
+FUZZ_FLAGS   = -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined
+fuzz:
+	$(MAKE) clean
+	$(MAKE) -e $(TEST_OBJS) CC=clang HARDEN= XFLAGS=-DLINUX \
+		CFLAGS='$(FUZZ_FLAGS) -fsanitize=fuzzer-no-link'
+	clang $(FUZZ_FLAGS) -fsanitize=fuzzer -I. -I$(TESTDIR)/fuzz -o fuzz_frame \
+		$(TESTDIR)/fuzz/fuzz_frame.c $(TEST_OBJS) $(XLIBS)
+	clang $(FUZZ_FLAGS) -fsanitize=fuzzer -I. -I$(TESTDIR)/fuzz -o fuzz_parsers \
+		$(TESTDIR)/fuzz/fuzz_parsers.c $(TEST_OBJS) $(XLIBS)
+	mkdir -p fuzz-corpus/frame fuzz-corpus/parsers
+	UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=1 \
+		./fuzz_frame -max_total_time=$(FUZZ_SECONDS) -print_final_stats=1 fuzz-corpus/frame
+	UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=1 \
+		./fuzz_parsers -max_total_time=$(FUZZ_SECONDS) -print_final_stats=1 fuzz-corpus/parsers
+
 # End-to-end tests against the built ./clawsec binary (Linux)
 e2e:
 	bash $(TESTDIR)/e2e.sh ./clawsec
@@ -145,4 +164,4 @@ e2e-vpn:
 	bash $(TESTDIR)/e2e_vpn.sh ./clawsec
 
 clean:
-	rm -f clawsec test_clawsec *.o
+	rm -f clawsec test_clawsec fuzz_frame fuzz_parsers *.o

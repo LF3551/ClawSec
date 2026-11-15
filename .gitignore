@@ -28,3 +28,9 @@ releases/*/
 # Temporary files
 *.tmp
 *.bak
+fuzz-corpus/
+crash-*
+leak-*
+timeout-*
+src/fuzz_frame
+src/fuzz_parsers
