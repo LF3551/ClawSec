@@ -85,6 +85,14 @@ void farm9crypt_cleanup();
  * Returns 0 on success, -1 if not initialized or bad params. */
 int farm9crypt_export_udp_keys(unsigned char tx_key[32], unsigned char rx_key[32]);
 
+/* Why the last handshake failed, for callers that must tell permanent
+ * failures (no point in retrying) from network errors. */
+#define FARM9_FAIL_NONE    0   /* success, or a transport/network error */
+#define FARM9_FAIL_AUTH    1   /* key confirmation failed: wrong password or tampering */
+#define FARM9_FAIL_VERSION 2   /* peer speaks another protocol version / not ClawSec */
+int  farm9crypt_last_failure(void);
+void farm9crypt_set_failure(int reason);   /* used by the handshake code */
+
 /* Get session fingerprint (identical on both ends of a session) */
 /* Returns bytes written, or -1 on error */
 int farm9crypt_get_fingerprint(unsigned char *out, size_t len);

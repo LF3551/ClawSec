@@ -100,6 +100,10 @@ static unsigned char confirm_tx_key[FARM9_KEY_LEN];   /* wiped after confirmatio
 static unsigned char confirm_rx_key[FARM9_KEY_LEN];
 static uint64_t send_seq = 0;    /* Next outgoing sequence number */
 static uint64_t recv_seq = 0;    /* Next expected incoming sequence number */
+static int last_failure = FARM9_FAIL_NONE;
+
+extern "C" int farm9crypt_last_failure(void) { return last_failure; }
+extern "C" void farm9crypt_set_failure(int reason) { last_failure = reason; }
 
 /* Secure memory cleanup (not optimized away) */
 static void secure_zero(void* ptr, size_t len) {
@@ -233,6 +237,7 @@ static int confirm_session(int sockfd, const char* label) {
         goto out;
     }
     if (CRYPTO_memcmp(got, expect, CONFIRM_LEN) != 0) {
+        last_failure = FARM9_FAIL_AUTH;
         fprintf(stderr, "[%s] Error: authentication failed - wrong password "
                         "(or the handshake was tampered with)\n", label);
         goto out;
@@ -299,6 +304,7 @@ extern "C" int farm9crypt_generate_salt(unsigned char* salt_out, size_t len) {
  */
 extern "C" int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pass_len, int server_mode) {
     unsigned char key[FARM9_KEY_LEN];
+    last_failure = FARM9_FAIL_NONE;
     if (ecdhe_handshake(sockfd, password, pass_len, server_mode, key) < 0) {
         secure_zero(key, sizeof(key));
         return -1;
@@ -310,6 +316,7 @@ extern "C" int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pa
 extern "C" int farm9crypt_init_ecdhe_tofu(int sockfd, const char* password, size_t pass_len,
                                            int server_mode, const char *peer_host, const char *peer_port) {
     unsigned char key[FARM9_KEY_LEN];
+    last_failure = FARM9_FAIL_NONE;
     if (ecdhe_handshake_tofu(sockfd, password, pass_len, server_mode,
                               peer_host, peer_port, key) < 0) {
         secure_zero(key, sizeof(key));
@@ -322,6 +329,7 @@ extern "C" int farm9crypt_init_ecdhe_tofu(int sockfd, const char* password, size
 extern "C" int farm9crypt_init_ecdhe_pq(int sockfd, const char* password, size_t pass_len,
                                          int server_mode, const char *peer_host, const char *peer_port) {
     unsigned char key[FARM9_KEY_LEN];
+    last_failure = FARM9_FAIL_NONE;
     if (ecdhe_handshake_pq(sockfd, password, pass_len, server_mode,
                             peer_host, peer_port, key) < 0) {
         secure_zero(key, sizeof(key));
