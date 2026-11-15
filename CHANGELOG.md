@@ -2,6 +2,21 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [Unreleased]
+
+### Security
+- TUN/VPN mode no longer runs any command through a shell: `ip`, `ifconfig`,
+  `route`, `iptables`, `nft`, `pfctl` and `sysctl` are executed with
+  `fork()`/`execvp()` and an argument vector. Input was already validated in 3.0.0;
+  this removes the shell from the path entirely (defence in depth) and resolves the
+  three open CodeQL `cpp/command-line-injection` alerts in `src/tun.c`.
+
+### Changed
+- Release automation fixes after 3.0.0: Linux release binaries are built on Ubuntu
+  24.04 (older glibc baseline); the `--pq` e2e scenario is skipped where OpenSSL has
+  no ML-KEM; Docker images are published for linux/amd64 and linux/arm64 and can be
+  re-published for an existing tag.
+
 ## [3.0.0] - 2026-11-15
 
 Major release: security fixes that required a new, incompatible wire protocol.
