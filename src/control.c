@@ -1,6 +1,9 @@
 /*
  * control.c — status socket of a -K server (see control.h)
  */
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE           /* O_NOFOLLOW */
+#endif
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
 #include <stdio.h>
