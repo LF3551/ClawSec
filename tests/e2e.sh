@@ -75,6 +75,15 @@ check() {   # check <name> <expected-file> <actual-file>
     fi
 }
 
+# Servers need a stdin that stays open but never delivers data (otherwise
+# they half-close early). One FIFO with a single long-lived writer serves all
+# of them; killing the writer at cleanup closes it. (`< <(sleep N)` left
+# orphaned sleeps holding our stdout/stderr, so callers waited N more seconds.)
+HOLD="$WORK/hold.fifo"
+mkfifo "$HOLD"
+sleep 3600 > "$HOLD" 2>/dev/null &
+PIDS+=($!)
+
 PAYLOAD="$WORK/payload.bin"
 head -c 300000 /dev/urandom > "$PAYLOAD"
 
@@ -88,7 +97,7 @@ stream_test() {   # stream_test <label> [extra options...]
     local port out srv crc src
     port=$(free_port); out="$WORK/stream.out"; rm -f "$out"
     # Keep the server's stdin open (no early half-close) without a pipeline
-    timeout 25 "$BIN" -l -p "$port" -k "$KEY" "$@" < <(sleep 20) > "$out" 2>/dev/null &
+    timeout 25 "$BIN" -l -p "$port" -k "$KEY" "$@" < "$HOLD" > "$out" 2>/dev/null &
     srv=$!
     wait_port "$port" || { echo "  [E2E] $label ... FAIL (server not listening)"; FAIL=$((FAIL + 1)); kill "$srv" 2>/dev/null; return; }
     timeout 20 "$BIN" -k "$KEY" "$@" 127.0.0.1 "$port" < "$PAYLOAD" > /dev/null 2>&1
@@ -141,10 +150,11 @@ fi
 #    under load and UDP has no retransmission, by design) ───────────────
 P=$(free_port); rm -f "$WORK/udp.out"
 head -c 20000 "$PAYLOAD" > "$WORK/udp.in"
-timeout 15 "$BIN" -u -l -p "$P" -k "$KEY" < <(sleep 12) > "$WORK/udp.out" 2>/dev/null &
+timeout 15 "$BIN" -u -l -p "$P" -k "$KEY" < "$HOLD" > "$WORK/udp.out" 2>/dev/null &
 SRV=$!
 sleep 0.5
-{ cat "$WORK/udp.in"; sleep 2; } | timeout 10 "$BIN" -u -k "$KEY" 127.0.0.1 "$P" >/dev/null 2>&1
+# UDP has no end-of-stream: the client runs until its timeout
+{ cat "$WORK/udp.in"; sleep 1; } | timeout 3 "$BIN" -u -k "$KEY" 127.0.0.1 "$P" >/dev/null 2>&1
 kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
 check "UDP mode (-u)" "$WORK/udp.in" "$WORK/udp.out"
 
@@ -172,7 +182,7 @@ PY
     local srv=$!
     wait_port "$p"
     # stdin stays open (no early half-close) without making us wait for it
-    timeout 20 "$BIN" -k "$KEY" "$@" 127.0.0.1 "$p" < <(sleep 20) > "$out" 2>/dev/null
+    timeout 20 "$BIN" -k "$KEY" "$@" 127.0.0.1 "$p" < "$HOLD" > "$out" 2>/dev/null
     kill "$srv" "$tgt" 2>/dev/null; wait "$srv" "$tgt" 2>/dev/null
     check "$label" "$PAYLOAD" "$out"
 }
@@ -188,6 +198,34 @@ wait_port "$LP"
 timeout 15 curl -s -o "$WORK/mux.out" "http://127.0.0.1:$LP$URL_PATH"
 check "--mux -L port forwarding" "$PAYLOAD" "$WORK/mux.out"
 expect_loopback "--mux local port (default)" "$LP"
+
+# 100 sequential connections through one tunnel: stream ids must be reused
+# (3.0.0 ran out after 63)
+MUX_OK=0
+for _ in $(seq 100); do
+    timeout 5 curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$LP/" | grep -q 200 && MUX_OK=$((MUX_OK + 1))
+done
+if [ "$MUX_OK" -eq 100 ]; then
+    echo "  [E2E] --mux reuses stream ids (100 connections) ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --mux reuses stream ids (100 connections) ... FAIL ($MUX_OK/100)"; FAIL=$((FAIL + 1))
+fi
+
+# 20 parallel downloads through the same tunnel (wait for these PIDs only:
+# job numbers would also match the long-running servers started above)
+PAR_PIDS=()
+for i in $(seq 20); do
+    timeout 20 curl -s -o "$WORK/mux-par-$i.out" "http://127.0.0.1:$LP$URL_PATH" &
+    PAR_PIDS+=($!)
+done
+wait "${PAR_PIDS[@]}" 2>/dev/null
+PAR_OK=1
+for i in $(seq 20); do cmp -s "$PAYLOAD" "$WORK/mux-par-$i.out" || PAR_OK=0; done
+if [ "$PAR_OK" -eq 1 ]; then
+    echo "  [E2E] --mux 20 parallel downloads ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --mux 20 parallel downloads ... FAIL"; FAIL=$((FAIL + 1))
+fi
 
 # ── --socks: SOCKS5 through the tunnel ─────────────────────────────────
 P=$(free_port); SP=$(free_port)
@@ -296,7 +334,7 @@ fi
 # ── Password sources: --key-file, CLAWSEC_PASSWORD; -k scrubbed from argv ─
 printf '%s\n' "$KEY" > "$WORK/key"; chmod 600 "$WORK/key"
 P=$(free_port); rm -f "$WORK/pw.out"
-timeout 15 "$BIN" -l -p "$P" --key-file "$WORK/key" < <(sleep 10) > "$WORK/pw.out" 2>/dev/null &
+timeout 15 "$BIN" -l -p "$P" --key-file "$WORK/key" < "$HOLD" > "$WORK/pw.out" 2>/dev/null &
 SRV=$!
 wait_port "$P"
 CLAWSEC_PASSWORD="$KEY" timeout 10 "$BIN" 127.0.0.1 "$P" < "$PAYLOAD" >/dev/null 2>&1
@@ -309,7 +347,7 @@ else
 fi
 
 P=$(free_port)
-"$BIN" -l -p "$P" -k "$KEY" < <(sleep 10) >/dev/null 2>&1 &
+"$BIN" -l -p "$P" -k "$KEY" < "$HOLD" >/dev/null 2>&1 &
 SRV=$!
 wait_port "$P"
 if ! tr '\0' ' ' < "/proc/$SRV/cmdline" | grep -qF -- "$KEY"; then
@@ -330,7 +368,7 @@ silent_client() {   # silent_client <port> <seconds>: connect and say nothing
     python3 -c 'import socket,sys,time; s=socket.create_connection(("127.0.0.1",int(sys.argv[1]))); time.sleep(float(sys.argv[2]))' "$1" "$2" &
 }
 P=$(free_port)
-timeout 15 "$BIN" -l -p "$P" -k "$KEY" --handshake-timeout 2 < <(sleep 14) >/dev/null 2>"$WORK/hs.err" &
+timeout 15 "$BIN" -l -p "$P" -k "$KEY" --handshake-timeout 2 < "$HOLD" >/dev/null 2>"$WORK/hs.err" &
 SRV=$!
 wait_port "$P"
 silent_client "$P" 12; SIL=$!
@@ -367,7 +405,7 @@ P=$(free_port)
 "$BIN" -l -p "$P" -k "$KEY" -K >/dev/null 2>&1 & PIDS+=($!)
 wait_port "$P"
 START=$SECONDS
-timeout 20 "$BIN" -k "wrong-password-x" --persistent 127.0.0.1 "$P" < <(sleep 30) >/dev/null 2>"$WORK/pers.err"
+timeout 20 "$BIN" -k "wrong-password-x" --persistent 127.0.0.1 "$P" < "$HOLD" >/dev/null 2>"$WORK/pers.err"
 PRC=$?
 if [ "$PRC" -eq 1 ] && [ $((SECONDS - START)) -le 5 ] && grep -q 'giving up' "$WORK/pers.err"; then
     echo "  [E2E] --persistent gives up on a wrong password ... PASS"; PASS=$((PASS + 1))
@@ -394,7 +432,7 @@ fi
 
 # ── Wrong password: no data, explicit error, failure exit on both ends ───
 P=$(free_port); rm -f "$WORK/wrong.out"
-timeout 15 "$BIN" -l -p "$P" -k "$KEY" < <(sleep 10) > "$WORK/wrong.out" 2>"$WORK/wrong-srv.err" &
+timeout 15 "$BIN" -l -p "$P" -k "$KEY" < "$HOLD" > "$WORK/wrong.out" 2>"$WORK/wrong-srv.err" &
 SRV=$!
 wait_port "$P"
 timeout 10 "$BIN" -k "not-the-password" 127.0.0.1 "$P" < "$PAYLOAD" >/dev/null 2>"$WORK/wrong-cli.err"
