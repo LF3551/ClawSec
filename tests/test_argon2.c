@@ -5,8 +5,41 @@
 #include "argon2kdf.h"
 
 void test_argon2_available(void) {
-    TEST_BEGIN("Argon2id is available") {
-        if (!argon2_available()) TEST_SKIP("OpenSSL < 3.2");
+    TEST_BEGIN("Argon2id is available (libargon2)") {
+        ASSERT_EQ(argon2_available(), 1, "Argon2id must always be available");
+    } TEST_END;
+}
+
+/* Known-answer test: the Argon2id parameters are part of the wire protocol.
+ * If this changes, every build derives different keys. The vector matches
+ * both libargon2 and OpenSSL's independent ARGON2ID implementation. */
+static const unsigned char KAT_KEY[32] = {
+    0xd0, 0x2a, 0x28, 0x4a, 0xe8, 0x0d, 0xe4, 0xeb,
+    0xb7, 0xf5, 0x8d, 0x7f, 0xd9, 0xf9, 0x3f, 0xe4,
+    0xac, 0xc1, 0x8d, 0xc3, 0xac, 0xdf, 0x72, 0x46,
+    0x48, 0x07, 0x78, 0x92, 0x0e, 0x9e, 0xf2, 0xeb,
+};
+static const char *KAT_PASS = "ClawSec KDF test vector";
+
+void test_argon2_known_answer(void) {
+    TEST_BEGIN("Argon2id known-answer vector (t=3, m=19 MiB, p=1)") {
+        unsigned char salt[16], key[32];
+        for (int i = 0; i < 16; i++) salt[i] = (unsigned char)i;
+        ASSERT_EQ(kdf_derive(KAT_PASS, strlen(KAT_PASS), salt, 16, key, 32), 0, "derive");
+        ASSERT(memcmp(key, KAT_KEY, 32) == 0, "Argon2id output changed: protocol break");
+    } TEST_END;
+}
+
+void test_argon2_matches_openssl(void) {
+    TEST_BEGIN("libargon2 matches OpenSSL ARGON2ID") {
+        unsigned char salt[32], k1[32], k2[32];
+        for (int i = 0; i < 32; i++) salt[i] = (unsigned char)(0xA0 + i);
+        const char *pw = "cross-check password";
+        int rc = kdf_derive_openssl(pw, strlen(pw), salt, sizeof(salt), k2, 32);
+        if (rc == -2) TEST_SKIP("OpenSSL < 3.2 has no Argon2");
+        ASSERT_EQ(rc, 0, "OpenSSL derive");
+        ASSERT_EQ(kdf_derive(pw, strlen(pw), salt, sizeof(salt), k1, 32), 0, "libargon2 derive");
+        ASSERT(memcmp(k1, k2, 32) == 0, "implementations disagree");
     } TEST_END;
 }
 

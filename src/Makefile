@@ -16,7 +16,7 @@
 DFLAGS =
 CFLAGS = -O
 XFLAGS =
-XLIBS = -lssl -lcrypto -lstdc++ -lz
+XLIBS = -lssl -lcrypto -largon2 -lstdc++ -lz
 
 
 # -Bstatic for sunos,  -static for gcc, etc.  You want this, trust me.
@@ -76,12 +76,12 @@ aix:
 
 linux:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX' \
-	XLIBS='-lssl -lcrypto -lutil -lstdc++ -lz' STATIC=
+	XLIBS='-lssl -lcrypto -largon2 -lutil -lstdc++ -lz' STATIC=
 
 macos:
 	make -e $(ALL) $(MFLAGS) \
-	XFLAGS='-I/opt/homebrew/opt/openssl@3/include' \
-	XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++ -lz' STATIC=
+	XFLAGS='-I/opt/homebrew/opt/openssl@3/include -I/opt/homebrew/opt/argon2/include' \
+	XLIBS='-L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/argon2/lib -lssl -lcrypto -largon2 -lstdc++ -lz' STATIC=
 
 
 
@@ -97,15 +97,15 @@ osf:
 
 # virtually the same as netbsd/bsd44lite/whatever
 freebsd:
-	make -e $(ALL) $(MFLAGS) XFLAGS='-DFREEBSD' STATIC=-static \
-	XLIBS='-lssl -lcrypto -lstdc++ -lz'
+	make -e $(ALL) $(MFLAGS) XFLAGS='-DFREEBSD -I/usr/local/include' STATIC=-static \
+	XLIBS='-L/usr/local/lib -lssl -lcrypto -largon2 -lpthread -lstdc++ -lz'
 
 bsdi:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DBSDI' STATIC=-Bstatic
 
 netbsd:
-	make -e $(ALL) $(MFLAGS) XFLAGS='-DNETBSD' STATIC=-static \
-	XLIBS='-lssl -lcrypto -lstdc++ -lz'
+	make -e $(ALL) $(MFLAGS) XFLAGS='-DNETBSD -I/usr/pkg/include' STATIC=-static \
+	XLIBS='-L/usr/pkg/lib -lssl -lcrypto -largon2 -lpthread -lstdc++ -lz'
 openbsd:
 	@echo "use: make netbsd"
 # finally got to an hpux box, which turns out to be *really* warped. 
@@ -195,7 +195,7 @@ generic:
 
 alpine:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DLINUX -DGENERIC' \
-	XLIBS='-lssl -lcrypto -lutil -lstdc++ -lz' STATIC=
+	XLIBS='-lssl -lcrypto -largon2 -lutil -lstdc++ -lz' STATIC=
 
 
 # Still at large: dgux dynix ???
@@ -237,6 +237,6 @@ e2e-vpn:
 
 test-macos:
 	make -e test \
-		XFLAGS='-I/opt/homebrew/opt/openssl@3/include' \
-		XLIBS='-L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lstdc++ -lz'
+		XFLAGS='-I/opt/homebrew/opt/openssl@3/include -I/opt/homebrew/opt/argon2/include' \
+		XLIBS='-L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/argon2/lib -lssl -lcrypto -largon2 -lstdc++ -lz'
 

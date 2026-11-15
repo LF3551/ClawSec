@@ -137,6 +137,8 @@ extern void test_pq_tofu_ecdhe_roundtrip(void);
 
 /* test_argon2.c */
 extern void test_argon2_available(void);
+extern void test_argon2_known_answer(void);
+extern void test_argon2_matches_openssl(void);
 extern void test_argon2_derive(void);
 extern void test_argon2_deterministic(void);
 extern void test_argon2_different_passwords(void);
@@ -317,6 +319,8 @@ int main(void) {
 
     /* Argon2id KDF tests */
     test_argon2_available();
+    test_argon2_known_answer();
+    test_argon2_matches_openssl();
     test_argon2_derive();
     test_argon2_deterministic();
     test_argon2_different_passwords();

@@ -34,7 +34,7 @@ jobs:
           arch=('x86_64' 'aarch64')
           url="https://github.com/LF3551/ClawSec"
           license=('BSD')
-          depends=('openssl')
+          depends=('openssl' 'argon2' 'zlib')
           makedepends=('gcc' 'make')
           source=("${pkgname}-${pkgver}.tar.gz::https://github.com/LF3551/ClawSec/archive/refs/tags/v${pkgver}.tar.gz")
           sha256sums=('${{ steps.sha.outputs.sha256 }}')
@@ -43,7 +43,7 @@ jobs:
               cd "ClawSec-${pkgver}/src"
               make -e clawsec \
                   XFLAGS="" \
-                  XLIBS="-lssl -lcrypto -lstdc++ -lz"
+                  XLIBS="-lssl -lcrypto -largon2 -lstdc++ -lz"
           }
 
           package() {
@@ -70,6 +70,8 @@ jobs:
           	makedepends = gcc
           	makedepends = make
           	depends = openssl
+          	depends = argon2
+          	depends = zlib
           	source = clawsec-${VER}.tar.gz::https://github.com/LF3551/ClawSec/archive/refs/tags/v${VER}.tar.gz
           	sha256sums = ${SHA}
 
@@ -84,9 +86,11 @@ jobs:
           mkdir -p ~/.ssh
           echo "$AUR_SSH_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
-          echo "Host aur.archlinux.org" >> ~/.ssh/config
-          echo "  IdentityFile ~/.ssh/aur" >> ~/.ssh/config
-          echo "  User aur" >> ~/.ssh/config
+          {
+            echo "Host aur.archlinux.org"
+            echo "  IdentityFile ~/.ssh/aur"
+            echo "  User aur"
+          } >> ~/.ssh/config
           ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
 
           git clone ssh://aur@aur.archlinux.org/clawsec.git /tmp/aur-repo

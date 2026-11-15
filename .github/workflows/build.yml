@@ -15,7 +15,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libssl-dev zlib1g-dev build-essential
+        sudo apt-get install -y libssl-dev libargon2-dev zlib1g-dev build-essential
     
     - name: Build
       run: |
@@ -61,7 +61,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libssl-dev zlib1g-dev build-essential
+        sudo apt-get install -y libssl-dev libargon2-dev zlib1g-dev build-essential
 
     - name: Unit tests under AddressSanitizer + UndefinedBehaviorSanitizer
       run: |
@@ -75,7 +75,7 @@ jobs:
     
     - name: Install dependencies
       run: |
-        brew install openssl@3
+        brew install openssl@3 argon2
     
     - name: Build
       run: |

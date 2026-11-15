@@ -353,7 +353,7 @@ int obfs_tls_connect(int fd) {
 
     SSL_CTX_set_min_proto_version(g_ssl_ctx, TLS1_3_VERSION);
     tls_ctx_common(g_ssl_ctx);
-    /* No cert verification — the inner ECDHE+PBKDF2 layer provides authentication */
+    /* No cert verification — the inner ECDHE + Argon2id layer provides authentication */
     SSL_CTX_set_verify(g_ssl_ctx, SSL_VERIFY_NONE, NULL);
 
     /* Browser fingerprint: reshape ClientHello to match a real browser */
