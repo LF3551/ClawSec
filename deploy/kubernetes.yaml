@@ -3,8 +3,11 @@ kind: Secret
 metadata:
   name: clawsec-secret
 type: Opaque
+# Create it instead of committing a value:
+#   kubectl create secret generic clawsec-secret \
+#     --from-literal=password="$(openssl rand -base64 24)"
 stringData:
-  password: "ChangeThisPassword"
+  password: "REPLACE-WITH-A-RANDOM-PASSWORD"
 ---
 apiVersion: v1
 kind: Service
@@ -38,15 +41,15 @@ spec:
         image: clawsec:latest
         ports:
         - containerPort: 8888
+        # The password is read from CLAWSEC_PASSWORD (not visible in the
+        # process list, unlike -k)
         args:
           - "-l"
           - "-p"
           - "8888"
-          - "-k"
-          - "$(CLAW_PASSWORD)"
           - "-v"
         env:
-        - name: CLAW_PASSWORD
+        - name: CLAWSEC_PASSWORD
           valueFrom:
             secretKeyRef:
               name: clawsec-secret

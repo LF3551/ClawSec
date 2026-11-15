@@ -7,7 +7,11 @@ Type=simple
 User=clawsec
 Group=clawsec
 WorkingDirectory=/opt/clawsec
-ExecStart=/opt/clawsec/clawsec -l -p 8888 -k ${CLAW_PASSWORD}
+# The password is a systemd credential: put it in /etc/clawsec/password
+# (root:root, mode 0600, e.g. `openssl rand -base64 24`). systemd exposes it
+# to the service only, and it never appears on the command line.
+LoadCredential=password:/etc/clawsec/password
+ExecStart=/opt/clawsec/clawsec -l -p 8888 --key-file ${CREDENTIALS_DIRECTORY}/password
 Restart=on-failure
 RestartSec=5s
 
@@ -17,10 +21,6 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/log/clawsec
-
-# Environment
-Environment="CLAW_PASSWORD=ChangeThisPassword"
-EnvironmentFile=-/etc/clawsec/clawsec.env
 
 [Install]
 WantedBy=multi-user.target
