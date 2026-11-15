@@ -112,20 +112,51 @@ static void grab_banner(const char *host, int port, int af,
 }
 
 /*
- * SYN scan using raw socket (requires root/CAP_NET_RAW).
- * Returns 1 if raw socket available, 0 if not (fallback needed).
+ * SYN (half-open) scan with a raw socket: Linux only, needs root or
+ * CAP_NET_RAW. Returns 1 if it ran, 0 if unavailable (caller falls back to
+ * the connect scan). No TCP connection is completed, so services do not see
+ * an accepted connection; the kernel answers the SYN-ACK with RST.
  */
+#ifdef __linux__
+/* RFC 1071 one's-complement sum */
+static uint32_t csum_add(uint32_t sum, const void *data, size_t len) {
+    const unsigned char *p = (const unsigned char *)data;
+    while (len > 1) { sum += (uint32_t)((p[0] << 8) | p[1]); p += 2; len -= 2; }
+    if (len) sum += (uint32_t)(p[0] << 8);
+    return sum;
+}
+
+static uint16_t csum_fold(uint32_t sum) {
+    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+    return (uint16_t)~sum;
+}
+
+/* TCP checksum over the IPv4 pseudo-header + segment */
+static uint16_t tcp_checksum(struct in_addr src, struct in_addr dst,
+                             const unsigned char *seg, size_t len) {
+    unsigned char pseudo[12];
+    memcpy(pseudo, &src.s_addr, 4);
+    memcpy(pseudo + 4, &dst.s_addr, 4);
+    pseudo[8] = 0;
+    pseudo[9] = IPPROTO_TCP;
+    pseudo[10] = (unsigned char)(len >> 8);
+    pseudo[11] = (unsigned char)(len & 0xFF);
+    uint32_t sum = csum_add(0, pseudo, sizeof(pseudo));
+    sum = csum_add(sum, seg, len);
+    return htons(csum_fold(sum));
+}
+
+static int64_t now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
 static int try_syn_scan(const char *host, int *ports, int nports,
                         int jitter_ms, int timeout_ms, int *open_count) {
-    (void)timeout_ms;
-
-    /* Try to create raw socket */
+    if (g_af_family == AF_INET6) return 0;          /* IPv4 only */
     int rawfd = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
-    if (rawfd < 0) return 0;  /* Not root — fallback to connect scan */
-
-    struct sockaddr_in target;
-    memset(&target, 0, sizeof(target));
-    target.sin_family = AF_INET;
+    if (rawfd < 0) return 0;                        /* not root: fall back */
 
     struct addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
@@ -135,80 +166,75 @@ static int try_syn_scan(const char *host, int *ports, int nports,
         close(rawfd);
         return 0;
     }
+    struct sockaddr_in target;
+    memset(&target, 0, sizeof(target));
+    target.sin_family = AF_INET;
     target.sin_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr;
     freeaddrinfo(res);
 
-    /* Get local address for source IP */
-    int probe_sock = socket(AF_INET, SOCK_DGRAM, 0);
-    struct sockaddr_in local_addr;
-    memset(&local_addr, 0, sizeof(local_addr));
-    local_addr.sin_family = AF_INET;
-    local_addr.sin_port = htons(80);
-    local_addr.sin_addr = target.sin_addr;
-    connect(probe_sock, (struct sockaddr *)&local_addr, sizeof(local_addr));
-    socklen_t slen = sizeof(local_addr);
-    getsockname(probe_sock, (struct sockaddr *)&local_addr, &slen);
-    close(probe_sock);
+    /* Source address the kernel would use towards the target */
+    struct sockaddr_in local;
+    memset(&local, 0, sizeof(local));
+    int probe = socket(AF_INET, SOCK_DGRAM, 0);
+    if (probe < 0) { close(rawfd); return 0; }
+    struct sockaddr_in to = target;
+    to.sin_port = htons(80);
+    socklen_t slen = sizeof(local);
+    if (connect(probe, (struct sockaddr *)&to, sizeof(to)) < 0 ||
+        getsockname(probe, (struct sockaddr *)&local, &slen) < 0) {
+        close(probe); close(rawfd);
+        return 0;
+    }
+    close(probe);
 
-    uint16_t src_port = 40000 + (rand() % 20000);
-
+    uint16_t src_port = (uint16_t)(40000 + (rand() % 20000));
     *open_count = 0;
 
     for (int i = 0; i < nports; i++) {
-        target.sin_port = htons(ports[i]);
+        target.sin_port = htons((uint16_t)ports[i]);
 
-        /* Build SYN packet */
-        unsigned char pkt[40];
-        memset(pkt, 0, sizeof(pkt));
-        struct tcphdr *tcp = (struct tcphdr *)pkt;
+        /* 20-byte TCP header with SYN */
+        unsigned char seg[20];
+        memset(seg, 0, sizeof(seg));
+        uint32_t seq = (uint32_t)rand();
+        seg[0] = (unsigned char)(src_port >> 8); seg[1] = (unsigned char)src_port;
+        seg[2] = (unsigned char)(ports[i] >> 8); seg[3] = (unsigned char)ports[i];
+        seg[4] = (unsigned char)(seq >> 24); seg[5] = (unsigned char)(seq >> 16);
+        seg[6] = (unsigned char)(seq >> 8);  seg[7] = (unsigned char)seq;
+        seg[12] = 5 << 4;                    /* data offset: 5 words */
+        seg[13] = 0x02;                      /* SYN */
+        seg[14] = 0x04; seg[15] = 0x00;      /* window 1024 */
+        uint16_t ck = tcp_checksum(local.sin_addr, target.sin_addr, seg, sizeof(seg));
+        memcpy(seg + 16, &ck, 2);
 
-#ifdef __APPLE__
-        tcp->th_sport = htons(src_port);
-        tcp->th_dport = htons(ports[i]);
-        tcp->th_seq = htonl(rand());
-        tcp->th_off = 5;
-        tcp->th_flags = TH_SYN;
-        tcp->th_win = htons(1024);
-#else
-        tcp->source = htons(src_port);
-        tcp->dest = htons(ports[i]);
-        tcp->seq = htonl(rand());
-        tcp->doff = 5;
-        tcp->syn = 1;
-        tcp->window = htons(1024);
-#endif
+        if (sendto(rawfd, seg, sizeof(seg), 0, (struct sockaddr *)&target, sizeof(target)) < 0) {
+            close(rawfd);
+            return 0;
+        }
 
-        sendto(rawfd, pkt, 20, 0, (struct sockaddr *)&target, sizeof(target));
-
-        /* Wait for response with short timeout */
-        int rfd[1] = { rawfd }, rdy[1];
-        int ret = wait_readable(rfd, rdy, 1, timeout_ms);
-        if (ret > 0) {
+        /* Collect packets until the reply for this probe or the deadline */
+        int64_t deadline = now_ms() + timeout_ms;
+        for (;;) {
+            int left = (int)(deadline - now_ms());
+            if (left <= 0) break;
+            int rfd[1] = { rawfd }, rdy[1];
+            if (wait_readable(rfd, rdy, 1, left) <= 0) break;
             unsigned char buf[128];
             ssize_t n = recv(rawfd, buf, sizeof(buf), 0);
-            if (n >= 40) {
-                /* IP header (20 bytes) + TCP header */
-                struct tcphdr *resp = (struct tcphdr *)(buf + 20);
-                uint16_t resp_sport, resp_flags;
-#ifdef __APPLE__
-                resp_sport = ntohs(resp->th_sport);
-                resp_flags = resp->th_flags;
-#else
-                resp_sport = ntohs(resp->source);
-                resp_flags = (resp->syn << 1) | resp->ack;
-#endif
-                if ((int)resp_sport == ports[i]) {
-#ifdef __APPLE__
-                    if (resp_flags & TH_SYN && resp_flags & TH_ACK) {
-#else
-                    if (resp->syn && resp->ack) {
-#endif
-                        printf("  %5d/tcp  open\n", ports[i]);
-                        (*open_count)++;
-                        /* Send RST to not complete handshake */
-                    }
-                }
+            if (n < 20) continue;
+            size_t ihl = (size_t)(buf[0] & 0x0F) * 4;   /* IP header length */
+            if (ihl < 20 || (size_t)n < ihl + 20) continue;
+            struct in_addr from;
+            memcpy(&from.s_addr, buf + 12, 4);
+            const unsigned char *t = buf + ihl;
+            int sport = (t[0] << 8) | t[1], dport = (t[2] << 8) | t[3];
+            if (from.s_addr != target.sin_addr.s_addr || sport != ports[i] || dport != src_port)
+                continue;                               /* someone else's packet */
+            if ((t[13] & 0x12) == 0x12) {               /* SYN+ACK: open */
+                printf("  %5d/tcp  open\n", ports[i]);
+                (*open_count)++;
             }
+            break;                                      /* RST etc.: closed */
         }
 
         src_port++;
@@ -219,6 +245,15 @@ static int try_syn_scan(const char *host, int *ports, int nports,
     close(rawfd);
     return 1;
 }
+#else
+/* BSD/macOS raw sockets do not deliver TCP replies: use the connect scan */
+static int try_syn_scan(const char *host, int *ports, int nports,
+                        int jitter_ms, int timeout_ms, int *open_count) {
+    (void)host; (void)ports; (void)nports; (void)jitter_ms;
+    (void)timeout_ms; (void)open_count;
+    return 0;
+}
+#endif
 
 /*
  * Parallel connect scan — up to BATCH_SIZE simultaneous non-blocking connects.
@@ -394,7 +429,7 @@ int portscan_run(const char *host, int start_port, int end_port,
         connect_scan(host, ports, nports, jitter_ms, timeout_ms, &open_count, banner_grab);
     } else {
         if (g_verbose)
-            log_msg(1, "SYN scan (raw socket) — server will not log connections");
+            log_msg(1, "SYN (half-open) scan via raw socket: no TCP connection is completed");
     }
 
     printf("\n%d open port(s) on %s\n", open_count, host);

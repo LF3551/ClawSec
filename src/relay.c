@@ -239,7 +239,7 @@ static void print_chat_message(const char *sender_label,
 
 /* ── Slash command: /file ── */
 static int cmd_file(int sockfd, const char *path, const char *local_label,
-                    int compress, char *zbuf, size_t zbuflen) {
+                    int compress) {
     int fd = open(path, O_RDONLY);
     if (fd < 0) {
         fprintf(stdout, "%s  ⚠ File not found: %s%s\n", COLOR_YELLOW, path, COLOR_RESET);
@@ -481,7 +481,7 @@ static int handle_slash_cmd(int sockfd, const char *line, size_t len,
         const char *path = cmd + 6;
         while (*path == ' ') path++;
         if (*path)
-            cmd_file(sockfd, path, local_label, compress, zbuf, zbuflen);
+            cmd_file(sockfd, path, local_label, compress);
         else
             fprintf(stdout, "%s  Usage: /file <path>%s\n", COLOR_YELLOW, COLOR_RESET);
         fflush(stdout);

@@ -138,7 +138,7 @@ static void handle_socks_client(int client_fd, int tunnel_fd) {
                             ? SOCKS_REP_DENIED : SOCKS_REP_HOSTUNREACH;
         unsigned char reply[10] = {SOCKS_VERSION, rep,
                                    0, SOCKS_ATYP_IPV4, 0,0,0,0, 0,0};
-        (void)write(client_fd, reply, 10);
+        if (write(client_fd, reply, 10) != 10) { /* client gone: nothing to do */ }
         goto fail;
     }
 

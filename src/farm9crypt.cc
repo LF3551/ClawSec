@@ -25,7 +25,6 @@
  *      (the session refuses to continue once the 32-bit space is exhausted).
  */
 
-#ifndef WIN32
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -43,13 +42,6 @@
 #include <openssl/crypto.h>
 #include <openssl/hmac.h>
 #include <arpa/inet.h>
-#else
-#include <fcntl.h>
-#include <io.h>
-#include <conio.h>
-#include <winsock.h>
-#include <time.h>
-#endif
 
 extern "C"
 {
