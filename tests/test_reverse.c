@@ -67,24 +67,6 @@ void test_persist_heartbeat_detect(void) {
 }
 
 /*
- * Test: Reverse tunnel signal format
- */
-void test_reverse_signal_format(void) {
-    TEST_BEGIN("reverse tunnel signal wire format") {
-        /* Verify signal strings are properly terminated with \n */
-        const char *open_sig = "ROPEN\n";
-        const char *ok_sig = "ROK\n";
-        const char *fail_sig = "RFAIL\n";
-
-        ASSERT_EQ((int)strlen(open_sig), 6, "ROPEN length");
-        ASSERT_EQ((int)strlen(ok_sig), 4, "ROK length");
-        ASSERT_EQ((int)strlen(fail_sig), 6, "RFAIL length");
-        ASSERT(open_sig[5] == '\n', "ROPEN ends with newline");
-        ASSERT(ok_sig[3] == '\n', "ROK ends with newline");
-    } TEST_END;
-}
-
-/*
  * Test: Persistent backoff jitter produces variation
  */
 void test_persist_backoff_jitter(void) {
@@ -113,22 +95,3 @@ void test_persist_heartbeat_ignores_data(void) {
     } TEST_END;
 }
 
-/*
- * Test: Reverse tunnel signals are distinct (no overlap)
- */
-void test_reverse_signals_distinct(void) {
-    TEST_BEGIN("reverse tunnel signals are distinct") {
-        const char *open_sig = "ROPEN\n";
-        const char *ok_sig = "ROK\n";
-        const char *fail_sig = "RFAIL\n";
-        const char *hb = "HB\n";
-
-        /* No signal is a prefix of another */
-        ASSERT(strncmp(open_sig, ok_sig, strlen(ok_sig)) != 0, "ROPEN != ROK prefix");
-        ASSERT(strncmp(open_sig, fail_sig, strlen(fail_sig)) != 0, "ROPEN != RFAIL prefix");
-        ASSERT(strncmp(ok_sig, fail_sig, strlen(fail_sig)) != 0, "ROK != RFAIL prefix");
-        /* Heartbeat is distinct from all reverse signals */
-        ASSERT(strncmp(hb, open_sig, strlen(hb)) != 0, "HB != ROPEN prefix");
-        ASSERT(strncmp(hb, ok_sig, strlen(hb)) != 0, "HB != ROK prefix");
-    } TEST_END;
-}

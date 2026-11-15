@@ -23,6 +23,7 @@
 /* Counters (defined in test_main.c) */
 extern int tests_run;
 extern int tests_passed;
+extern int tests_skipped;
 
 /* Start a test case */
 #define TEST_BEGIN(name) do { \
@@ -49,10 +50,15 @@ extern int tests_passed;
 /* Assert string equality */
 #define ASSERT_STR_EQ(a, b, msg) ASSERT(strcmp((a), (b)) == 0, msg)
 
-/* Skip test (counts as passed) */
+/* Skip a test whose feature is unavailable here (e.g. OpenSSL < 3.5 for
+ * ML-KEM). Skips are counted separately; with CLAWSEC_TEST_NO_SKIP=1 in the
+ * environment a skip is a failure (CI uses this where every feature must
+ * be available). */
 #define TEST_SKIP(reason) do { \
     printf("SKIP (%s)\n", (reason)); \
-    tests_passed++; \
+    tests_skipped++; \
+    if (!getenv("CLAWSEC_TEST_NO_SKIP")) tests_passed++; \
+    else printf("    -> counted as FAIL (CLAWSEC_TEST_NO_SKIP)\n"); \
     goto _test_cleanup; \
 } while(0)
 

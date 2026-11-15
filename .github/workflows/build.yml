@@ -21,7 +21,9 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libssl-dev libargon2-dev zlib1g-dev build-essential
     
-    - name: Build and unit tests (warnings are errors)
+    - name: Build and unit tests (warnings are errors, no skipped tests)
+      env:
+        CLAWSEC_TEST_NO_SKIP: "1"
       run: |
         cd src
         make werror

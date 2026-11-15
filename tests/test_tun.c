@@ -113,29 +113,6 @@ void test_tun_validate_config_bad_prefix(void) {
 }
 
 /*
- * Test: TUN wire format header structure
- */
-void test_tun_wire_format(void) {
-    TEST_BEGIN("tun VPN wire format header") {
-        /* Simulate building a wire frame */
-        char wire[TUN_BUF_SIZE];
-        char payload[] = "Hello VPN";
-        int pkt_len = (int)strlen(payload);
-
-        memcpy(wire, "TVPN", 4);
-        wire[4] = (pkt_len >> 8) & 0xFF;
-        wire[5] = pkt_len & 0xFF;
-        memcpy(wire + TUN_HDR_SIZE, payload, pkt_len);
-
-        /* Verify header */
-        ASSERT(memcmp(wire, "TVPN", 4) == 0, "magic correct");
-        int decoded_len = ((unsigned char)wire[4] << 8) | (unsigned char)wire[5];
-        ASSERT(decoded_len == pkt_len, "length correct");
-        ASSERT(memcmp(wire + TUN_HDR_SIZE, payload, pkt_len) == 0, "payload correct");
-    } TEST_END;
-}
-
-/*
  * Test: TUN constants are sane
  */
 void test_tun_constants(void) {

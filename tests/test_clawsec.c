@@ -10,6 +10,7 @@
 /* Global counters */
 int tests_run = 0;
 int tests_passed = 0;
+int tests_skipped = 0;
 
 /* Globals needed by util.o */
 int g_verbose = 0;
@@ -70,16 +71,11 @@ extern void test_parse_listen_spec(void);
 extern void test_listen_on_loopback_only(void);
 
 /* test_zlib.c */
-extern void test_zlib_roundtrip(void);
-extern void test_zlib_binary_data(void);
 
 /* test_sha256.c */
-extern void test_sha256_known_vector(void);
-extern void test_sha256_incremental(void);
 
 /* test_chat.c */
 extern void test_fingerprint_deterministic(void);
-extern void test_ctrl_msg_build(void);
 
 /* test_util.c */
 extern void test_initialized_flag(void);
@@ -155,17 +151,14 @@ extern void test_portscan_banner_grab(void);
 extern void test_portscan_multiple_ports(void);
 
 /* test_socks5.c */
-extern void test_socks5_wire_format(void);
-extern void test_socks5_wire_format_ipv4(void);
-extern void test_socks5_wire_format_long_host(void);
 extern void test_socks5_server_clean_exit(void);
 extern void test_socks5_client_binds(void);
 
 /* test_filetx.c */
-extern void test_filetx_header_format(void);
 extern void test_filetx_send_no_file(void);
 extern void test_filetx_recv_bad_header(void);
-extern void test_filetx_resume_offset(void);
+extern void test_filetx_roundtrip_real(void);
+extern void test_filetx_resume_real(void);
 
 /* test_hardening.c */
 extern void test_secret_from_arg_scrubs_argv(void);
@@ -182,10 +175,8 @@ extern void test_persist_backoff_initial(void);
 extern void test_persist_backoff_exponential(void);
 extern void test_persist_backoff_max(void);
 extern void test_persist_heartbeat_detect(void);
-extern void test_reverse_signal_format(void);
 extern void test_persist_backoff_jitter(void);
 extern void test_persist_heartbeat_ignores_data(void);
-extern void test_reverse_signals_distinct(void);
 
 /* test_tun.c */
 extern void test_tun_parse_cidr(void);
@@ -196,7 +187,6 @@ extern void test_tun_parse_cidr_null(void);
 extern void test_tun_validate_config_ok(void);
 extern void test_tun_validate_config_bad_ip(void);
 extern void test_tun_validate_config_bad_prefix(void);
-extern void test_tun_wire_format(void);
 extern void test_tun_constants(void);
 extern void test_tun_udp_encrypt_decrypt(void);
 extern void test_tun_udp_tamper_detect(void);
@@ -262,16 +252,11 @@ int main(void) {
     test_listen_on_loopback_only();
 
     /* Compression tests */
-    test_zlib_roundtrip();
-    test_zlib_binary_data();
 
     /* SHA-256 verification tests */
-    test_sha256_known_vector();
-    test_sha256_incremental();
 
     /* Chat features */
     test_fingerprint_deterministic();
-    test_ctrl_msg_build();
 
     /* State & utility tests */
     test_initialized_flag();
@@ -347,17 +332,14 @@ int main(void) {
     test_portscan_multiple_ports();
 
     /* SOCKS5 proxy tests */
-    test_socks5_wire_format();
-    test_socks5_wire_format_ipv4();
-    test_socks5_wire_format_long_host();
     test_socks5_server_clean_exit();
     test_socks5_client_binds();
 
     /* File transfer tests */
-    test_filetx_header_format();
     test_filetx_send_no_file();
     test_filetx_recv_bad_header();
-    test_filetx_resume_offset();
+    test_filetx_roundtrip_real();
+    test_filetx_resume_real();
 
     /* Hardening: password sources, SOCKS policy, file names */
     test_secret_from_arg_scrubs_argv();
@@ -374,10 +356,8 @@ int main(void) {
     test_persist_backoff_exponential();
     test_persist_backoff_max();
     test_persist_heartbeat_detect();
-    test_reverse_signal_format();
     test_persist_backoff_jitter();
     test_persist_heartbeat_ignores_data();
-    test_reverse_signals_distinct();
 
     /* TUN VPN tests */
     test_tun_parse_cidr();
@@ -388,7 +368,6 @@ int main(void) {
     test_tun_validate_config_ok();
     test_tun_validate_config_bad_ip();
     test_tun_validate_config_bad_prefix();
-    test_tun_wire_format();
     test_tun_constants();
 
     /* UDP VPN tests */
@@ -403,6 +382,8 @@ int main(void) {
     test_tun_parse_cidr_rejects_injection();
     test_tun_valid_ifname();
 
-    printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
+    printf("\n=== Results: %d/%d passed", tests_passed, tests_run);
+    if (tests_skipped) printf(" (%d skipped)", tests_skipped);
+    printf(" ===\n\n");
     return (tests_passed == tests_run) ? 0 : 1;
 }

@@ -51,20 +51,3 @@ void test_fingerprint_deterministic(void) {
     TEST_END;
 }
 
-void test_ctrl_msg_build(void) {
-    TEST_BEGIN("control message format");
-    /* Test that control messages start with SOH + type */
-    char buf[64];
-    buf[0] = '\x01';
-    buf[1] = 'R';
-    ASSERT(buf[0] == '\x01', "SOH prefix");
-    ASSERT(buf[1] == 'R', "type byte");
-
-    /* Nickname control */
-    buf[1] = 'N';
-    memcpy(buf + 2, "Alice", 5);
-    ASSERT(buf[0] == '\x01', "SOH prefix");
-    ASSERT(buf[1] == 'N', "nickname type");
-    ASSERT(memcmp(buf + 2, "Alice", 5) == 0, "nickname payload");
-    TEST_END;
-}
