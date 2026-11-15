@@ -1,0 +1,9 @@
+# Keep host build artifacts and repository metadata out of the image build
+.git
+.github
+release-*
+releases
+src/*.o
+src/clawsec
+src/test_clawsec
+*.tar.gz

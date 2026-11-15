@@ -1,14 +1,14 @@
-apiVersion: v1
-kind: Secret
-metadata:
-  name: clawsec-secret
-type: Opaque
-# Create it instead of committing a value:
-#   kubectl create secret generic clawsec-secret \
-#     --from-literal=password="$(openssl rand -base64 24)"
-stringData:
-  password: "REPLACE-WITH-A-RANDOM-PASSWORD"
----
+# ClawSec server on Kubernetes.
+#
+# 1. Create the password secret (do not commit real values):
+#      kubectl create secret generic clawsec-secret \
+#        --from-literal=password="$(openssl rand -base64 24)"
+# 2. kubectl apply -f deploy/kubernetes.yaml
+#
+# The Service is ClusterIP: reachable inside the cluster only. To expose the
+# server, change `type` to LoadBalancer or NodePort deliberately (anyone who
+# can reach the port can attempt handshakes; keep the password long and
+# random — see SECURITY.md).
 apiVersion: v1
 kind: Service
 metadata:
@@ -20,7 +20,7 @@ spec:
     - protocol: TCP
       port: 8888
       targetPort: 8888
-  type: LoadBalancer
+  type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -36,28 +36,44 @@ spec:
       labels:
         app: clawsec
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: clawsec
-        image: clawsec:latest
+        image: ghcr.io/lf3551/clawsec:3
         ports:
         - containerPort: 8888
-        # The password is read from CLAWSEC_PASSWORD (not visible in the
-        # process list, unlike -k)
-        args:
-          - "-l"
-          - "-p"
-          - "8888"
-          - "-v"
+        # -K: one handler per client, bounded by --max-clients
+        # The password comes from CLAWSEC_PASSWORD (never in args: those are
+        # visible in the process list and the pod spec)
+        args: ["-l", "-p", "8888", "-K", "--max-clients", "8", "-v"]
         env:
         - name: CLAWSEC_PASSWORD
           valueFrom:
             secretKeyRef:
               name: clawsec-secret
               key: password
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data              # writable dir for --recv
+          mountPath: /data
         resources:
           requests:
             memory: "64Mi"
             cpu: "100m"
           limits:
-            memory: "128Mi"
-            cpu: "200m"
+            # each concurrent handshake needs ~19 MiB for Argon2id
+            memory: "256Mi"
+            cpu: "500m"
+      volumes:
+      - name: data
+        emptyDir: {}

@@ -8,7 +8,7 @@ services:
       - "8888:8888"
     environment:
       CLAWSEC_PASSWORD: ${CLAWSEC_PASSWORD:?set CLAWSEC_PASSWORD}
-    command: ["-l", "-p", "8888", "-v"]
+    command: ["-l", "-p", "8888", "-K", "-v"]
     restart: unless-stopped
     networks:
       - clawsec-net
