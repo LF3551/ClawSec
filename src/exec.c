@@ -14,7 +14,6 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include <sys/select.h>
 #include <sys/wait.h>
 
 #include "exec.h"
@@ -62,26 +61,20 @@ void run_encrypted_exec(int sockfd, const char *prog) {
     char buf[BUFSIZE];
 
     for (;;) {
-        fd_set rfds;
-        int nfds = sockfd;
-        FD_ZERO(&rfds);
-        FD_SET(sockfd, &rfds);
-        FD_SET(master_fd, &rfds);
-        if (master_fd > nfds) nfds = master_fd;
-
-        int ret = select(nfds + 1, &rfds, NULL, NULL, NULL);
+        int fds[2] = { sockfd, master_fd }, rdy[2];
+        int ret = wait_readable(fds, rdy, 2, -1);
         if (ret < 0) {
             if (errno == EINTR) continue;
             break;
         }
 
-        if (FD_ISSET(sockfd, &rfds)) {
+        if (rdy[0]) {
             ssize_t n = farm9crypt_read(sockfd, buf, sizeof(buf));
             if (n <= 0) break;
             if (write_all(master_fd, buf, (size_t)n) < 0) break;
         }
 
-        if (FD_ISSET(master_fd, &rfds)) {
+        if (rdy[1]) {
             ssize_t n = read(master_fd, buf, sizeof(buf));
             if (n <= 0) break;
             ssize_t wn = farm9crypt_write(sockfd, buf, (size_t)n);

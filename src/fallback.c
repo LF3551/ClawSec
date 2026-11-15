@@ -17,7 +17,6 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
-#include <sys/select.h>
 
 #include "fallback.h"
 #include "obfs.h"
@@ -65,30 +64,21 @@ int fallback_proxy(int client_fd, const char *fallback_host,
     /* Bidirectional relay: client_fd (TLS) <-> target_fd (plain) */
     char buf[8192];
     for (;;) {
-        fd_set rfds;
-        FD_ZERO(&rfds);
-        FD_SET(client_fd, &rfds);
-        FD_SET(target_fd, &rfds);
-        int nfds = client_fd > target_fd ? client_fd : target_fd;
-
-        struct timeval tv;
-        tv.tv_sec = 30;  /* timeout idle probes */
-        tv.tv_usec = 0;
-
-        int ret = select(nfds + 1, &rfds, NULL, NULL, &tv);
+        int fds[2] = { client_fd, target_fd }, rdy[2];
+        int ret = wait_readable(fds, rdy, 2, 30000);   /* timeout idle probes */
         if (ret < 0) {
             if (errno == EINTR) continue;
             break;
         }
         if (ret == 0) break; /* idle timeout */
 
-        if (FD_ISSET(client_fd, &rfds)) {
+        if (rdy[0]) {
             int n = obfs_recv(client_fd, buf, sizeof(buf));
             if (n <= 0) break;
             if (write_all(target_fd, buf, (size_t)n) < 0) break;
         }
 
-        if (FD_ISSET(target_fd, &rfds)) {
+        if (rdy[1]) {
             ssize_t n = read(target_fd, buf, sizeof(buf));
             if (n <= 0) break;
             if (obfs_send(client_fd, buf, (size_t)n) < 0) break;

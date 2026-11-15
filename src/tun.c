@@ -22,7 +22,6 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/socket.h>
-#include <sys/select.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -519,7 +518,7 @@ static void tun_atexit_cleanup(void) {
     tun_disable_nat();
 }
 
-/* Install signal handlers (no SA_RESTART, so blocking select() returns
+/* Install signal handlers (no SA_RESTART, so a blocking poll() returns
  * EINTR) and an atexit hook for paths that call exit() directly. */
 void tun_install_cleanup_handlers(void) {
     static int installed = 0;
@@ -696,22 +695,13 @@ int tun_relay(int tun_fd, int tunnel_fd) {
     char pkt_buf[TUN_MTU];
     char wire_buf[TUN_BUF_SIZE];
     char recv_buf[TUN_BUF_SIZE];
-    fd_set rfds;
-    int maxfd = (tun_fd > tunnel_fd ? tun_fd : tunnel_fd) + 1;
+    int fds[2] = { tun_fd, tunnel_fd }, rdy[2];
 
     log_msg(1, "tun: VPN relay started");
 
     for (;;) {
-        FD_ZERO(&rfds);
-        FD_SET(tun_fd, &rfds);
-        FD_SET(tunnel_fd, &rfds);
-
-        /* Timeout for keepalive */
-        struct timeval tv;
-        tv.tv_sec = 30;
-        tv.tv_usec = 0;
-
-        int rc = select(maxfd, &rfds, NULL, NULL, &tv);
+        /* 30 s timeout for keepalive */
+        int rc = wait_readable(fds, rdy, 2, 30000);
         if (tun_stop_requested()) {
             log_msg(1, "tun: stop requested");
             break;
@@ -730,7 +720,7 @@ int tun_relay(int tun_fd, int tunnel_fd) {
         }
 
         /* TUN device → encrypted tunnel */
-        if (FD_ISSET(tun_fd, &rfds)) {
+        if (rdy[0]) {
             int pkt_len = tun_read_packet(tun_fd, pkt_buf, sizeof(pkt_buf));
             if (pkt_len <= 0) continue; /* spurious or too large */
 
@@ -747,7 +737,7 @@ int tun_relay(int tun_fd, int tunnel_fd) {
         }
 
         /* Encrypted tunnel → TUN device */
-        if (FD_ISSET(tunnel_fd, &rfds)) {
+        if (rdy[1]) {
             int n = farm9crypt_read(tunnel_fd, recv_buf, sizeof(recv_buf));
             if (n <= 0) {
                 log_msg(1, "tun: tunnel closed");
@@ -1247,11 +1237,7 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
     unsigned char pkt_buf[TUN_MTU];
     unsigned char enc_buf[TUN_UDP_OVERHEAD + TUN_MTU + 32];
     unsigned char recv_buf[TUN_UDP_OVERHEAD + TUN_MTU + 32];
-    fd_set rfds;
-    int maxfd = tun_fd;
-    if (udp_fd > maxfd) maxfd = udp_fd;
-    if (tcp_fd > maxfd) maxfd = tcp_fd;
-    maxfd++;
+    int rdy[3];
 
     /* seq 0 belongs to the negotiation probe/ACK; data starts at 1.
      * 64-bit counter so exhaustion of the 32-bit wire space is detectable. */
@@ -1261,16 +1247,8 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
     log_msg(1, "tun-udp: VPN relay started (UDP data channel)");
 
     for (;;) {
-        FD_ZERO(&rfds);
-        FD_SET(tun_fd, &rfds);
-        FD_SET(udp_fd, &rfds);
-        if (tcp_fd >= 0) FD_SET(tcp_fd, &rfds);
-
-        struct timeval tv;
-        tv.tv_sec = 30;
-        tv.tv_usec = 0;
-
-        int rc = select(maxfd, &rfds, NULL, NULL, &tv);
+        int fds[3] = { tun_fd, udp_fd, tcp_fd };   /* tcp_fd -1 = ignored */
+        int rc = wait_readable(fds, rdy, 3, 30000);
         if (tun_stop_requested()) {
             log_msg(1, "tun-udp: stop requested");
             break;
@@ -1297,7 +1275,7 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
         }
 
         /* TUN → encrypt → UDP */
-        if (FD_ISSET(tun_fd, &rfds)) {
+        if (rdy[0]) {
             int pkt_len = tun_read_packet(tun_fd, (char *)pkt_buf, sizeof(pkt_buf));
             if (pkt_len <= 0) continue;
 
@@ -1320,7 +1298,7 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
         }
 
         /* UDP → decrypt → TUN */
-        if (FD_ISSET(udp_fd, &rfds)) {
+        if (rdy[1]) {
             ssize_t nr = recv(udp_fd, recv_buf, sizeof(recv_buf), 0);
             if (nr <= 0) {
                 if (errno == EINTR) continue;
@@ -1351,7 +1329,7 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
         }
 
         /* TCP control channel (if still open) */
-        if (tcp_fd >= 0 && FD_ISSET(tcp_fd, &rfds)) {
+        if (tcp_fd >= 0 && rdy[2]) {
             char ctrl[64];
             int cn = farm9crypt_read(tcp_fd, ctrl, sizeof(ctrl));
             if (cn <= 0) {

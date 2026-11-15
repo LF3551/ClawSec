@@ -15,7 +15,6 @@
 #include <poll.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/select.h>
 #include <sys/resource.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -182,14 +181,8 @@ static int try_syn_scan(const char *host, int *ports, int nports,
         sendto(rawfd, pkt, 20, 0, (struct sockaddr *)&target, sizeof(target));
 
         /* Wait for response with short timeout */
-        fd_set rfds;
-        struct timeval tv;
-        FD_ZERO(&rfds);
-        FD_SET(rawfd, &rfds);
-        tv.tv_sec = timeout_ms / 1000;
-        tv.tv_usec = (timeout_ms % 1000) * 1000;
-
-        int ret = select(rawfd + 1, &rfds, NULL, NULL, &tv);
+        int rfd[1] = { rawfd }, rdy[1];
+        int ret = wait_readable(rfd, rdy, 1, timeout_ms);
         if (ret > 0) {
             unsigned char buf[128];
             ssize_t n = recv(rawfd, buf, sizeof(buf), 0);

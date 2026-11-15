@@ -7,7 +7,6 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/select.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -49,14 +48,8 @@ int net_connect(const char *host, const char *port, int timeout_sec) {
         }
 
         if (!g_udp_mode && timeout_sec > 0 && errno == EINPROGRESS) {
-            fd_set wfds;
-            struct timeval tv;
-            FD_ZERO(&wfds);
-            FD_SET(sock, &wfds);
-            tv.tv_sec = timeout_sec;
-            tv.tv_usec = 0;
-            ret = select(sock + 1, NULL, &wfds, NULL, &tv);
-            if (ret > 0 && FD_ISSET(sock, &wfds)) {
+            ret = wait_writable(sock, timeout_sec * 1000);
+            if (ret > 0) {
                 int err = 0;
                 socklen_t slen = sizeof(err);
                 if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &slen) == 0 && err == 0) {
@@ -125,14 +118,8 @@ int net_try_connect_filtered(const char *host, const char *port, int timeout_sec
         }
 
         if (!g_udp_mode && timeout_sec > 0 && errno == EINPROGRESS) {
-            fd_set wfds;
-            struct timeval tv;
-            FD_ZERO(&wfds);
-            FD_SET(sock, &wfds);
-            tv.tv_sec = timeout_sec;
-            tv.tv_usec = 0;
-            ret = select(sock + 1, NULL, &wfds, NULL, &tv);
-            if (ret > 0 && FD_ISSET(sock, &wfds)) {
+            ret = wait_writable(sock, timeout_sec * 1000);
+            if (ret > 0) {
                 int err = 0;
                 socklen_t slen = sizeof(err);
                 if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &slen) == 0 && err == 0) {
