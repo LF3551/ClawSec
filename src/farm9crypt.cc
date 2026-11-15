@@ -102,6 +102,38 @@ static uint64_t send_seq = 0;    /* Next outgoing sequence number */
 static uint64_t recv_seq = 0;    /* Next expected incoming sequence number */
 static int last_failure = FARM9_FAIL_NONE;
 
+/* UDP mode (-u): datagrams may be lost or reordered, so instead of a strict
+ * counter a 64-entry sliding window (as in IPsec/DTLS) rejects duplicates and
+ * stale sequence numbers. */
+#define UDP_WINDOW 64
+static int      udp_any = 0;          /* has any datagram been accepted? */
+static uint32_t udp_max = 0;          /* highest accepted sequence number */
+static uint64_t udp_seen = 0;         /* bit i: (udp_max - i) accepted */
+
+static int udp_window_check(uint32_t seq) {
+    if (!udp_any || seq > udp_max) return 1;
+    uint32_t diff = udp_max - seq;
+    if (diff >= UDP_WINDOW) return 0;                 /* too old */
+    return !(udp_seen & ((uint64_t)1 << diff));       /* duplicate? */
+}
+
+static void udp_window_update(uint32_t seq) {
+    if (!udp_any) {
+        udp_any = 1; udp_max = seq; udp_seen = 1;
+    } else if (seq > udp_max) {
+        uint32_t shift = seq - udp_max;
+        udp_seen = shift >= UDP_WINDOW ? 0 : udp_seen << shift;
+        udp_seen |= 1;
+        udp_max = seq;
+    } else {
+        udp_seen |= (uint64_t)1 << (udp_max - seq);
+    }
+}
+
+/* Returned by read_one() in UDP mode for a datagram that must be ignored
+ * (forged, corrupted, replayed, stale, wrong version) */
+#define FRAME_DROP (-2)
+
 extern "C" int farm9crypt_last_failure(void) { return last_failure; }
 extern "C" void farm9crypt_set_failure(int reason) { last_failure = reason; }
 
@@ -154,6 +186,9 @@ static void reset_state(void) {
     secure_zero(confirm_rx_key, sizeof(confirm_rx_key));
     send_seq = 0;
     recv_seq = 0;
+    udp_any = 0;
+    udp_max = 0;
+    udp_seen = 0;
     initialized = false;
 }
 
@@ -405,23 +440,11 @@ static int parse_frame(const unsigned char* frame, size_t flen, struct farm9_hea
     return 0;
 }
 
-extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
-    if (!initialized || !decryptor) {
-        if (debug) fprintf(stderr, "[CRYPT] Error: Not initialized\n");
-        errno = EINVAL;
-        return -1;
-    }
-
-    if (!buf || size <= 0) {
-        if (debug) fprintf(stderr, "[CRYPT] Error: Invalid buffer or size\n");
-        errno = EINVAL;
-        return -1;
-    }
-
-    if (recv_seq >= FARM9_SEQ_LIMIT) {
-        errno = EOVERFLOW;
-        return -1;
-    }
+/* Read and authenticate one frame. In UDP mode returns FRAME_DROP for a
+ * datagram that must be ignored; recv_flags is passed to recv() there. */
+static int read_one(int sockfd, char* buf, int size, int recv_flags) {
+    /* In UDP mode a bad datagram is dropped instead of ending the session */
+#define FAIL(err) do { if (udp_mode) return FRAME_DROP; errno = (err); return -1; } while (0)
 
     struct farm9_header header;
     unsigned char iv[FARM9_IV_LEN];
@@ -432,10 +455,11 @@ extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
     if (udp_mode) {
         /* UDP: receive entire datagram at once */
         unsigned char dgram[FARM9_FRAME_MAX];
-        ssize_t n = recv(sockfd, dgram, sizeof(dgram), 0);
-        if (n <= 0) return n == 0 ? 0 : -1;
+        ssize_t n = recv(sockfd, dgram, sizeof(dgram), recv_flags);
+        if (n < 0) return -1;                       /* incl. EAGAIN when draining */
+        if (n == 0) return FRAME_DROP;              /* empty datagram */
         if (parse_frame(dgram, (size_t)n, &header, iv, tag, ciphertext, &ct_len) < 0)
-            return -1;
+            return FRAME_DROP;
     } else if (obfs_get_mode() != OBFS_NONE) {
         /* Obfuscated TCP: entire frame arrives in one obfs message */
         unsigned char frame[FARM9_FRAME_MAX];
@@ -468,8 +492,7 @@ extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
     if (magic != FARM9_MAGIC) {
         if (debug) fprintf(stderr, "[CRYPT] Error: Invalid magic 0x%08x (expected 0x%08x)\n",
                           magic, FARM9_MAGIC);
-        errno = EPROTO;
-        return -1;
+        FAIL(EPROTO);
     }
 
     uint16_t version = ntohs(header.version);
@@ -480,12 +503,16 @@ extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
                     version, FARM9_VERSION);
             version_warned = true;
         }
-        errno = EPROTONOSUPPORT;
-        return -1;
+        FAIL(EPROTONOSUPPORT);
     }
 
     uint32_t msg_seq = ntohl(header.seq_num);
-    if (msg_seq != (uint32_t)recv_seq) {
+    if (udp_mode) {
+        if (!udp_window_check(msg_seq)) {
+            if (debug) fprintf(stderr, "[CRYPT] Dropping replayed/stale datagram seq %u\n", msg_seq);
+            return FRAME_DROP;
+        }
+    } else if (msg_seq != (uint32_t)recv_seq) {
         if (debug) fprintf(stderr, "[CRYPT] Error: Sequence mismatch - got %u, expected %u (replay attack?)\n",
                           msg_seq, (uint32_t)recv_seq);
         errno = EPROTO;
@@ -505,12 +532,15 @@ extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
 
     if (!ok) {
         if (debug) fprintf(stderr, "[CRYPT] Error: Decryption/authentication failed\n");
-        errno = EBADMSG;
-        return -1;
+        FAIL(EBADMSG);
     }
+#undef FAIL
 
     /* The frame is authentic and consumed: advance the sequence */
-    recv_seq++;
+    if (udp_mode)
+        udp_window_update(msg_seq);
+    else
+        recv_seq++;
 
     if (plaintext_len > size) {
         if (debug) fprintf(stderr, "[CRYPT] Error: Message of %d bytes exceeds buffer of %d bytes\n",
@@ -529,6 +559,38 @@ extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
     }
 
     return plaintext_len;
+}
+
+extern "C" int farm9crypt_read(int sockfd, char* buf, int size) {
+    if (!initialized || !decryptor) {
+        if (debug) fprintf(stderr, "[CRYPT] Error: Not initialized\n");
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (!buf || size <= 0) {
+        if (debug) fprintf(stderr, "[CRYPT] Error: Invalid buffer or size\n");
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (recv_seq >= FARM9_SEQ_LIMIT) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+
+    if (!udp_mode)
+        return read_one(sockfd, buf, size, 0);
+
+    /* UDP: skip datagrams that must be ignored. Block for the first one,
+     * then only drain what is already queued; if nothing usable is left,
+     * report EAGAIN so the caller can return to its event loop. */
+    int flags = 0;
+    for (;;) {
+        int rc = read_one(sockfd, buf, size, flags);
+        if (rc != FRAME_DROP) return rc;
+        flags = MSG_DONTWAIT;
+    }
 }
 
 /* Secure send - ensures all data is sent or returns error */

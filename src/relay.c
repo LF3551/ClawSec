@@ -576,6 +576,7 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
         /* ── Network → stdout ── */
         if (FD_ISSET(sockfd, &rfds)) {
             n = relay_read(sockfd, netbuf, sizeof(netbuf));
+            if (n < 0 && errno == EAGAIN) continue;   /* UDP: dropped datagram(s) */
             if (n < 0) fatal("read from network failed");
             if (n == 0) {
                 if (chat_mode) {

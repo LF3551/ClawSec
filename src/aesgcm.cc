@@ -214,7 +214,7 @@ bool AESGCM::decrypt(const unsigned char* ciphertext, int ciphertext_len,
             plaintext_len += len;
             success = true;
         } else {
-            fprintf(stderr, "[AESGCM] Decrypt error: Authentication failed - data may be tampered\n");
+            /* Expected for forged/corrupted input: the caller reports it */
             success = false;
         }
     } while (0);

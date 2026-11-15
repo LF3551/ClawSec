@@ -403,3 +403,62 @@ void test_sec_old_client_detected(void) {
                "server must send hello+key before reading (old client got 32 bytes)");
     } TEST_END;
 }
+
+/* ── UDP mode (-u): loss/reordering tolerated, bad datagrams dropped ── */
+
+static int capture_dgrams(int n, unsigned char frames[][128], int lens[]) {
+    int fds[2];
+    if (socketpair(AF_UNIX, SOCK_DGRAM, 0, fds) != 0) return -1;
+    farm9crypt_set_udp_mode(1);
+    if (farm9crypt_init_password(SEC_PASS, strlen(SEC_PASS), FARM9_ROLE_CLIENT) != 0) return -1;
+    for (int i = 0; i < n; i++) {
+        char msg[8];
+        snprintf(msg, sizeof(msg), "msg-%d", i);
+        if (farm9crypt_write(fds[0], msg, (int)strlen(msg)) < 0) return -1;
+        lens[i] = (int)recv(fds[1], frames[i], 128, 0);
+    }
+    farm9crypt_cleanup();
+    close(fds[0]); close(fds[1]);
+    return 0;
+}
+
+void test_sec_udp_reorder_loss_replay(void) {
+    TEST_BEGIN("UDP mode: reorder/loss ok, dup/stale/forged dropped") {
+        unsigned char f[80][128];
+        int len[80];
+        ASSERT(capture_dgrams(80, f, len) == 0, "capture");
+
+        int fds[2];
+        ASSERT(socketpair(AF_UNIX, SOCK_DGRAM, 0, fds) == 0, "socketpair");
+        ASSERT(farm9crypt_init_password(SEC_PASS, strlen(SEC_PASS), FARM9_ROLE_SERVER) == 0, "init");
+
+        unsigned char forged[128];
+        memcpy(forged, f[5], (size_t)len[5]);
+        forged[len[5] - 1] ^= 1;                       /* corrupt ciphertext */
+        /* order on the wire: 2, 0, (1 lost), 2 again, garbage, forged 5, 79, 3 (stale) */
+        send(fds[0], f[2], (size_t)len[2], 0);
+        send(fds[0], f[0], (size_t)len[0], 0);
+        send(fds[0], f[2], (size_t)len[2], 0);
+        send(fds[0], "junk", 4, 0);
+        send(fds[0], forged, (size_t)len[5], 0);
+        send(fds[0], f[79], (size_t)len[79], 0);
+        send(fds[0], f[3], (size_t)len[3], 0);         /* 79 - 3 >= 64: too old */
+
+        char buf[64];
+        int got[3], n;
+        for (int i = 0; i < 3; i++) {
+            n = farm9crypt_read(fds[1], buf, sizeof(buf) - 1);
+            buf[n > 0 ? n : 0] = '\0';
+            got[i] = (n > 0) ? atoi(buf + 4) : -1;
+        }
+        errno = 0;
+        n = farm9crypt_read(fds[1], buf, sizeof(buf));
+        int err = errno;
+        farm9crypt_cleanup();
+        farm9crypt_set_udp_mode(0);
+        close(fds[0]); close(fds[1]);
+
+        ASSERT(got[0] == 2 && got[1] == 0 && got[2] == 79, "expected 2, 0, 79 in arrival order");
+        ASSERT(n == -1 && err == EAGAIN, "stale datagram must be dropped (EAGAIN), not fatal");
+    } TEST_END;
+}
