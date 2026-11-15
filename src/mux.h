@@ -14,8 +14,9 @@
 /* Frame header: stream_id(1) + type(1) + len(2) = 4 bytes */
 #define MUX_HDR_SIZE 4
 
-/* Max payload per frame */
-#define MUX_MAX_PAYLOAD 8192
+/* Max payload per frame: a whole frame (header + payload) must fit into one
+ * encrypted message of at most FARM9_MAX_MSG (8192) bytes. */
+#define MUX_MAX_PAYLOAD (8192 - MUX_HDR_SIZE)
 
 /* Frame header structure */
 typedef struct {

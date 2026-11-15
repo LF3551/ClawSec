@@ -48,6 +48,41 @@ void test_mux_max_payload(void) {
         buf[2] = 0xFF;
         buf[3] = 0xFF;
 
-        ASSERT(mux_decode_header(buf, &hdr) == -1, "should reject >8192 payload");
+        ASSERT(mux_decode_header(buf, &hdr) == -1, "should reject > MUX_MAX_PAYLOAD");
+
+        /* Boundary: MUX_MAX_PAYLOAD accepted, MUX_MAX_PAYLOAD + 1 rejected */
+        mux_encode_header(buf, 1, MUX_DATA, MUX_MAX_PAYLOAD);
+        ASSERT(mux_decode_header(buf, &hdr) == 0, "max payload should decode");
+        mux_encode_header(buf, 1, MUX_DATA, MUX_MAX_PAYLOAD + 1);
+        ASSERT(mux_decode_header(buf, &hdr) == -1, "max+1 should be rejected");
+    } TEST_END;
+}
+
+void test_mux_max_frame_roundtrip(void) {
+    TEST_BEGIN("mux max-size frame fits one encrypted message") {
+        ASSERT(MUX_HDR_SIZE + MUX_MAX_PAYLOAD <= FARM9_MAX_MSG,
+               "mux frame larger than FARM9_MAX_MSG");
+        int fds[2];
+        ASSERT(make_socketpair(fds) == 0, "socketpair");
+        int bufsize = 65536;
+        setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &bufsize, sizeof(bufsize));
+        setsockopt(fds[1], SOL_SOCKET, SO_RCVBUF, &bufsize, sizeof(bufsize));
+
+        static unsigned char payload[MUX_MAX_PAYLOAD], got[MUX_MAX_PAYLOAD];
+        for (int i = 0; i < MUX_MAX_PAYLOAD; i++) payload[i] = (unsigned char)(i * 7);
+
+        ASSERT(farm9crypt_init_password("MuxFramePass1", 13, FARM9_ROLE_CLIENT) == 0, "init");
+        int wn = mux_write_frame(fds[0], 9, MUX_DATA, payload, sizeof(payload));
+        farm9crypt_cleanup();
+        ASSERT_EQ(wn, MUX_MAX_PAYLOAD, "write max frame");
+
+        ASSERT(farm9crypt_init_password("MuxFramePass1", 13, FARM9_ROLE_SERVER) == 0, "init peer");
+        mux_header_t hdr;
+        int rn = mux_read_frame(fds[1], &hdr, got, sizeof(got));
+        farm9crypt_cleanup();
+        close(fds[0]); close(fds[1]);
+        ASSERT_EQ(rn, MUX_MAX_PAYLOAD, "read max frame");
+        ASSERT_EQ(hdr.stream_id, 9, "stream id");
+        ASSERT(memcmp(got, payload, sizeof(payload)) == 0, "payload mismatch");
     } TEST_END;
 }

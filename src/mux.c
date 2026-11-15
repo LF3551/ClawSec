@@ -24,6 +24,9 @@
 
 int g_mux = 0;
 
+_Static_assert(MUX_HDR_SIZE + MUX_MAX_PAYLOAD <= FARM9_MAX_MSG,
+               "a mux frame must fit into one encrypted message");
+
 int mux_encode_header(unsigned char *buf, unsigned char stream_id,
                       unsigned char type, unsigned short length) {
     buf[0] = stream_id;
