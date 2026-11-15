@@ -29,6 +29,8 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <signal.h>
+#include <poll.h>
+#include <time.h>
 
 #ifdef __APPLE__
 #include <sys/kern_control.h>
@@ -46,6 +48,7 @@
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#include <openssl/crypto.h>
 
 #define TUN_SIG_VPN   "TVPN"
 #define TUN_SIG_LEN   4
@@ -746,7 +749,8 @@ static void replay_reset(void) {
 }
 
 static int replay_check_and_update(uint32_t seq) {
-    if (seq == 0) return 0; /* seq 0 is always ok (first packet) */
+    /* seq 0 is reserved for the negotiation probe/ACK and never valid data */
+    if (seq == 0) return -1;
 
     if (seq > replay_max_seq) {
         /* Advance window */
@@ -779,6 +783,14 @@ static int replay_check_and_update(uint32_t seq) {
     /* Mark as seen */
     replay_bitmap[idx] |= (1ULL << bit);
     return 0;
+}
+
+void tun_udp_replay_reset(void) {
+    replay_reset();
+}
+
+int tun_udp_replay_check(uint32_t seq) {
+    return replay_check_and_update(seq);
 }
 
 /* ── UDP socket setup ────────────────────────────────── */
@@ -831,168 +843,217 @@ static int udp_connect(const char *host, const char *port) {
 
 /*
  * Protocol (over the existing encrypted TCP channel):
- *   1. Both sides exchange: "TUDP" + 16-byte random token
- *   2. Server binds UDP on the same port
- *   3. Client sends token as first UDP datagram (encrypted)
- *   4. Server receives, validates, connects to client addr
- *   5. Server sends token back (encrypted) as ACK
+ *   1. Server binds UDP on the same port (before step 2, so no probe races it)
+ *   2. Both sides exchange: "TUDP" + 16-byte random token
+ *   3. Client sends the server's token as UDP probe (seq 0, client tx key),
+ *      retransmitting every TUDP_PROBE_INTERVAL_MS until ACKed
+ *   4. Server validates the probe (ignoring unrelated datagrams) and
+ *      connects to the client address
+ *   5. Server returns the client's token (seq 0, server tx key) as ACK,
+ *      TUDP_ACK_COPIES times; extra copies are dropped by the replay window
+ *   Everything must complete within TUDP_NEGOTIATE_TIMEOUT_MS.
  */
 
 #define TUDP_SIG  "TUDP"
 #define TUDP_SIG_LEN 4
 #define TUDP_TOKEN_LEN 16
+#define TUDP_NEGOTIATE_TIMEOUT_MS 10000  /* overall UDP setup deadline */
+#define TUDP_PROBE_INTERVAL_MS    250    /* client probe retransmit interval */
+#define TUDP_ACK_COPIES           3      /* redundant server ACKs */
+
+static int64_t monotonic_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static int tun_udp_negotiate_keys(int tcp_fd, const char *host, const char *port,
+                                  int is_server,
+                                  const unsigned char *tx_key,
+                                  const unsigned char *rx_key,
+                                  unsigned char *my_token,
+                                  unsigned char *peer_token,
+                                  char *msg);
 
 int tun_udp_negotiate(int tcp_fd, const char *host, const char *port,
                        int is_server)
 {
     unsigned char my_token[TUDP_TOKEN_LEN];
     unsigned char peer_token[TUDP_TOKEN_LEN];
-    unsigned char key[32];
+    unsigned char tx_key[32], rx_key[32];
     char msg[TUDP_SIG_LEN + TUDP_TOKEN_LEN];
+    int result;
 
-    /* Get session key for UDP encryption */
-    if (farm9crypt_export_key(key, 32) < 0) {
-        fprintf(stderr, "tun-udp: cannot export session key\n");
+    /* Directional UDP keys: tx for what we send, rx for what we receive */
+    if (farm9crypt_export_udp_keys(tx_key, rx_key) < 0) {
+        fprintf(stderr, "tun-udp: cannot export session keys\n");
         return -1;
+    }
+
+    result = tun_udp_negotiate_keys(tcp_fd, host, port, is_server,
+                                    tx_key, rx_key, my_token, peer_token, msg);
+    OPENSSL_cleanse(tx_key, sizeof(tx_key));
+    OPENSSL_cleanse(rx_key, sizeof(rx_key));
+    OPENSSL_cleanse(my_token, sizeof(my_token));
+    OPENSSL_cleanse(peer_token, sizeof(peer_token));
+    return result;
+}
+
+static int tun_udp_negotiate_keys(int tcp_fd, const char *host, const char *port,
+                                  int is_server,
+                                  const unsigned char *tx_key,
+                                  const unsigned char *rx_key,
+                                  unsigned char *my_token,
+                                  unsigned char *peer_token,
+                                  char *msg)
+{
+    int udp_fd = -1;
+
+    /* Server: bind the UDP socket *before* announcing its token, so the
+     * client's first probe can never race ahead of the bind. */
+    if (is_server) {
+        udp_fd = udp_bind(port);
+        if (udp_fd < 0) {
+            fprintf(stderr, "tun-udp: failed to bind UDP on port %s\n", port);
+            return -1;
+        }
     }
 
     /* Generate our random token */
     if (RAND_bytes(my_token, TUDP_TOKEN_LEN) != 1) {
         fprintf(stderr, "tun-udp: RAND_bytes failed\n");
-        return -1;
+        goto fail;
     }
 
     /* Send "TUDP" + token over TCP */
     memcpy(msg, TUDP_SIG, TUDP_SIG_LEN);
     memcpy(msg + TUDP_SIG_LEN, my_token, TUDP_TOKEN_LEN);
-    if (tun_crypt_write(tcp_fd, msg, sizeof(msg)) < 0) {
+    if (tun_crypt_write(tcp_fd, msg, TUDP_SIG_LEN + TUDP_TOKEN_LEN) < 0) {
         fprintf(stderr, "tun-udp: failed to send TUDP\n");
-        return -1;
+        goto fail;
     }
 
     /* Receive peer's "TUDP" + token */
     char recv_msg[64];
     int n = farm9crypt_read(tcp_fd, recv_msg, sizeof(recv_msg));
-    if (n < (int)sizeof(msg) || memcmp(recv_msg, TUDP_SIG, TUDP_SIG_LEN) != 0) {
+    if (n != TUDP_SIG_LEN + TUDP_TOKEN_LEN ||
+        memcmp(recv_msg, TUDP_SIG, TUDP_SIG_LEN) != 0) {
         fprintf(stderr, "tun-udp: invalid TUDP response\n");
-        return -1;
+        goto fail;
     }
     memcpy(peer_token, recv_msg + TUDP_SIG_LEN, TUDP_TOKEN_LEN);
 
     log_msg(1, "tun-udp: tokens exchanged, setting up UDP channel");
 
+    const int64_t deadline = monotonic_ms() + TUDP_NEGOTIATE_TIMEOUT_MS;
+    unsigned char dgram[TUN_UDP_OVERHEAD + TUDP_TOKEN_LEN + 32];
+    unsigned char dec_token[TUDP_TOKEN_LEN + 16];
+
     if (is_server) {
-        /* Server: bind UDP on the same port */
-        int udp_fd = udp_bind(port);
-        if (udp_fd < 0) {
-            fprintf(stderr, "tun-udp: failed to bind UDP on port %s\n", port);
-            return -1;
-        }
-
-        /* Wait for client's probe (encrypted token) */
-        unsigned char probe[TUN_UDP_OVERHEAD + TUDP_TOKEN_LEN + 32];
+        /* Wait for a valid client probe (our token, seq 0, client->server key).
+         * Unrelated or forged datagrams are ignored until the deadline. */
         struct sockaddr_storage client_addr;
-        socklen_t addr_len = sizeof(client_addr);
+        socklen_t addr_len = 0;
+        int got_probe = 0;
+        while (!got_probe) {
+            int64_t left = deadline - monotonic_ms();
+            if (left <= 0) break;
+            struct pollfd pfd = { .fd = udp_fd, .events = POLLIN, .revents = 0 };
+            int pr = poll(&pfd, 1, (int)left);
+            if (pr < 0 && errno == EINTR) continue;
+            if (pr <= 0) break;
 
-        /* Set a 10-second timeout for the probe */
-        struct timeval tv = { .tv_sec = 10, .tv_usec = 0 };
-        setsockopt(udp_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            addr_len = sizeof(client_addr);
+            ssize_t nr = recvfrom(udp_fd, dgram, sizeof(dgram), 0,
+                                  (struct sockaddr *)&client_addr, &addr_len);
+            if (nr <= 0) continue;
 
-        ssize_t nr = recvfrom(udp_fd, probe, sizeof(probe), 0,
-                              (struct sockaddr *)&client_addr, &addr_len);
-        if (nr <= 0) {
-            fprintf(stderr, "tun-udp: no UDP probe from client\n");
-            close(udp_fd);
-            return -1;
+            int dec_len = 0;
+            uint32_t seq = 0;
+            if (udp_vpn_decrypt(rx_key, dgram, (int)nr, dec_token, &dec_len, &seq) == 0 &&
+                seq == 0 && dec_len == TUDP_TOKEN_LEN &&
+                CRYPTO_memcmp(dec_token, my_token, TUDP_TOKEN_LEN) == 0)
+                got_probe = 1;
         }
-
-        /* Decrypt and verify token */
-        unsigned char dec_token[TUDP_TOKEN_LEN + 16];
-        int dec_len = 0;
-        uint32_t seq = 0;
-        if (udp_vpn_decrypt(key, probe, (int)nr, dec_token, &dec_len, &seq) < 0 ||
-            dec_len != TUDP_TOKEN_LEN ||
-            memcmp(dec_token, my_token, TUDP_TOKEN_LEN) != 0) {
-            fprintf(stderr, "tun-udp: invalid probe token\n");
-            close(udp_fd);
-            return -1;
+        if (!got_probe) {
+            fprintf(stderr, "tun-udp: no valid UDP probe from client\n");
+            goto fail;
         }
 
         /* Connect to client addr so we can use send/recv */
         if (connect(udp_fd, (struct sockaddr *)&client_addr, addr_len) < 0) {
             perror("tun-udp: connect");
-            close(udp_fd);
-            return -1;
+            goto fail;
         }
 
-        /* Send ACK: encrypt peer's token */
-        unsigned char ack[TUN_UDP_OVERHEAD + TUDP_TOKEN_LEN + 32];
+        /* ACK = encrypted client token. Sent a few times so a single lost
+         * datagram does not break the channel; duplicates are harmless since
+         * seq 0 is rejected by the data-channel replay window. */
         int ack_len = 0;
-        if (udp_vpn_encrypt(key, 0, peer_token, TUDP_TOKEN_LEN, ack, &ack_len) < 0) {
-            close(udp_fd);
-            return -1;
-        }
-        send(udp_fd, ack, ack_len, 0);
-
-        /* Clear receive timeout */
-        tv.tv_sec = 0;
-        setsockopt(udp_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        if (udp_vpn_encrypt(tx_key, 0, peer_token, TUDP_TOKEN_LEN, dgram, &ack_len) < 0)
+            goto fail;
+        for (int i = 0; i < TUDP_ACK_COPIES; i++)
+            (void)send(udp_fd, dgram, (size_t)ack_len, 0);
 
         log_msg(1, "tun-udp: server UDP channel ready on port %s", port);
         return udp_fd;
-    } else {
-        /* Client: connect UDP to server */
-        int udp_fd = udp_connect(host, port);
-        if (udp_fd < 0) {
-            fprintf(stderr, "tun-udp: failed to connect UDP to %s:%s\n", host, port);
-            return -1;
-        }
+    }
 
-        /* Send probe: encrypt server's token */
-        unsigned char probe[TUN_UDP_OVERHEAD + TUDP_TOKEN_LEN + 32];
-        int probe_len = 0;
-        if (udp_vpn_encrypt(key, 0, peer_token, TUDP_TOKEN_LEN, probe, &probe_len) < 0) {
-            close(udp_fd);
-            return -1;
-        }
-        send(udp_fd, probe, probe_len, 0);
+    /* Client: connect UDP to server */
+    udp_fd = udp_connect(host, port);
+    if (udp_fd < 0) {
+        fprintf(stderr, "tun-udp: failed to connect UDP to %s:%s\n", host, port);
+        return -1;
+    }
 
-        /* Wait for ACK */
-        unsigned char ack[TUN_UDP_OVERHEAD + TUDP_TOKEN_LEN + 32];
-        struct timeval tv = { .tv_sec = 10, .tv_usec = 0 };
-        setsockopt(udp_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    /* Probe = encrypted server token; retransmitted until a valid ACK arrives */
+    unsigned char probe[TUN_UDP_OVERHEAD + TUDP_TOKEN_LEN + 32];
+    int probe_len = 0;
+    if (udp_vpn_encrypt(tx_key, 0, peer_token, TUDP_TOKEN_LEN, probe, &probe_len) < 0)
+        goto fail;
 
-        ssize_t nr = recv(udp_fd, ack, sizeof(ack), 0);
-        if (nr <= 0) {
+    int64_t next_send = 0;
+    for (;;) {
+        int64_t now = monotonic_ms();
+        if (now >= deadline) {
             fprintf(stderr, "tun-udp: no ACK from server\n");
-            close(udp_fd);
-            return -1;
+            goto fail;
         }
+        if (now >= next_send) {
+            /* ECONNREFUSED (ICMP unreachable) is transient here: just retry */
+            (void)send(udp_fd, probe, (size_t)probe_len, 0);
+            next_send = now + TUDP_PROBE_INTERVAL_MS;
+        }
+        int64_t wait = next_send - now;
+        if (deadline - now < wait) wait = deadline - now;
+        struct pollfd pfd = { .fd = udp_fd, .events = POLLIN, .revents = 0 };
+        int pr = poll(&pfd, 1, (int)wait);
+        if (pr < 0 && errno == EINTR) continue;
+        if (pr <= 0) continue;
 
-        unsigned char dec_token[TUDP_TOKEN_LEN + 16];
+        ssize_t nr = recv(udp_fd, dgram, sizeof(dgram), 0);
+        if (nr <= 0) continue;   /* e.g. ECONNREFUSED before server is ready */
+
         int dec_len = 0;
         uint32_t seq = 0;
-        if (udp_vpn_decrypt(key, ack, (int)nr, dec_token, &dec_len, &seq) < 0 ||
-            dec_len != TUDP_TOKEN_LEN ||
-            memcmp(dec_token, my_token, TUDP_TOKEN_LEN) != 0) {
-            fprintf(stderr, "tun-udp: invalid ACK token\n");
-            close(udp_fd);
-            return -1;
-        }
-
-        /* Clear receive timeout */
-        tv.tv_sec = 0;
-        setsockopt(udp_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-        log_msg(1, "tun-udp: client UDP channel ready to %s:%s", host, port);
-        return udp_fd;
+        if (udp_vpn_decrypt(rx_key, dgram, (int)nr, dec_token, &dec_len, &seq) == 0 &&
+            seq == 0 && dec_len == TUDP_TOKEN_LEN &&
+            CRYPTO_memcmp(dec_token, my_token, TUDP_TOKEN_LEN) == 0)
+            break;
     }
+
+    log_msg(1, "tun-udp: client UDP channel ready to %s:%s", host, port);
+    return udp_fd;
+
+fail:
+    if (udp_fd >= 0) close(udp_fd);
+    return -1;
 }
 
 /* ── UDP VPN relay loop ──────────────────────────────── */
 
 int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
-                   const unsigned char *key)
+                   const unsigned char *tx_key, const unsigned char *rx_key)
 {
     unsigned char pkt_buf[TUN_MTU];
     unsigned char enc_buf[TUN_UDP_OVERHEAD + TUN_MTU + 32];
@@ -1003,7 +1064,9 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
     if (tcp_fd > maxfd) maxfd = tcp_fd;
     maxfd++;
 
-    uint32_t send_seq = 1;
+    /* seq 0 belongs to the negotiation probe/ACK; data starts at 1.
+     * 64-bit counter so exhaustion of the 32-bit wire space is detectable. */
+    uint64_t send_seq = 1;
     replay_reset();
 
     log_msg(1, "tun-udp: VPN relay started (UDP data channel)");
@@ -1030,7 +1093,11 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
             unsigned char hb_enc[TUN_UDP_OVERHEAD + 16];
             int hb_len = 0;
             const unsigned char hb[] = "THB\n";
-            if (udp_vpn_encrypt(key, send_seq++, hb, 4, hb_enc, &hb_len) == 0) {
+            if (send_seq > UINT32_MAX) {
+                log_msg(1, "tun-udp: sequence space exhausted, reconnect required");
+                break;
+            }
+            if (udp_vpn_encrypt(tx_key, (uint32_t)send_seq++, hb, 4, hb_enc, &hb_len) == 0) {
                 send(udp_fd, hb_enc, hb_len, 0);
             }
             continue;
@@ -1042,7 +1109,11 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
             if (pkt_len <= 0) continue;
 
             int enc_len = 0;
-            if (udp_vpn_encrypt(key, send_seq++, pkt_buf, pkt_len,
+            if (send_seq > UINT32_MAX) {
+                log_msg(1, "tun-udp: sequence space exhausted, reconnect required");
+                break;
+            }
+            if (udp_vpn_encrypt(tx_key, (uint32_t)send_seq++, pkt_buf, pkt_len,
                                  enc_buf, &enc_len) < 0) {
                 log_msg(1, "tun-udp: encrypt failed");
                 continue;
@@ -1068,7 +1139,7 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
             int dec_len = 0;
             uint32_t seq = 0;
 
-            if (udp_vpn_decrypt(key, recv_buf, (int)nr, dec_buf, &dec_len, &seq) < 0) {
+            if (udp_vpn_decrypt(rx_key, recv_buf, (int)nr, dec_buf, &dec_len, &seq) < 0) {
                 /* Tampered or corrupted — silently drop */
                 continue;
             }

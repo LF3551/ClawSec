@@ -39,10 +39,16 @@ bool AESGCM::encrypt(const unsigned char* plaintext, int plaintext_len,
                      unsigned char* ciphertext,
                      unsigned char* iv, int iv_len,
                      unsigned char* tag, int tag_len,
-                     int& ciphertext_len) 
+                     int& ciphertext_len,
+                     const unsigned char* aad, int aad_len)
 {
     if (!plaintext || !ciphertext || !iv || !tag) {
         fprintf(stderr, "[AESGCM] Encrypt error: NULL pointer\n");
+        return false;
+    }
+
+    if (aad_len < 0 || (aad_len > 0 && !aad)) {
+        fprintf(stderr, "[AESGCM] Encrypt error: Invalid AAD\n");
         return false;
     }
 
@@ -87,8 +93,16 @@ bool AESGCM::encrypt(const unsigned char* plaintext, int plaintext_len,
             break;
         }
 
-        /* Encrypt plaintext */
         int len;
+
+        /* Authenticate associated data (e.g. protocol header) */
+        if (aad_len > 0 &&
+            1 != EVP_EncryptUpdate(ctx, nullptr, &len, aad, aad_len)) {
+            fprintf(stderr, "[AESGCM] Encrypt error: AAD update failed\n");
+            break;
+        }
+
+        /* Encrypt plaintext */
         if (1 != EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len)) {
             fprintf(stderr, "[AESGCM] Encrypt error: EncryptUpdate failed\n");
             break;
@@ -118,10 +132,16 @@ bool AESGCM::encrypt(const unsigned char* plaintext, int plaintext_len,
 bool AESGCM::decrypt(const unsigned char* ciphertext, int ciphertext_len,
                      const unsigned char* iv, int iv_len,
                      const unsigned char* tag, int tag_len,
-                     unsigned char* plaintext, int& plaintext_len)
+                     unsigned char* plaintext, int& plaintext_len,
+                     const unsigned char* aad, int aad_len)
 {
     if (!ciphertext || !plaintext || !iv || !tag) {
         fprintf(stderr, "[AESGCM] Decrypt error: NULL pointer\n");
+        return false;
+    }
+
+    if (aad_len < 0 || (aad_len > 0 && !aad)) {
+        fprintf(stderr, "[AESGCM] Decrypt error: Invalid AAD\n");
         return false;
     }
 
@@ -166,8 +186,16 @@ bool AESGCM::decrypt(const unsigned char* ciphertext, int ciphertext_len,
             break;
         }
 
-        /* Decrypt ciphertext */
         int len;
+
+        /* Authenticate associated data (e.g. protocol header) */
+        if (aad_len > 0 &&
+            1 != EVP_DecryptUpdate(ctx, nullptr, &len, aad, aad_len)) {
+            fprintf(stderr, "[AESGCM] Decrypt error: AAD update failed\n");
+            break;
+        }
+
+        /* Decrypt ciphertext */
         if (1 != EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len)) {
             fprintf(stderr, "[AESGCM] Decrypt error: DecryptUpdate failed\n");
             break;
@@ -192,5 +220,10 @@ bool AESGCM::decrypt(const unsigned char* ciphertext, int ciphertext_len,
     } while (0);
 
     EVP_CIPHER_CTX_free(ctx);
+    if (!success) {
+        /* Never leave unauthenticated plaintext in the caller's buffer */
+        secure_memzero(plaintext, (size_t)ciphertext_len);
+        plaintext_len = 0;
+    }
     return success;
 }

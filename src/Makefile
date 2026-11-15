@@ -208,7 +208,7 @@ clean:
 	rm -f clawsec cryptcat test_clawsec *.o *.obj
 
 TEST_SRC = $(TESTDIR)/test_clawsec.c $(TESTDIR)/test_crypto.c $(TESTDIR)/test_protocol.c \
-	$(TESTDIR)/test_handshake.c $(TESTDIR)/test_obfs.c $(TESTDIR)/test_parse.c \
+	$(TESTDIR)/test_handshake.c $(TESTDIR)/test_security.c $(TESTDIR)/test_obfs.c $(TESTDIR)/test_parse.c \
 	$(TESTDIR)/test_zlib.c $(TESTDIR)/test_sha256.c $(TESTDIR)/test_chat.c \
 	$(TESTDIR)/test_util.c $(TESTDIR)/test_stealth.c $(TESTDIR)/test_ech.c \
 	$(TESTDIR)/test_mux.c $(TESTDIR)/test_fallback.c $(TESTDIR)/test_fingerprint.c \

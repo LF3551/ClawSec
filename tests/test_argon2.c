@@ -75,12 +75,16 @@ void test_argon2_roundtrip_encrypt(void) {
         ASSERT(make_socketpair(fds) == 0, "socketpair");
 
         farm9crypt_cleanup();
-        int rc = farm9crypt_init_password("Argon2idTest!", 13);
+        int rc = farm9crypt_init_password("Argon2idTest!", 13, FARM9_ROLE_CLIENT);
         ASSERT_EQ(rc, 0, "init");
 
         const char *msg = "Argon2id encryption test";
         int wn = farm9crypt_write(fds[0], (char *)msg, strlen(msg));
         ASSERT_EQ(wn, (int)strlen(msg), "write size");
+
+        farm9crypt_cleanup();
+        rc = farm9crypt_init_password("Argon2idTest!", 13, FARM9_ROLE_SERVER);
+        ASSERT_EQ(rc, 0, "init peer");
 
         char buf[256];
         int rn = farm9crypt_read(fds[1], buf, sizeof(buf));
