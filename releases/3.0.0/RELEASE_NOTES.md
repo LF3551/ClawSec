@@ -22,7 +22,16 @@ clawsec --version
 | SOCKS client proxy (no auth) listened on `0.0.0.0`; `-R` ignored its host | Anyone on the LAN could use your proxy / reach the reverse port | Loopback by default; `-R` listens on the given address |
 | `--tun` address went unvalidated into root shell commands | Command injection as root via the argument | Strict IPv4/prefix parsing; all values validated before `system()` |
 | `-e` compiled into every build | Every binary could hand out a shell to password holders | Opt-in: `make <target> DFLAGS=-DGAPING_SECURITY_HOLE` |
+| KDF fell back to PBKDF2 on OpenSSL < 3.2 | Builds with different OpenSSL versions could not connect ("wrong password") | Argon2id always, via libargon2 |
 | No version check, no key confirmation | 3.0 client vs 2.8.2 server failed silently; wrong password looked like a dropped connection | Version hello + HMAC key confirmation; clear errors and exit status 1 on both ends |
+
+## 📦 Downloads
+
+Tested binaries for Linux x86_64, Linux arm64 and macOS arm64 are attached to this
+release (`clawsec-3.0.0-<os>-<arch>.tar.gz`, checksums in `SHA256SUMS`). Each archive
+contains the binary, man page and shell completions. Runtime dependencies:
+OpenSSL 3, **libargon2** and zlib, e.g. `apt install libssl3 libargon2-1 zlib1g` or
+`brew install openssl@3 argon2`. Docker: `ghcr.io/lf3551/clawsec:3.0.0`.
 
 ## 🛠 Fixed
 
@@ -43,7 +52,7 @@ clawsec --version
 ## ✨ Added
 
 - `--version` (also in bash/zsh/fish completions and the man page).
-- `tests/test_security.c`: a regression test for every issue above (131 unit tests).
+- `tests/test_security.c`: a regression test for every issue above (133 unit tests).
 - `make e2e`: end-to-end tests of the real binary — stream modes, `--obfs http|tls`,
   `--tofu`, `--pq`, `-z`, `--pad`, `-L`, `--mux`, `--socks`, `-R`, `--send/--recv`,
   wrong password, exit statuses, listener addresses (22 checks).
@@ -53,6 +62,8 @@ clawsec --version
 - CI runs the sanitizer build and both end-to-end suites.
 
 ## ⚠️ Breaking changes
+
+- New build/runtime dependency: **libargon2**.
 
 - Wire protocol 3: no interoperability with ClawSec ≤ 2.8.2 (protocol 1).
   A 2.x peer is rejected with `the server/client does not speak ClawSec protocol v3`.

@@ -14,7 +14,7 @@ ClawSec implements modern authenticated encryption using **AES-256-GCM** (Galois
 - **Tag Size**: 128 bits (16 bytes) - authentication tag
 
 ### Key Derivation
-- **Algorithm**: X25519 ECDHE + Argon2id (PBKDF2-HMAC-SHA256 100k fallback on OpenSSL < 3.2)
+- **Algorithm**: X25519 ECDHE + Argon2id (libargon2; no fallback, so all builds derive identical keys)
 - **ECDHE**: Ephemeral X25519 keypair per session (Perfect Forward Secrecy)
 - **Argon2id parameters**: t=3, m=19 MiB, p=1 (OWASP minimum profile)
 - **Session key**: session = SHA256(ECDH_shared_secret [|| ML-KEM secret] || KDF(password, SHA256(server_pub || client_pub)))
@@ -73,7 +73,7 @@ release major version, so there is no protocol v2.
    own hello and X25519 public key; the server checks the client hello
 4. Both compute: shared_secret = X25519(my_privkey, peer_pubkey)
 5. Both compute: salt = SHA256(server_pubkey || client_pubkey)
-6. Both compute: password_key = Argon2id(password, salt)   (PBKDF2 fallback)
+6. Both compute: password_key = Argon2id(password, salt)
 7. Both compute: session = SHA256(shared_secret || password_key)
 8. Both derive directional traffic, UDP, fingerprint and confirmation keys
    with HKDF-SHA256 (see Key Derivation)
@@ -121,8 +121,7 @@ password is compromised later, recorded traffic cannot be decrypted.
    enter the KDF salt, but the confirmation does not cover the hello/version bytes
 4. **No certificate pinning**: `--tofu` provides first-use trust, but not CA-signed certificate validation
 5. **Single password per session**: No per-user authentication; all clients share the same password
-6. **PBKDF2 fallback on OpenSSL < 3.2**: not memory-hard; prefer OpenSSL ≥ 3.2 (Argon2id)
-7. **Post-quantum requires OpenSSL >= 3.5**: `--pq` hybrid key exchange needs ML-KEM support (OpenSSL 3.5+)
+6. **Post-quantum requires OpenSSL >= 3.5**: `--pq` hybrid key exchange needs ML-KEM support (OpenSSL 3.5+)
 
 ## Usage Guidelines
 
@@ -219,12 +218,13 @@ test password guesses offline (no PAKE yet) — use a long random password
 ### Cryptographic Standards
 - **AES**: FIPS 197, NIST approved
 - **GCM**: NIST SP 800-38D
-- **PBKDF2**: PKCS #5, RFC 8018
+- **Argon2id**: RFC 9106
+- **HKDF**: RFC 5869
 - **SHA-256**: FIPS 180-4
 
 ### Industry Guidelines
 - **Key Length**: Meets NIST recommendations (256-bit)
-- **Iterations**: Exceeds OWASP minimum (100k)
+- **Argon2id parameters**: OWASP minimum profile (t=3, m=19 MiB, p=1)
 - **IV Length**: Optimal for GCM (96 bits)
 
 ## Known Vulnerabilities
@@ -295,8 +295,7 @@ clawsec -k "Pass" --fingerprint chrome --fallback 127.0.0.1:80 --ech --pad --jit
 Note: `--fingerprint` is client-side only (shapes outgoing ClientHello).
 The server does not need it.
 3. **Certificate Support**: Optional PKI for endpoint authentication
-4. **Password Hashing**: Consider Argon2 instead of PBKDF2
-5. **Rate Limiting**: Protect against brute force
+4. **Rate Limiting**: Protect against brute force
 
 ### Under Consideration
 - ChaCha20-Poly1305 as alternative cipher

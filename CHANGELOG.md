@@ -32,6 +32,11 @@ release major version (protocol 1 → 3).
   happened to start with `0x01` was silently dropped (corrupting transfers), and data
   starting with `0x01 'F'` made the receiver write a file into its working directory.
   Control messages are now only processed in interactive chat mode (`-c`).
+- **Argon2id everywhere (interoperability).** The KDF silently fell back to PBKDF2
+  when the local OpenSSL lacked Argon2 (< 3.2, e.g. Ubuntu 24.04), so such a build
+  could never talk to one with Argon2 (e.g. macOS/Homebrew) — it looked like a wrong
+  password. Argon2id now always comes from libargon2 (new build dependency), and a
+  known-answer test plus a cross-check against OpenSSL's ARGON2ID pin the output.
 - **Handshake version check and key confirmation.** Each side sends a hello with
   its protocol version; a 2.x peer or a non-ClawSec service is reported immediately
   instead of failing silently. After the key exchange both sides prove knowledge of
@@ -87,10 +92,21 @@ release major version (protocol 1 → 3).
 - Docs: the duplicate root `EXAMPLE_USAGE.md` was merged into
   `docs/EXAMPLE_USAGE.md`; SECURITY.md lists the fixed issues and a private
   reporting channel.
+- **New dependency: libargon2** (`libargon2-dev`, `argon2` in Homebrew/Arch,
+  `argon2-dev` on Alpine). Added to the Makefile, Dockerfile, CI, AUR package,
+  Homebrew formula and `scripts/install.sh` (which now also handles dnf, pacman,
+  apk and builds the `macos` target on macOS).
 - Packaging: AUR `pkgver`, Homebrew formula (also fixed its build directory:
-  `src`, not `unix`) and `scripts/build-release.sh` default to 3.0.0.
+  `src`, not `unix`) default to 3.0.0. Docker images are published once per release
+  (a tag push used to trigger a duplicate run).
+- Removed the broken, unused `src/build.sh` (linked 2 of 20 objects, enabled `-e`).
 
 ### Added
+- **Release automation** (`.github/workflows/release.yml`): publishing a GitHub
+  release builds and tests binaries for Linux x86_64, Linux arm64 and macOS arm64,
+  attaches them with `SHA256SUMS`, and commits the source-tarball checksum to the
+  Homebrew formula and `aur/PKGBUILD`. `scripts/build-release.sh` packages the same
+  archives locally (binary, LICENSE, README, man page, completions).
 - `--version`: prints the release and wire protocol version (also in shell completions
   and the man page).
 - `tests/test_security.c`: regression tests for each issue above.
