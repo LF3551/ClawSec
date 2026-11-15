@@ -5,6 +5,7 @@
 int net_connect(const char *host, const char *port, int timeout_sec);
 
 #include <stddef.h>
+#include <sys/socket.h>
 
 /* Bind and listen (TCP) or bind (UDP) on all interfaces. Returns fd or exits on error. */
 int net_listen(const char *port);
@@ -29,6 +30,8 @@ int net_parse_listen_spec(const char *spec, const char *default_host,
 
 /* Accept one TCP connection. Returns fd or exits on error. */
 int net_accept(int listen_fd);
+/* Same, also returning the peer address (peer_len: in = size, out = length). */
+int net_accept_peer(int listen_fd, struct sockaddr_storage *peer, socklen_t *peer_len);
 
 /* UDP "accept": wait for first datagram, connect to sender. Returns fd. */
 int net_udp_accept(int udp_fd);

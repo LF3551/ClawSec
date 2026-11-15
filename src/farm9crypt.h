@@ -3,7 +3,9 @@
  *
  *  C interface between netcat and AES-GCM encryption.
  *
- *  Wire protocol v3 (ClawSec 3.x):
+ *  Wire protocol v4 (ClawSec 4.x):
+ *  - Handshake: SPAKE2 PAKE (RFC 9382) with mutual key confirmation over the
+ *    whole transcript; optional Ed25519 server identity and ML-KEM-768 hybrid
  *  - AES-256-GCM authenticated encryption; the 16-byte frame header
  *    (magic, version, flags, sequence, length) is authenticated as AAD
  *  - Independent keys per direction (client->server / server->client),
@@ -28,26 +30,28 @@ int farm9crypt_init_password_with_salt(const char* password, size_t pass_len,
                                        const unsigned char* salt, size_t salt_len,
                                        int server_mode);
 
-/* Initialize with ECDHE + password (Perfect Forward Secrecy) */
-/* Returns: 0 on success, -1 on error */
-/* server_mode: 1 = generate keypair and write pubkey to sockfd, read peer pubkey */
-/*              0 = read peer pubkey from sockfd, generate keypair and write pubkey */
-/* server_mode is also the session role (FARM9_ROLE_*) for directional keys. */
+/* Password-authenticated handshake (SPAKE2, forward secrecy).
+ * Returns 0 on success, -1 on error (see farm9crypt_last_failure()).
+ * server_mode selects the handshake role and the session role (FARM9_ROLE_*). */
 int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pass_len, int server_mode);
 
-/* ECDHE with TOFU: same as above but with server identity verification.
- * Server: signs ephemeral pubkey with Ed25519 identity key.
+/* With TOFU: same as above plus server identity verification.
+ * Server: signs the handshake transcript with its Ed25519 identity key.
  * Client: verifies signature and checks known_hosts for host:port.
  * peer_host/peer_port: remote address (used by client for known_hosts lookup). */
 int farm9crypt_init_ecdhe_tofu(int sockfd, const char* password, size_t pass_len,
                                 int server_mode, const char *peer_host, const char *peer_port);
 
-/* Post-Quantum Hybrid ECDHE: X25519 + ML-KEM-768 (+ optional TOFU).
- * Uses both classical ECDHE and quantum-resistant KEM so the session key
- * is secure against both classical and quantum adversaries.
- * If g_tofu is set, X25519 phase includes Ed25519 identity signing. */
+/* Post-quantum hybrid: SPAKE2 + ML-KEM-768 (+ TOFU if g_tofu is set).
+ * The session key depends on both the SPAKE2 secret and the ML-KEM shared
+ * secret, so recorded traffic stays confidential against a future quantum
+ * adversary as long as ML-KEM holds. */
 int farm9crypt_init_ecdhe_pq(int sockfd, const char* password, size_t pass_len,
                               int server_mode, const char *peer_host, const char *peer_port);
+
+/* Derive and cache the password scalar once (Argon2id) before serving
+ * connections; handshakes then skip the expensive KDF. Returns 0 or -1. */
+int farm9crypt_prepare_password(const char* password, size_t pass_len);
 
 /* Set UDP datagram mode (must be called before read/write) */
 void farm9crypt_set_udp_mode(int enabled);
@@ -95,6 +99,7 @@ int farm9crypt_export_udp_keys(unsigned char tx_key[32], unsigned char rx_key[32
 #define FARM9_FAIL_NONE    0   /* success, or a transport/network error */
 #define FARM9_FAIL_AUTH    1   /* key confirmation failed: wrong password or tampering */
 #define FARM9_FAIL_VERSION 2   /* peer speaks another protocol version / not ClawSec */
+#define FARM9_FAIL_CONFIG  3   /* peer uses different --tofu / --pq settings */
 int  farm9crypt_last_failure(void);
 void farm9crypt_set_failure(int reason);   /* used by the handshake code */
 
@@ -104,7 +109,7 @@ int farm9crypt_get_fingerprint(unsigned char *out, size_t len);
 
 /* Protocol constants */
 #define FARM9_MAGIC 0x434C4157     /* "CLAW" */
-#define FARM9_VERSION 0x0003       /* Protocol version 3 (ClawSec 3.x: authenticated header, directional keys) */
+#define FARM9_VERSION 0x0004       /* Protocol version 4 (ClawSec 4.x: SPAKE2 handshake) */
 #define FARM9_IV_LEN 12            /* AES-GCM IV length */
 #define FARM9_TAG_LEN 16           /* AES-GCM auth tag length */
 #define FARM9_SALT_LEN 16          /* KDF salt length */

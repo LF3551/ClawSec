@@ -1,13 +1,15 @@
 /*
- * ecdhe.h — ECDHE key exchange interface
+ * ecdhe.h — ClawSec v4 handshake interface (see ecdhe.cc for the wire format)
  *
- * All functions output a 32-byte derived key into key_out.
- * The caller (farm9crypt) uses this key to initialize AES-GCM.
+ * All functions output a 32-byte session key into key_out; the caller
+ * (farm9crypt) derives the directional AES-GCM keys from it. Each handshake
+ * includes mutual explicit key confirmation: success means the peer proved
+ * knowledge of the password.
  *
- * Three variants:
- *  - Plain ECDHE (X25519 + password)
- *  - TOFU ECDHE (X25519 + Ed25519 identity + password)
- *  - PQ hybrid ECDHE (X25519 + ML-KEM-768 + optional TOFU + password)
+ * Variants:
+ *  - SPAKE2 (password-authenticated key exchange, RFC 9382)
+ *  - SPAKE2 + Ed25519 server identity (TOFU)
+ *  - SPAKE2 + ML-KEM-768 hybrid (+ TOFU if g_tofu is set)
  */
 
 #ifndef ECDHE_H
@@ -15,20 +17,26 @@
 
 #include <stddef.h>
 
-/* Plain X25519 ECDHE + password.
+/* Derive and cache the password scalar (Argon2id, ~19 MiB, done once per
+ * process). Call before forking per-connection children so that each
+ * handshake does not repeat the expensive derivation. Returns 0 or -1. */
+int ecdhe_prepare_password(const char *password, size_t pass_len);
+void ecdhe_forget_password(void);
+
+/* SPAKE2 + password.
  * key_out: 32-byte buffer for derived session key.
  * Returns 0 on success, -1 on error. */
 int ecdhe_handshake(int sockfd, const char *password, size_t pass_len,
                     int server_mode, unsigned char *key_out);
 
-/* ECDHE with TOFU server identity verification.
+/* SPAKE2 with TOFU server identity verification.
  * key_out: 32-byte buffer for derived session key.
  * Returns 0 on success, -1 on error. */
 int ecdhe_handshake_tofu(int sockfd, const char *password, size_t pass_len,
                          int server_mode, const char *peer_host,
                          const char *peer_port, unsigned char *key_out);
 
-/* Post-quantum hybrid ECDHE (X25519 + ML-KEM-768, optional TOFU).
+/* Post-quantum hybrid (SPAKE2 + ML-KEM-768, TOFU if g_tofu).
  * key_out: 32-byte buffer for derived session key.
  * Returns 0 on success, -1 on error. */
 int ecdhe_handshake_pq(int sockfd, const char *password, size_t pass_len,
