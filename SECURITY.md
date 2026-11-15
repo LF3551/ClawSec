@@ -135,8 +135,11 @@ Learning the password later does not decrypt recorded sessions.
    A quantum attacker recording a handshake could later run an offline guessing attack on
    the password (and, without `--pq`, decrypt the session). `--pq` keeps the *session*
    confidential; it does not make the password check post-quantum
-4. **Single shared password**: No per-user authentication; all clients share the same password,
-   and the server holds it (SPAKE2 is a balanced PAKE: a compromised server reveals it)
+4. **Balanced PAKE**: the server holds the shared password, or with `--users` each user's
+   SPAKE2 scalar `w = Argon2id(password, user salt)`; a stolen users file does not reveal the
+   passwords directly (offline guessing costs Argon2id per guess and user) but lets the thief
+   log in as those users. There are no per-user permissions: every user can use every mode
+   the server offers
 5. **Post-quantum requires OpenSSL >= 3.5**: `--pq` needs ML-KEM support (OpenSSL 3.5+)
 
 ## Usage Guidelines

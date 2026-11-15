@@ -37,6 +37,8 @@
 #include "secret.h"
 #include "acl.h"
 #include "iplimit.h"
+#include "users.h"
+#include "ecdhe.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -251,6 +253,10 @@ static int handle_client_inner(int sockfd, const char *password, int is_server,
         }
         log_msg(1, "session established (SPAKE2 password-authenticated key exchange)");
     }
+    if (is_server && ecdhe_peer_user()) {
+        log_msg(0, "user '%s' logged in", ecdhe_peer_user());
+        setenv("CLAWSEC_USER", ecdhe_peer_user(), 1);      /* for -e programs */
+    }
 
     /* Session established: no artificial bound on the data phase */
     set_io_timeout(sockfd, 0);
@@ -444,6 +450,9 @@ static void usage(const char *prog) {
             "Options:\n"
             "  -k <password>     Encryption password (visible in ps; prefer the next two)\n"
             "  --key-file <f>    Read the password from the first line of a file (0600)\n"
+            "  --user <name>     Client: log in as <name> (server uses --users)\n"
+            "  --users <file>    Server: per-user passwords instead of a shared one\n"
+            "  --add-user <name> With --users: add a user / change its password, exit\n"
             "                    (or set CLAWSEC_PASSWORD; without either you are prompted)\n"
             "  -l                Listen mode (server)\n"
             "  -p <port>         Local port in listen mode\n"
@@ -503,6 +512,9 @@ static void usage(const char *prog) {
 /* Long-only options */
 enum {
     OPT_KEY_FILE = 256,
+    OPT_USER,
+    OPT_USERS,
+    OPT_ADD_USER,
     OPT_MAX_CLIENTS,
     OPT_MAX_PER_IP,
     OPT_SCAN_RATE,
@@ -526,6 +538,9 @@ int main(int argc, char **argv) {
     const char *fwd_spec = NULL;
     const char *scan_range = NULL;
     int listen_mode = 0;
+    const char *login_user = NULL;    /* --user (client) */
+    const char *users_file = NULL;    /* --users (server) */
+    const char *add_user = NULL;      /* --add-user (with --users) */
     int keep_open = 0;
     int timeout_sec = 0;
     int scan_mode = 0;
@@ -558,6 +573,9 @@ int main(int argc, char **argv) {
         {"help",        no_argument,       NULL, 'h'},
         {"version",     no_argument,       NULL, 'I'},
         {"key-file",    required_argument, NULL, OPT_KEY_FILE},
+        {"user",        required_argument, NULL, OPT_USER},
+        {"users",       required_argument, NULL, OPT_USERS},
+        {"add-user",    required_argument, NULL, OPT_ADD_USER},
         {"max-clients", required_argument, NULL, OPT_MAX_CLIENTS},
         {"max-per-ip", required_argument, NULL, OPT_MAX_PER_IP},
         {"scan-rate", required_argument, NULL, OPT_SCAN_RATE},
@@ -595,6 +613,9 @@ int main(int argc, char **argv) {
             password_from_argv = 1;
             break;
         case OPT_KEY_FILE: key_file = optarg; break;
+        case OPT_USER: login_user = optarg; break;
+        case OPT_USERS: users_file = optarg; break;
+        case OPT_ADD_USER: add_user = optarg; break;
         case OPT_MAX_CLIENTS: {
             long v = parse_count(optarg, 4096);
             if (v < 1) {
@@ -792,6 +813,82 @@ int main(int argc, char **argv) {
         return (ret >= 0) ? 0 : 1;
     }
 
+    /* Per-user login: option checks */
+    if (add_user && !users_file) {
+        fprintf(stderr, "ERROR: --add-user needs --users <file>\n");
+        return 1;
+    }
+    if (login_user && (listen_mode || users_file)) {
+        fprintf(stderr, "ERROR: --user is a client option (the server uses --users <file>)\n");
+        return 1;
+    }
+    if (users_file && !listen_mode && !add_user) {
+        fprintf(stderr, "ERROR: --users is a server option (-l); clients use --user <name>\n");
+        return 1;
+    }
+    if ((login_user || users_file) && g_udp_mode && !add_user) {
+        fprintf(stderr, "ERROR: per-user login (--user/--users) is not available with -u\n");
+        return 1;
+    }
+    if ((login_user && !user_name_valid(login_user)) || (add_user && !user_name_valid(add_user))) {
+        fprintf(stderr, "ERROR: user names are 1-%d characters from A-Z a-z 0-9 . _ -\n",
+                USER_NAME_MAX);
+        return 1;
+    }
+
+    /* --add-user: store the user's password scalar and exit */
+    if (add_user) {
+        char pw1[SECRET_MAX + 1], pw2[SECRET_MAX + 1];
+        int rc;
+        if (password_from_argv) {
+            snprintf(pw1, sizeof(pw1), "%s", s_password);
+            rc = 0;
+        } else if (key_file) {
+            rc = secret_from_file(key_file, pw1, sizeof(pw1));
+        } else if ((rc = secret_from_env(pw1, sizeof(pw1))) == 1) {
+            rc = secret_prompt("New password: ", pw1, sizeof(pw1));
+            if (rc == 0 && (secret_prompt("Repeat password: ", pw2, sizeof(pw2)) != 0 ||
+                            strcmp(pw1, pw2) != 0)) {
+                fprintf(stderr, "ERROR: passwords do not match\n");
+                rc = -1;
+            }
+            secret_wipe(pw2, sizeof(pw2));
+        }
+        unsetenv(SECRET_ENV);
+        if (rc != 0 || pw1[0] == '\0') {
+            if (rc == 1) fprintf(stderr, "ERROR: no password given (terminal, --key-file or "
+                                         SECRET_ENV ")\n");
+            secret_wipe(pw1, sizeof(pw1));
+            return 1;
+        }
+        if (strlen(pw1) < 12)
+            fprintf(stderr, "Warning: short password; every login attempt is one online "
+                            "guess, prefer 12+ random characters\n");
+        unsigned char w[32];
+        rc = user_password_to_w(add_user, pw1, strlen(pw1), w);
+        secret_wipe(pw1, sizeof(pw1));
+        if (rc == 0) rc = users_set(users_file, add_user, w);
+        secret_wipe(w, sizeof(w));
+        if (rc != 0) {
+            fprintf(stderr, "ERROR: cannot update %s: %s\n", users_file, strerror(errno));
+            return 1;
+        }
+        printf("user '%s' saved in %s\n", add_user, users_file);
+        return 0;
+    }
+
+    if (users_file) {
+        if (users_check_file(users_file) != 0) return 1;
+        ecdhe_set_users_file(users_file);
+        if (password_from_argv || key_file)
+            fprintf(stderr, "Warning: --users replaces the shared password; -k/--key-file "
+                            "are ignored\n");
+        unsetenv(SECRET_ENV);
+        password = "per-user";        /* placeholder: the handshake uses the users file */
+        goto password_done;
+    }
+    if (login_user && ecdhe_set_user(login_user) != 0) return 1;
+
     /* Password: -k > --key-file > $CLAWSEC_PASSWORD > prompt on /dev/tty */
     if (password_from_argv) {
         fprintf(stderr, "Warning: -k exposes the password to other local users "
@@ -828,6 +925,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ERROR: password key derivation failed\n");
         return 1;
     }
+password_done:
 
     /* Parse port forwarding target */
     char fwd_host[256] = {0};

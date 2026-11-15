@@ -199,6 +199,11 @@ extern void test_pad_mismatch_rejected(void);
 extern void test_pad_handshake_mismatch(void);
 extern void test_pad_handshake_both(void);
 
+/* test_users.c */
+extern void test_users_names_and_scalars(void);
+extern void test_users_file(void);
+extern void test_users_handshake(void);
+
 /* test_reverse.c */
 extern void test_persist_backoff_initial(void);
 extern void test_persist_backoff_exponential(void);
@@ -408,6 +413,11 @@ int main(void) {
     test_pad_mismatch_rejected();
     test_pad_handshake_mismatch();
     test_pad_handshake_both();
+
+    /* Per-user login */
+    test_users_names_and_scalars();
+    test_users_file();
+    test_users_handshake();
 
     /* Reverse tunnel + persistent tests */
     test_persist_backoff_initial();
