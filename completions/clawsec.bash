@@ -4,7 +4,7 @@ _clawsec() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="-l -p -k -K -L -u -4 -6 -c -v -w -e -z -P -V -n -b -h -R --obfs --pad --jitter --ech --mux --fallback --fingerprint --tofu --pq --tun --tun-udp --masquerade --default-route --scan --socks --socks-allow --send --recv --persistent --key-file --max-clients --max-per-ip --auth-fail-limit --handshake-timeout --scan-rate --users --add-user --set-user --del-user --user-option --user --tun6 --config --control --status --version"
+    opts="-l -p -k -K -L -u -4 -6 -c -v -w -e -z -P -V -n -b -h -R --obfs --pad --jitter --ech --mux --fallback --fingerprint --tofu --pq --tun --tun-udp --masquerade --default-route --scan --socks --socks-allow --send --recv --persistent --key-file --max-clients --max-per-ip --auth-fail-limit --handshake-timeout --scan-rate --users --add-user --set-user --del-user --user-option --user --tun6 --config --control --status --rekey --version"
 
     case "${prev}" in
         -p|-w)

@@ -54,7 +54,7 @@ TEST_SRC = $(TESTDIR)/test_clawsec.c $(TESTDIR)/test_crypto.c $(TESTDIR)/test_pr
 	$(TESTDIR)/test_mux.c $(TESTDIR)/test_fallback.c $(TESTDIR)/test_fingerprint.c \
 	$(TESTDIR)/test_tofu.c $(TESTDIR)/test_pqkem.c $(TESTDIR)/test_argon2.c \
 	$(TESTDIR)/test_portscan.c $(TESTDIR)/test_socks5.c $(TESTDIR)/test_filetx.c \
-	$(TESTDIR)/test_reverse.c $(TESTDIR)/test_tun.c $(TESTDIR)/test_hardening.c $(TESTDIR)/test_spake2.c $(TESTDIR)/test_pake.c $(TESTDIR)/test_iplimit.c $(TESTDIR)/test_pad.c $(TESTDIR)/test_users.c $(TESTDIR)/test_vpn.c
+	$(TESTDIR)/test_reverse.c $(TESTDIR)/test_tun.c $(TESTDIR)/test_hardening.c $(TESTDIR)/test_spake2.c $(TESTDIR)/test_pake.c $(TESTDIR)/test_iplimit.c $(TESTDIR)/test_pad.c $(TESTDIR)/test_users.c $(TESTDIR)/test_vpn.c $(TESTDIR)/test_rekey.c
 
 .SUFFIXES: .c .cc .o
 

@@ -96,6 +96,8 @@ static void usage(const char *prog) {
             "  --control <path>  With -K: status socket (mode 0600); read it with\n"
             "                    clawsec --status <path>\n"
             "  --config <file>   Read options from a file (key = value; see the man page)\n"
+            "  --rekey <when>    Update the stream keys every 30m / 2h / 100000r records\n"
+            "                    (both ends; ClawSec 4.3+)\n"
             "  --max-per-ip <n>  With -K: concurrent handlers per address, IPv6 per /64\n"
             "                    (default 8, 0=unlimited)\n"
             "  --auth-fail-limit <n>  With -K: refuse an address for 10 min after n wrong\n"
@@ -168,6 +170,7 @@ enum {
     OPT_CONFIG,
     OPT_CONTROL,
     OPT_STATUS,
+    OPT_REKEY,
 };
 
 /* Parse a non-negative decimal integer option. Returns -1 if invalid. */
@@ -240,6 +243,7 @@ int main(int argc, char **argv) {
         {"config", required_argument, NULL, OPT_CONFIG},
         {"control", required_argument, NULL, OPT_CONTROL},
         {"status", required_argument, NULL, OPT_STATUS},
+        {"rekey", required_argument, NULL, OPT_REKEY},
         {NULL, 0, NULL, 0}
     };
 
@@ -275,6 +279,22 @@ int main(int argc, char **argv) {
         case OPT_CONFIG: break;              /* expanded by config_expand() */
         case OPT_CONTROL: g_opt.control_path = optarg; break;
         case OPT_STATUS: return control_status(optarg);
+        case OPT_REKEY: {
+            /* 90s, 30m, 2h (time) or 100000r (records) */
+            char *end;
+            errno = 0;
+            unsigned long long v = strtoull(optarg, &end, 10);
+            unsigned long long mul = *end == 's' ? 1 : *end == 'm' ? 60 : *end == 'h' ? 3600 : 0;
+            if (errno || v == 0 || !*end || end[1] || (*end != 'r' && !mul) ||
+                (*end == 'r' ? v > 0xFFFFFFFFull : v * mul > 7 * 24 * 3600ull)) {
+                fprintf(stderr, "ERROR: --rekey takes a time (90s, 30m, 2h; max 7 days) or a "
+                                "record count (100000r)\n");
+                return 1;
+            }
+            if (*end == 'r') farm9crypt_set_rekey(0, v);
+            else farm9crypt_set_rekey((int)(v * mul), 0);
+            break;
+        }
         case OPT_USER: login_user = optarg; break;
         case OPT_USERS: users_file = optarg; break;
         case OPT_ADD_USER: add_user = optarg; break;
@@ -501,6 +521,12 @@ int main(int argc, char **argv) {
         int scan_timeout = timeout_sec > 0 ? timeout_sec * 1000 : 1500;
         int ret = portscan_run(scan_host, sp, ep, g_jitter, scan_timeout, banner_grab);
         return (ret >= 0) ? 0 : 1;
+    }
+
+    if (farm9crypt_rekey() && g_udp_mode) {
+        fprintf(stderr, "ERROR: --rekey is not available with -u (a lost datagram would "
+                        "desynchronise the keys)\n");
+        return 1;
     }
 
     /* VPN option checks */

@@ -134,6 +134,8 @@ stream_test "stream -z (incompressible data)" -z
 stream_test "stream --pad" --pad
 stream_test "stream -z --pad" -z --pad
 stream_test "stream --pad --obfs tls" --pad --obfs tls
+stream_test "stream --rekey 5r (a key update every 5 records)" --rekey 5r
+stream_test "stream --rekey 20r --pad --obfs tls" --rekey 20r --pad --obfs tls
 
 # Stream data that looks like a chat control frame (SOH + 'F' = inline file)
 # must be delivered verbatim and must never create files on the receiver.
@@ -167,6 +169,20 @@ sleep 0.5
 { cat "$WORK/udp.in"; sleep 1; } | timeout 3 "$BIN" -u -k "$KEY" --pad 127.0.0.1 "$P" >/dev/null 2>&1
 kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
 check "UDP mode (-u) --pad" "$WORK/udp.in" "$WORK/udp-pad.out"
+
+# ── --rekey must be set on both ends ──────────────────────────────────
+P=$(free_port)
+timeout 10 "$BIN" -l -p "$P" -k "$KEY" --rekey 30m < "$HOLD" >/dev/null 2>&1 &
+SRV=$!
+wait_port "$P"
+timeout 10 "$BIN" -k "$KEY" 127.0.0.1 "$P" < "$PAYLOAD" >/dev/null 2>"$WORK/rkmm.err"
+RRC=$?
+wait "$SRV" 2>/dev/null
+if [ "$RRC" -eq 1 ] && grep -q 'option mismatch' "$WORK/rkmm.err" && grep -q -- '--rekey' "$WORK/rkmm.err"; then
+    echo "  [E2E] --rekey on one end only: option mismatch ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --rekey on one end only: option mismatch ... FAIL (exit $RRC)"; FAIL=$((FAIL + 1))
+fi
 
 # ── --pad must be set on both ends: a clear error, not corrupted data ──
 P=$(free_port)
@@ -270,6 +286,15 @@ if [ "$PAR_OK" -eq 1 ]; then
 else
     echo "  [E2E] --mux 20 parallel downloads ... FAIL"; FAIL=$((FAIL + 1))
 fi
+
+# --mux with --rekey (key updates inside the multiplexed tunnel)
+P=$(free_port); LP=$(free_port)
+"$BIN" -l -p "$P" -k "$KEY" --rekey 30r -L "127.0.0.1:$WEB" --mux >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$P"
+"$BIN" -k "$KEY" --rekey 30r -p "$LP" --mux 127.0.0.1 "$P" >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$LP"
+timeout 15 curl -s -o "$WORK/mux-rekey.out" "http://127.0.0.1:$LP$URL_PATH"
+check "--mux -L --rekey 30r" "$PAYLOAD" "$WORK/mux-rekey.out"
 
 # --mux with --pad (records padded to 1400-byte units)
 P=$(free_port); LP=$(free_port)

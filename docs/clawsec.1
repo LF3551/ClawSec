@@ -266,6 +266,14 @@ Without \fB\-k\fR or \fB\-\-key\-file\fR, the password is taken from the
 after reading), or prompted for on the terminal without echo.
 \fB\-k\fR is visible to other users until ClawSec overwrites it.
 .TP
+.BI \-\-rekey " when"
+Update the stream keys every \fIwhen\fR: a time (\fB90s\fR, \fB30m\fR, \fB2h\fR;
+at most 7 days) or a number of records (\fB100000r\fR). Each direction
+ratchets its key with HKDF and wipes the old one (like a TLS 1.3 KeyUpdate), so
+a key that leaks later does not decrypt earlier traffic, and long sessions are
+not limited to 2^32 records. Both ends must use \fB\-\-rekey\fR (the
+intervals may differ); not available with \fB\-u\fR.
+.TP
 .BI \-\-config " file"
 Read options from \fIfile\fR before the command line (which wins). One
 option per line: \fIkey\fR or \fIkey\fR = \fIvalue\fR, \fB#\fR comments, values

@@ -38,6 +38,7 @@ _clawsec() {
         '--config[Read options from a file]:file:_files' \
         '--control[With -K: status socket]:path:_files' \
         '--status[Print a server status]:path:_files' \
+        '--rekey[Update the stream keys every 30m/2h/100000r]:interval' \
         '--socks-allow[SOCKS server: allowed destination CIDRs]:cidr list' \
         '--tun[TUN VPN mode with IP/mask]:ip/mask:' \
         '--tun-udp[UDP data channel for VPN (avoids TCP-over-TCP)]' \

@@ -28,6 +28,16 @@ ClawSec implements modern authenticated encryption using **AES-256-GCM** (Galois
   - `ClawSec v4 tcp c2s` / `ClawSec v4 tcp s2c` — stream channel, one key per direction
   - `ClawSec v4 udp c2s` / `ClawSec v4 udp s2c` — `--tun-udp` data channel, one key per direction
   - `ClawSec v4 fingerprint` — session fingerprint shown in chat mode
+  - `ClawSec v4 key update` — `--rekey` ratchet of a stream key
+- **Key updates** (`--rekey`, negotiated): before a data record, a sender whose
+  interval or record count is reached sends a record flagged `KEYUPDATE` (one
+  byte, authenticated like any record) and switches to
+  `k' = HKDF-SHA256(k, "ClawSec v4 key update")`, restarting its sequence number;
+  the receiver does the same when it reads that record. The old key is wiped, so a
+  key compromised later does not decrypt earlier records (forward secrecy within
+  the session); there is no fresh key exchange, so a compromised *current* key
+  keeps working for later updates (no post-compromise security — reconnect for
+  that). Not used on UDP channels (`-u`, the `--tun-udp` data channel)
 - **Property**: only someone who knows the password completes the handshake; an active
   attacker gets exactly one password guess per connection and nothing to test guesses
   against offline; each direction and channel uses an independent key, so frames cannot
