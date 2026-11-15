@@ -226,6 +226,54 @@ int filetx_send(int tunnel_fd, const char *filepath) {
 
 /* ──────────────────────────────────────────────────────────────── */
 
+void filetx_sanitize_name(char *name) {
+    if (!name) return;
+    for (char *c = name; *c; c++) {
+        unsigned char u = (unsigned char)*c;
+        if (*c == '/' || *c == '\\' || u < 0x20 || u == 0x7f)
+            *c = '_';
+    }
+    if (name[0] == '.')
+        name[0] = '_';
+    if (name[0] == '\0')
+        strcpy(name, "received.bin");
+}
+
+/* Hash the first len bytes of an open file (pread, offset 0) into ctx. */
+static int hash_prefix(int fd, uint64_t len, EVP_MD_CTX *ctx) {
+    char buf[FILETX_CHUNK_SIZE];
+    uint64_t done = 0;
+    while (done < len) {
+        size_t want = (len - done) < sizeof(buf) ? (size_t)(len - done) : sizeof(buf);
+        ssize_t n = pread(fd, buf, want, (off_t)done);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1;
+        EVP_DigestUpdate(ctx, buf, (size_t)n);
+        done += (uint64_t)n;
+    }
+    return 0;
+}
+
+/* Is the existing destination already this exact file? (never follows links) */
+static int final_matches(const char *path, uint64_t size, const unsigned char hash[32]) {
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NOCTTY);
+    if (fd < 0) return 0;
+    struct stat st;
+    int match = 0;
+    if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && (uint64_t)st.st_size == size) {
+        EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+        unsigned char h[32];
+        unsigned int hl = 32;
+        if (ctx && EVP_DigestInit_ex(ctx, EVP_sha256(), NULL) == 1 &&
+            hash_prefix(fd, size, ctx) == 0 &&
+            EVP_DigestFinal_ex(ctx, h, &hl) == 1)
+            match = memcmp(h, hash, 32) == 0;
+        EVP_MD_CTX_free(ctx);
+    }
+    close(fd);
+    return match;
+}
+
 int filetx_recv(int tunnel_fd, const char *output_dir) {
     /* Read header */
     char hdr_buf[FILETX_HDR_SIZE + 256];
@@ -248,48 +296,65 @@ int filetx_recv(int tunnel_fd, const char *output_dir) {
     char filename[256];
     memcpy(filename, hdr_buf + 42, name_len);
     filename[name_len] = '\0';
+    filetx_sanitize_name(filename);            /* also stops at an embedded NUL */
 
-    /* Sanitize filename — no path traversal */
-    for (int i = 0; i < name_len; i++) {
-        if (filename[i] == '/' || filename[i] == '\\')
-            filename[i] = '_';
-    }
-    if (filename[0] == '.')
-        filename[0] = '_';
-
-    /* Build output path */
-    char outpath[512];
-    if (output_dir && output_dir[0]) {
-        snprintf(outpath, sizeof(outpath), "%s/%s", output_dir, filename);
-    } else {
-        snprintf(outpath, sizeof(outpath), "%s", filename);
+    const char *dir = (output_dir && output_dir[0]) ? output_dir : ".";
+    char outpath[4096], partpath[4096 + sizeof(FILETX_PART_SUFFIX)];
+    int n1 = snprintf(outpath, sizeof(outpath), "%s/%s", dir, filename);
+    int n2 = snprintf(partpath, sizeof(partpath), "%s%s", outpath, FILETX_PART_SUFFIX);
+    if (n1 < 0 || (size_t)n1 >= sizeof(outpath) || n2 < 0 || (size_t)n2 >= sizeof(partpath)) {
+        fprintf(stderr, "ERROR: Output path too long\n");
+        return -1;
     }
 
     log_msg(1, "Receiving: %s (%llu bytes)", filename, (unsigned long long)file_size);
     fprintf(stderr, "Receiving: %s (%llu bytes)\n", filename,
             (unsigned long long)file_size);
 
-    /* Check for partial file (resume support) */
-    uint64_t offset = 0;
+    /* Already received? (identical regular file at the destination) */
+    if (final_matches(outpath, file_size, expected_hash)) {
+        fprintf(stderr, "File already exists and verified.\n");
+        char offset_buf[8];
+        put_be64((unsigned char *)offset_buf, file_size);
+        if (farm9crypt_write(tunnel_fd, offset_buf, 8) < 0) return -1;
+        char ok = 0;
+        farm9crypt_write(tunnel_fd, &ok, 1);
+        return 0;
+    }
+
+    /* Partial data lives in our own "<name>.clawsec-part": never follow a
+     * symlink, never write into a file that is not ours or has other links. */
+    int fd = open(partpath, O_RDWR | O_CREAT | O_NOFOLLOW | O_NOCTTY, 0644);
+    if (fd < 0) {
+        fprintf(stderr, "ERROR: Cannot create '%s': %s\n", partpath, strerror(errno));
+        return -1;
+    }
     struct stat st;
-    if (stat(outpath, &st) == 0 && S_ISREG(st.st_mode)) {
-        /* Partial file exists — offer to resume */
-        if ((uint64_t)st.st_size < file_size) {
-            offset = (uint64_t)st.st_size;
-            fprintf(stderr, "Partial file found (%llu bytes), resuming...\n",
-                    (unsigned long long)offset);
-        } else if ((uint64_t)st.st_size == file_size) {
-            /* Check if hash matches — already complete */
-            unsigned char existing_hash[32];
-            if (sha256_file(outpath, file_size, existing_hash) == 0 &&
-                memcmp(existing_hash, expected_hash, 32) == 0) {
-                fprintf(stderr, "File already exists and verified.\n");
-                offset = file_size;
-            } else {
-                /* Hash mismatch — re-download */
-                offset = 0;
-            }
-        }
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_nlink != 1 ||
+        st.st_uid != geteuid()) {
+        fprintf(stderr, "ERROR: Refusing to use '%s' (not a private regular file)\n", partpath);
+        close(fd);
+        return -1;
+    }
+
+    uint64_t offset = (uint64_t)st.st_size;
+    if (offset > file_size) {                   /* stale partial of another file */
+        if (ftruncate(fd, 0) < 0) { close(fd); return -1; }
+        offset = 0;
+    }
+    if (offset > 0)
+        fprintf(stderr, "Partial file found (%llu bytes), resuming...\n",
+                (unsigned long long)offset);
+
+    /* Hash what we already have, then append */
+    EVP_MD_CTX *sha_ctx = EVP_MD_CTX_new();
+    if (!sha_ctx || EVP_DigestInit_ex(sha_ctx, EVP_sha256(), NULL) != 1 ||
+        (offset > 0 && hash_prefix(fd, offset, sha_ctx) != 0) ||
+        lseek(fd, (off_t)offset, SEEK_SET) < 0) {
+        fprintf(stderr, "ERROR: Cannot read partial file '%s'\n", partpath);
+        EVP_MD_CTX_free(sha_ctx);
+        close(fd);
+        return -1;
     }
 
     /* Send resume offset */
@@ -297,26 +362,8 @@ int filetx_recv(int tunnel_fd, const char *output_dir) {
     put_be64((unsigned char *)offset_buf, offset);
     if (farm9crypt_write(tunnel_fd, offset_buf, 8) < 0) {
         fprintf(stderr, "ERROR: Failed to send resume offset\n");
-        return -1;
-    }
-
-    if (offset >= file_size) {
-        /* Already complete — send verify */
-        char ok = 0;
-        farm9crypt_write(tunnel_fd, &ok, 1);
-        return 0;
-    }
-
-    /* Open file for writing (append if resuming) */
-    int flags = O_WRONLY | O_CREAT;
-    if (offset > 0) {
-        flags |= O_APPEND;
-    } else {
-        flags |= O_TRUNC;
-    }
-    int fd = open(outpath, flags, 0644);
-    if (fd < 0) {
-        fprintf(stderr, "ERROR: Cannot create file '%s': %s\n", outpath, strerror(errno));
+        EVP_MD_CTX_free(sha_ctx);
+        close(fd);
         return -1;
     }
 
@@ -326,35 +373,14 @@ int filetx_recv(int tunnel_fd, const char *output_dir) {
     struct timeval start;
     gettimeofday(&start, NULL);
 
-    /* SHA-256 of received data (for the entire file) */
-    EVP_MD_CTX *sha_ctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(sha_ctx, EVP_sha256(), NULL);
-
-    /* If resuming, hash the existing part first */
-    if (offset > 0) {
-        int rfd = open(outpath, O_RDONLY);
-        if (rfd >= 0) {
-            char hbuf[FILETX_CHUNK_SIZE];
-            uint64_t hashed = 0;
-            while (hashed < offset) {
-                size_t want = (offset - hashed) < sizeof(hbuf) ?
-                              (size_t)(offset - hashed) : sizeof(hbuf);
-                ssize_t n = read(rfd, hbuf, want);
-                if (n <= 0) break;
-                EVP_DigestUpdate(sha_ctx, hbuf, n);
-                hashed += n;
-            }
-            close(rfd);
-        }
-    }
-
     char chunk[FILETX_CHUNK_SIZE];
     while (received < to_recv) {
         rlen = farm9crypt_read(tunnel_fd, chunk, sizeof(chunk));
         if (rlen <= 0) {
-            fprintf(stderr, "\nERROR: Tunnel read failed at %llu/%llu\n",
+            fprintf(stderr, "\nERROR: Tunnel read failed at %llu/%llu "
+                            "(partial data kept in %s for resume)\n",
                     (unsigned long long)(offset + received),
-                    (unsigned long long)file_size);
+                    (unsigned long long)file_size, partpath);
             close(fd);
             EVP_MD_CTX_free(sha_ctx);
             return -1;
@@ -365,8 +391,7 @@ int filetx_recv(int tunnel_fd, const char *output_dir) {
         if (received + to_write > to_recv)
             to_write = (size_t)(to_recv - received);
 
-        ssize_t wr = write(fd, chunk, to_write);
-        if (wr != (ssize_t)to_write) {
+        if (write_all(fd, chunk, to_write) < 0) {
             fprintf(stderr, "\nERROR: Write failed: %s\n", strerror(errno));
             close(fd);
             EVP_MD_CTX_free(sha_ctx);
@@ -377,7 +402,6 @@ int filetx_recv(int tunnel_fd, const char *output_dir) {
         received += to_write;
         print_progress(received, to_recv, &start, "RX");
     }
-    close(fd);
     fprintf(stderr, "\n");
 
     /* Compute final hash */
@@ -386,18 +410,21 @@ int filetx_recv(int tunnel_fd, const char *output_dir) {
     EVP_DigestFinal_ex(sha_ctx, computed_hash, &hlen);
     EVP_MD_CTX_free(sha_ctx);
 
-    /* Verify */
     int match = (memcmp(computed_hash, expected_hash, 32) == 0);
+    if (match && (fsync(fd) < 0 || rename(partpath, outpath) < 0)) {
+        fprintf(stderr, "ERROR: Cannot move '%s' into place: %s\n", partpath, strerror(errno));
+        match = 0;
+    }
+    close(fd);
+
     char verify = match ? 0 : 1;
     farm9crypt_write(tunnel_fd, &verify, 1);
 
     if (match) {
         fprintf(stderr, "✓ SHA-256 verified — saved to %s\n", outpath);
         return 0;
-    } else {
-        fprintf(stderr, "✗ SHA-256 MISMATCH — file may be corrupted!\n");
-        /* Remove corrupted file */
-        unlink(outpath);
-        return -1;
     }
+    fprintf(stderr, "✗ SHA-256 MISMATCH — file may be corrupted, discarded\n");
+    unlink(partpath);                           /* only ever our own partial file */
+    return -1;
 }

@@ -164,8 +164,17 @@ extern void test_socks5_client_binds(void);
 extern void test_filetx_header_format(void);
 extern void test_filetx_send_no_file(void);
 extern void test_filetx_recv_bad_header(void);
-extern void test_filetx_filename_sanitize(void);
 extern void test_filetx_resume_offset(void);
+
+/* test_hardening.c */
+extern void test_secret_from_arg_scrubs_argv(void);
+extern void test_secret_from_file(void);
+extern void test_secret_from_file_rejects_empty(void);
+extern void test_secret_from_env_unsets(void);
+extern void test_acl_default_policy(void);
+extern void test_acl_allow_list(void);
+extern void test_acl_rejects_bad_lists(void);
+extern void test_filetx_sanitize_real(void);
 
 /* test_reverse.c */
 extern void test_persist_backoff_initial(void);
@@ -346,8 +355,17 @@ int main(void) {
     test_filetx_header_format();
     test_filetx_send_no_file();
     test_filetx_recv_bad_header();
-    test_filetx_filename_sanitize();
     test_filetx_resume_offset();
+
+    /* Hardening: password sources, SOCKS policy, file names */
+    test_secret_from_arg_scrubs_argv();
+    test_secret_from_file();
+    test_secret_from_file_rejects_empty();
+    test_secret_from_env_unsets();
+    test_acl_default_policy();
+    test_acl_allow_list();
+    test_acl_rejects_bad_lists();
+    test_filetx_sanitize_real();
 
     /* Reverse tunnel + persistent tests */
     test_persist_backoff_initial();

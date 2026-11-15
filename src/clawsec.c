@@ -32,6 +32,8 @@
 #include "persistent.h"
 #include "tun.h"
 #include "version.h"
+#include "secret.h"
+#include "acl.h"
 
 /* Global config */
 int g_verbose = 0;
@@ -54,10 +56,33 @@ static int g_default_route = 0;            /* --default-route (all traffic via V
 static int g_tun_udp = 0;                  /* --tun-udp (UDP data channel for VPN) */
 static const char *s_bind_port = NULL;     /* -p <port> (also used by --tun-udp server) */
 
+/* -K: live handler processes (decremented by the SIGCHLD handler) */
+static volatile sig_atomic_t g_active_children = 0;
+static int g_max_clients = 16;              /* --max-clients */
+static int g_handshake_timeout = 15;        /* --handshake-timeout (seconds, 0 = off) */
+static char s_password[SECRET_MAX + 1];     /* session password (never in argv) */
+
 static void sigchld_handler(int sig) {
     (void)sig;
+    int saved_errno = errno;
     g_child_exited = 1;
-    while (waitpid(-1, NULL, WNOHANG) > 0);
+    while (waitpid(-1, NULL, WNOHANG) > 0) {
+        if (g_active_children > 0) g_active_children--;
+    }
+    errno = saved_errno;
+}
+
+/* Bound blocking socket I/O during session setup, so a client that connects
+ * and stays silent cannot hold a handler (or the single-session server)
+ * forever. 0 removes the bound. */
+static void set_io_timeout(int fd, int seconds) {
+    struct timeval tv = { .tv_sec = seconds, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
+
+static int setup_timed_out(int err) {
+    return err == EAGAIN || err == EWOULDBLOCK || err == ETIMEDOUT;
 }
 
 static void ignore_sigpipe(void) {
@@ -86,10 +111,17 @@ static int handle_client(int sockfd, const char *password, int is_server,
                           int send_first, const char *exec_prog,
                           const char *fwd_host, const char *fwd_port,
                           const char *peer_host, const char *peer_port) {
+    /* Everything up to key confirmation must finish within the timeout */
+    if (g_handshake_timeout > 0)
+        set_io_timeout(sockfd, g_handshake_timeout);
+
     /* TLS camouflage: wrap socket in TLS before any crypto handshake */
     if (obfs_get_mode() == OBFS_TLS) {
+        errno = 0;
         int tls_rc = is_server ? obfs_tls_accept(sockfd) : obfs_tls_connect(sockfd);
         if (tls_rc < 0) {
+            if (setup_timed_out(errno))
+                fprintf(stderr, "ERROR: handshake timed out after %d s\n", g_handshake_timeout);
             fprintf(stderr, "ERROR: TLS camouflage handshake failed\n");
             close(sockfd);
             return 1;
@@ -104,6 +136,7 @@ static int handle_client(int sockfd, const char *password, int is_server,
             if (knock == 0) {
                 /* Not a ClawSec client — proxy to fallback site */
                 log_msg(1, "fallback: non-ClawSec probe detected, proxying");
+                set_io_timeout(sockfd, 0);   /* the proxy has its own idle timeout */
                 fallback_proxy(sockfd, g_fallback_host, g_fallback_port,
                                NULL, 0);
                 close(sockfd);
@@ -124,9 +157,12 @@ static int handle_client(int sockfd, const char *password, int is_server,
         }
     }
 
+    errno = 0;
     if (g_pq) {
         if (farm9crypt_init_ecdhe_pq(sockfd, password, strlen(password),
                                      send_first, peer_host, peer_port) != 0) {
+            if (setup_timed_out(errno))
+                fprintf(stderr, "ERROR: handshake timed out after %d s\n", g_handshake_timeout);
             fprintf(stderr, "ERROR: Post-quantum hybrid handshake failed\n");
             close(sockfd);
             return 1;
@@ -138,6 +174,8 @@ static int handle_client(int sockfd, const char *password, int is_server,
     } else if (g_tofu) {
         if (farm9crypt_init_ecdhe_tofu(sockfd, password, strlen(password),
                                        send_first, peer_host, peer_port) != 0) {
+            if (setup_timed_out(errno))
+                fprintf(stderr, "ERROR: handshake timed out after %d s\n", g_handshake_timeout);
             fprintf(stderr, "ERROR: ECDHE+TOFU handshake failed\n");
             close(sockfd);
             return 1;
@@ -145,12 +183,17 @@ static int handle_client(int sockfd, const char *password, int is_server,
         log_msg(1, "PFS session established (X25519 + Ed25519 TOFU + password KDF)");
     } else {
         if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), send_first) != 0) {
+            if (setup_timed_out(errno))
+                fprintf(stderr, "ERROR: handshake timed out after %d s\n", g_handshake_timeout);
             fprintf(stderr, "ERROR: ECDHE handshake failed\n");
             close(sockfd);
             return 1;
         }
         log_msg(1, "PFS session established (X25519 + password KDF)");
     }
+
+    /* Session established: no artificial bound on the data phase */
+    set_io_timeout(sockfd, 0);
 
     /* SOCKS5 proxy mode */
     if (g_socks) {
@@ -317,20 +360,25 @@ static int handle_client(int sockfd, const char *password, int is_server,
 static void usage(const char *prog) {
     fprintf(stderr,
             "Usage:\n"
-            "  %s -k <password> [-u] [-4|-6] [-c] [-v] [-w sec] host port\n"
-            "  %s -l -k <password> -p port [-K] [-u] [-4|-6] [-c] [-v]", prog, prog);
+            "  %s [password] [-u] [-4|-6] [-c] [-v] [-w sec] host port\n"
+            "  %s -l [password] -p port [-K] [-u] [-4|-6] [-c] [-v]", prog, prog);
 #ifdef GAPING_SECURITY_HOLE
     fprintf(stderr, " [-e prog]");
 #endif
     fprintf(stderr, "\n"
-            "  %s -l -k <password> -p port -L host:port  (port forwarding)\n\n", prog);
+            "  %s -l [password] -p port -L host:port  (port forwarding)\n"
+            "  [password] = --key-file <file> | -k <password>, or CLAWSEC_PASSWORD, or prompt\n\n", prog);
     fprintf(stderr,
             "Options:\n"
-            "  -k <password>     Encryption password (required)\n"
+            "  -k <password>     Encryption password (visible in ps; prefer the next two)\n"
+            "  --key-file <f>    Read the password from the first line of a file (0600)\n"
+            "                    (or set CLAWSEC_PASSWORD; without either you are prompted)\n"
             "  -l                Listen mode (server)\n"
             "  -p <port>         Local port in listen mode\n"
             "                    (with --mux on the client: [host:]port, default 127.0.0.1)\n"
             "  -K                Keep-open: accept multiple clients (fork per client)\n"
+            "  --max-clients <n> With -K: concurrent handlers (default 16)\n"
+            "  --handshake-timeout <s>  Abort session setup after s seconds (default 15, 0=off)\n"
             "  -L <host:port>    Port forwarding: forward decrypted traffic to host:port\n"
             "  -R <host:port>    Reverse tunnel. Server: address to listen on (127.0.0.1,\n"
             "                    or 0.0.0.0 to expose publicly). Client: target to connect to\n"
@@ -348,6 +396,8 @@ static void usage(const char *prog) {
             "  --scan <range>    Stealth port scan (SYN/connect, randomized order)\n"
             "                    range: 1-1024, 22-443, all (default: 1-1024)\n"
             "  -b                Banner grab (show service version on open ports)\n"
+            "  --socks-allow <l> SOCKS server: only allow destinations in l (CIDR list);\n"
+            "                    default: all except loopback/link-local/cloud metadata\n"
             "  --socks [h:]port  SOCKS5 proxy through encrypted tunnel (client listens on\n"
             "                    127.0.0.1 by default; the proxy has no authentication)\n"
             "  --send <file>     Send file (encrypted, with SHA-256 verify + resume)\n"
@@ -371,6 +421,23 @@ static void usage(const char *prog) {
 #endif
 }
 
+/* Long-only options */
+enum {
+    OPT_KEY_FILE = 256,
+    OPT_MAX_CLIENTS,
+    OPT_HANDSHAKE_TIMEOUT,
+    OPT_SOCKS_ALLOW,
+};
+
+/* Parse a non-negative decimal integer option. Returns -1 if invalid. */
+static long parse_count(const char *s, long max) {
+    char *end;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (errno || end == s || *end != '\0' || v < 0 || v > max) return -1;
+    return v;
+}
+
 int main(int argc, char **argv) {
     const char *password = NULL;
     const char *bind_port = NULL;  /* set to s_bind_port below after parsing */
@@ -381,6 +448,8 @@ int main(int argc, char **argv) {
     int timeout_sec = 0;
     int scan_mode = 0;
     int banner_grab = 0;
+    int password_from_argv = 0;
+    const char *key_file = NULL;
 #ifdef GAPING_SECURITY_HOLE
     const char *exec_prog = NULL;
 #endif
@@ -406,6 +475,10 @@ int main(int argc, char **argv) {
         {"tun-udp",     no_argument,       NULL, 'B'},
         {"help",        no_argument,       NULL, 'h'},
         {"version",     no_argument,       NULL, 'I'},
+        {"key-file",    required_argument, NULL, OPT_KEY_FILE},
+        {"max-clients", required_argument, NULL, OPT_MAX_CLIENTS},
+        {"handshake-timeout", required_argument, NULL, OPT_HANDSHAKE_TIMEOUT},
+        {"socks-allow", required_argument, NULL, OPT_SOCKS_ALLOW},
         {NULL, 0, NULL, 0}
     };
 
@@ -430,7 +503,34 @@ int main(int argc, char **argv) {
         case '4': g_af_family = AF_INET; break;
         case '6': g_af_family = AF_INET6; break;
         case 'c': g_chat_mode = 1; break;
-        case 'k': password = optarg; break;
+        case 'k':
+            if (secret_from_arg(optarg, s_password, sizeof(s_password)) != 0)
+                return 1;
+            password = s_password;
+            password_from_argv = 1;
+            break;
+        case OPT_KEY_FILE: key_file = optarg; break;
+        case OPT_MAX_CLIENTS: {
+            long v = parse_count(optarg, 4096);
+            if (v < 1) {
+                fprintf(stderr, "ERROR: --max-clients must be 1-4096\n");
+                return 1;
+            }
+            g_max_clients = (int)v;
+            break;
+        }
+        case OPT_HANDSHAKE_TIMEOUT: {
+            long v = parse_count(optarg, 3600);
+            if (v < 0) {
+                fprintf(stderr, "ERROR: --handshake-timeout must be 0-3600 seconds\n");
+                return 1;
+            }
+            g_handshake_timeout = (int)v;
+            break;
+        }
+        case OPT_SOCKS_ALLOW:
+            if (acl_set_allow_list(optarg) != 0) return 1;
+            break;
         case 'p': bind_port = optarg; break;
         case 'L': fwd_spec = optarg; break;
         case 'R': s_reverse_spec = optarg; break;
@@ -580,8 +680,30 @@ int main(int argc, char **argv) {
         return (ret >= 0) ? 0 : 1;
     }
 
+    /* Password: -k > --key-file > $CLAWSEC_PASSWORD > prompt on /dev/tty */
+    if (password_from_argv) {
+        fprintf(stderr, "Warning: -k exposes the password to other local users "
+                        "(ps, /proc) and to shell history; prefer --key-file or "
+                        "the " SECRET_ENV " environment variable\n");
+    } else if (key_file) {
+        if (secret_from_file(key_file, s_password, sizeof(s_password)) != 0)
+            return 1;
+        password = s_password;
+    } else {
+        int rc = secret_from_env(s_password, sizeof(s_password));
+        if (rc < 0) return 1;
+        if (rc == 1) {
+            rc = secret_prompt("ClawSec password: ", s_password, sizeof(s_password));
+            if (rc < 0) return 1;
+        }
+        if (rc == 0) password = s_password;
+    }
+    /* Never pass the password on to child processes (-e, --tun tools) */
+    unsetenv(SECRET_ENV);
+
     if (!password || *password == '\0') {
-        fprintf(stderr, "ERROR: Encryption password required (use -k <password>).\n");
+        fprintf(stderr, "ERROR: Encryption password required: use --key-file <file>, "
+                        "the " SECRET_ENV " environment variable, or -k <password>.\n");
         usage(argv[0]);
         return 1;
     }
@@ -674,11 +796,26 @@ int main(int argc, char **argv) {
                 fwd_spec ? " [forwarding]" : "");
 
         if (keep_open && !g_udp_mode) {
-            /* Multi-client mode: fork per connection */
+            /* Multi-client mode: fork per connection, at most g_max_clients
+             * at a time (each handshake costs ~19 MiB of Argon2id memory) */
             install_sigchld();
+            sigset_t chld, prev;
+            sigemptyset(&chld);
+            sigaddset(&chld, SIGCHLD);
             for (;;) {
+                sigprocmask(SIG_BLOCK, &chld, &prev);
+                if (g_active_children >= g_max_clients)
+                    log_msg(1, "max clients (%d) reached, waiting for a handler to finish",
+                            g_max_clients);
+                while (g_active_children >= g_max_clients)
+                    sigsuspend(&prev);
+                sigprocmask(SIG_SETMASK, &prev, NULL);
+
                 int client_fd = net_accept(listen_fd);
+                sigprocmask(SIG_BLOCK, &chld, &prev);
                 pid_t pid = fork();
+                if (pid > 0) g_active_children++;
+                sigprocmask(SIG_SETMASK, &prev, NULL);
                 if (pid < 0) {
                     perror("fork");
                     close(client_fd);
@@ -686,6 +823,7 @@ int main(int argc, char **argv) {
                 }
                 if (pid == 0) {
                     /* Child: handle this client */
+                    signal(SIGCHLD, SIG_DFL);   /* the parent's reaper is not ours */
                     close(listen_fd);
                     int child_rc = handle_client(client_fd, password, 1, 1, exec_arg,
                                                  fwd_spec ? fwd_host : NULL,

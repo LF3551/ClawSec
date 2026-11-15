@@ -117,31 +117,6 @@ void test_filetx_recv_bad_header(void) {
 }
 
 /*
- * Test: Filename sanitization (path traversal prevention)
- */
-void test_filetx_filename_sanitize(void) {
-    TEST_BEGIN("filetx sanitizes path traversal in filenames") {
-        /* Simulate: if filename contains '/' or starts with '.',
-         * filetx_recv replaces them with '_' */
-        char filename[] = "../../../etc/passwd";
-        int name_len = strlen(filename);
-
-        /* Apply same sanitization as filetx.c */
-        for (int i = 0; i < name_len; i++) {
-            if (filename[i] == '/' || filename[i] == '\\')
-                filename[i] = '_';
-        }
-        if (filename[0] == '.')
-            filename[0] = '_';
-
-        /* Should not contain path separators */
-        ASSERT(strchr(filename, '/') == NULL, "no forward slashes");
-        ASSERT(strchr(filename, '\\') == NULL, "no backslashes");
-        ASSERT(filename[0] != '.', "doesn't start with dot");
-    } TEST_END;
-}
-
-/*
  * Test: Resume offset encoding
  */
 void test_filetx_resume_offset(void) {

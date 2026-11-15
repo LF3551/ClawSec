@@ -21,7 +21,7 @@
  *
  * Features:
  *   - Progress bar with % and speed
- *   - Resume on reconnect (receiver checks existing partial file)
+ *   - Resume on reconnect (receiver keeps <name>.clawsec-part)
  *   - SHA-256 end-to-end verification
  *   - No file size limit (streams in chunks)
  */
@@ -33,7 +33,19 @@
 int filetx_send(int tunnel_fd, const char *filepath);
 
 /* Receive a file from encrypted tunnel. dir = output directory (NULL = cwd).
+ * Data is written to "<name>.clawsec-part" (our own regular file, opened
+ * with O_NOFOLLOW, single link) and renamed to <name> only after the
+ * SHA-256 matches, so symlinks/hardlinks in the directory are never written
+ * through and a failed transfer never touches an existing file.
  * Returns 0 on success, -1 on error. */
 int filetx_recv(int tunnel_fd, const char *output_dir);
+
+/* Make a peer-supplied file name safe to create in a directory: path
+ * separators and control characters become '_', a leading '.' becomes '_'
+ * (no hidden files, no "." / ".."), and an empty name becomes
+ * "received.bin". name must be NUL-terminated; it is modified in place. */
+void filetx_sanitize_name(char *name);
+
+#define FILETX_PART_SUFFIX ".clawsec-part"
 
 #endif

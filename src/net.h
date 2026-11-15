@@ -36,6 +36,14 @@ int net_udp_accept(int udp_fd);
 /* Like net_connect but returns -1 on failure instead of exiting */
 int net_try_connect(const char *host, const char *port, int timeout_sec);
 
+/* net_try_connect that only connects to resolved addresses for which
+ * allow(addr) returns 1. If every resolved address was rejected, returns -1
+ * and sets *denied = 1 (denied may be NULL). */
+#include <sys/socket.h>
+int net_try_connect_filtered(const char *host, const char *port, int timeout_sec,
+                             int (*allow)(const struct sockaddr *, socklen_t),
+                             int *denied);
+
 /* Global network config (set before calling net_* functions) */
 extern int g_udp_mode;
 extern int g_af_family;

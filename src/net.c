@@ -80,9 +80,16 @@ int net_connect(const char *host, const char *port, int timeout_sec) {
 }
 
 int net_try_connect(const char *host, const char *port, int timeout_sec) {
-    struct addrinfo hints, *res = NULL, *rp;
-    int sock = -1, ret;
+    return net_try_connect_filtered(host, port, timeout_sec, NULL, NULL);
+}
 
+int net_try_connect_filtered(const char *host, const char *port, int timeout_sec,
+                             int (*allow)(const struct sockaddr *, socklen_t),
+                             int *denied) {
+    struct addrinfo hints, *res = NULL, *rp;
+    int sock = -1, ret, tried = 0;
+
+    if (denied) *denied = 0;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family   = g_af_family;
     hints.ai_socktype = g_udp_mode ? SOCK_DGRAM : SOCK_STREAM;
@@ -91,6 +98,11 @@ int net_try_connect(const char *host, const char *port, int timeout_sec) {
     if (ret != 0) return -1;
 
     for (rp = res; rp != NULL; rp = rp->ai_next) {
+        /* Check the resolved address we are about to connect to (not the
+         * name), so DNS answers cannot smuggle in a forbidden destination. */
+        if (allow && !allow(rp->ai_addr, rp->ai_addrlen)) continue;
+        tried++;
+
         sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
         if (sock < 0) continue;
 
@@ -139,6 +151,7 @@ int net_try_connect(const char *host, const char *port, int timeout_sec) {
     }
 
     freeaddrinfo(res);
+    if (sock < 0 && allow && tried == 0 && denied) *denied = 1;
     return sock;
 }
 
