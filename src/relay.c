@@ -580,8 +580,11 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
                 continue;
             }
 
-            /* Check for control message */
-            if (outlen >= 2 && outdata[0] == CTRL_SOH) {
+            /* Control messages exist only in interactive chat mode. In stream
+             * mode every byte is payload: interpreting data that happens to
+             * start with SOH would corrupt transfers and let the peer drop
+             * files into our working directory. */
+            if (chat_mode && outlen >= 2 && outdata[0] == CTRL_SOH) {
                 handle_ctrl(sockfd, outdata, outlen,
                             peer_nick[0] ? peer_nick : remote_label,
                             peer_nick, sizeof(peer_nick),
