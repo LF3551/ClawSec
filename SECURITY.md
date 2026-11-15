@@ -296,6 +296,7 @@ server identity
 | `-e` built by default | Every binary could hand out a shell |
 
 Details: [CHANGELOG.md](CHANGELOG.md),
+[releases/4.3.0/RELEASE_NOTES.md](releases/4.3.0/RELEASE_NOTES.md),
 [releases/4.2.0/RELEASE_NOTES.md](releases/4.2.0/RELEASE_NOTES.md),
 [releases/4.1.0/RELEASE_NOTES.md](releases/4.1.0/RELEASE_NOTES.md),
 [releases/4.0.0/RELEASE_NOTES.md](releases/4.0.0/RELEASE_NOTES.md),
@@ -394,6 +395,6 @@ For production environments, consider professionally audited solutions like:
 ---
 
 **Last Updated**: November 15, 2026  
-**Release**: 4.2.0  
+**Release**: 4.3.0  
 **Protocol Version**: 4  
 **Maintainer**: ClawSec Project
