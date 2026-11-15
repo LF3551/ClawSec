@@ -2,6 +2,53 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [4.2.0] - 2026-11-15
+
+Feature release. **Wire-compatible with 4.0/4.1** (protocol 4) for every
+existing option; the new features are negotiated in the hello and are
+reported as an option mismatch when the other end does not support them.
+
+### Added
+- **Multi-client VPN hub** (`-l -K --tun`): one TUN device owned by the hub
+  process, one session process per client (encryption only), routing by
+  destination address, per-client source-address check (spoofed packets
+  dropped and logged). Clients get addresses from the server
+  (`--tun auto`) or ask for a specific one; conflicts are refused. 4.1 clients
+  keep working (the hub learns their address from the first packet).
+- **IPv6 inside the tunnel** (`--tun6 fd00::1/64`, server): clients get the
+  address with the same host number as their IPv4 one; `--masquerade` adds
+  IPv6 NAT (ip6tables/nft, pf); a client's `--default-route` adds `::/1` and
+  `8000::/1` through the tunnel. Point-to-point servers support it too.
+- **Per-user passwords** (`--users FILE`, `--add-user NAME`, `--user NAME`):
+  SPAKE2 with the user name in the transcript; the file stores
+  `Argon2id(password, user salt)`, is re-read per connection, unknown users
+  fail exactly like wrong passwords, `-e` programs get `CLAWSEC_USER`.
+- **Pipelined SYN scan** for IPv4 and IPv6 (`--scan-rate`, default 1000
+  probes/s): replies matched by a keyed ISN, unanswered ports retried once and
+  reported as filtered. 2000 ports with 200 dropped: ~4 s (4.1 needed one
+  timeout per dropped port).
+
+### Changed
+- **`--pad` works in every mode** (stream, `-L`, `--mux`, `--socks`, `-R`,
+  `-u`, `--tun`, `--tun-udp`, file transfer): padding moved to the record layer
+  (multiples of 1400 bytes, flagged in the authenticated header) and is
+  negotiated in the handshake. Previously only stream/chat/`-L` were padded
+  and a one-sided `--pad` corrupted data. **`--pad` now needs 4.2 on both
+  ends.** With `--tun`, the MTU is 1392 so that a full packet is one record.
+- The record receiver checks the header flags (previously ignored; they were
+  already authenticated).
+- A server without `--tun-udp` (and the hub) refuses a client's UDP channel
+  offer at once (`TUDN`) instead of after the 30 s keepalive.
+
+### Not yet
+- `--tun-udp` with `-K` (multi-client): 4.2 clients use the TCP channel.
+
+### Tests
+- 157 unit tests (pad, users, VPN pool/routing/anti-spoofing), 62 end-to-end
+  tests (`--pad` in every mode, per-user login), 18 VPN tests (hub with three
+  clients, IPv4/IPv6, client-to-client, spoofing, address conflicts, IPv6 NAT
+  and routes, pipelined SYN scan on IPv4/IPv6).
+
 ## [4.1.0] - 2026-11-15
 
 Tunnel reliability release. **Wire-compatible with 4.0.0** (protocol 4): new
