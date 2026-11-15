@@ -7,7 +7,6 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/select.h>
 #include <sys/wait.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -149,25 +148,21 @@ static void handle_socks_client(int client_fd, int tunnel_fd) {
     if (write(client_fd, reply, 10) != 10) goto fail;
 
     /* 6. Relay: client_fd <-> tunnel_fd (encrypted) */
-    fd_set rfds;
-    int maxfd = (client_fd > tunnel_fd) ? client_fd : tunnel_fd;
     char relay_buf[RELAY_BUF];
+    int fds[2] = { client_fd, tunnel_fd }, rdy[2];
 
     for (;;) {
-        FD_ZERO(&rfds);
-        FD_SET(client_fd, &rfds);
-        FD_SET(tunnel_fd, &rfds);
-
-        int ret = select(maxfd + 1, &rfds, NULL, NULL, NULL);
+        int ret = wait_readable(fds, rdy, 2, -1);
+        if (ret < 0 && errno == EINTR) continue;
         if (ret <= 0) break;
 
-        if (FD_ISSET(client_fd, &rfds)) {
+        if (rdy[0]) {
             ssize_t n = read(client_fd, relay_buf, sizeof(relay_buf));
             if (n <= 0) break;
             if (farm9crypt_write(tunnel_fd, relay_buf, n) < 0) break;
         }
 
-        if (FD_ISSET(tunnel_fd, &rfds)) {
+        if (rdy[1]) {
             int n = farm9crypt_read(tunnel_fd, relay_buf, sizeof(relay_buf));
             if (n <= 0) break;
             ssize_t w = write(client_fd, relay_buf, n);
@@ -268,25 +263,21 @@ void socks5_server(int tunnel_fd) {
         }
 
         /* Relay: target_fd <-> tunnel_fd (encrypted) */
-        fd_set rfds;
-        int maxfd = (target_fd > tunnel_fd) ? target_fd : tunnel_fd;
         char relay_buf[RELAY_BUF];
+        int fds[2] = { target_fd, tunnel_fd }, rdy[2];
 
         for (;;) {
-            FD_ZERO(&rfds);
-            FD_SET(target_fd, &rfds);
-            FD_SET(tunnel_fd, &rfds);
-
-            int ret = select(maxfd + 1, &rfds, NULL, NULL, NULL);
+            int ret = wait_readable(fds, rdy, 2, -1);
+            if (ret < 0 && errno == EINTR) continue;
             if (ret <= 0) break;
 
-            if (FD_ISSET(target_fd, &rfds)) {
+            if (rdy[0]) {
                 ssize_t n = read(target_fd, relay_buf, sizeof(relay_buf));
                 if (n <= 0) break;
                 if (farm9crypt_write(tunnel_fd, relay_buf, n) < 0) break;
             }
 
-            if (FD_ISSET(tunnel_fd, &rfds)) {
+            if (rdy[1]) {
                 int n = farm9crypt_read(tunnel_fd, relay_buf, sizeof(relay_buf));
                 if (n <= 0) break;
                 ssize_t w = write(target_fd, relay_buf, n);

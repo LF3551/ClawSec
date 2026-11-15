@@ -8,7 +8,6 @@
 #include <errno.h>
 #include <unistd.h>
 #include <time.h>
-#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/stat.h>
@@ -557,24 +556,16 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
     }
 
     for (;;) {
-        fd_set rfds;
-        int nfds = sockfd;
-
-        FD_ZERO(&rfds);
-        FD_SET(sockfd, &rfds);
-        if (!stdin_closed) {
-            FD_SET(STDIN_FILENO, &rfds);
-            if (STDIN_FILENO > nfds) nfds = STDIN_FILENO;
-        }
-
-        int ret = select(nfds + 1, &rfds, NULL, NULL, NULL);
+        int fds[2] = { sockfd, stdin_closed ? -1 : STDIN_FILENO };
+        int rdy[2];
+        int ret = wait_readable(fds, rdy, 2, -1);
         if (ret < 0) {
             if (errno == EINTR) continue;
             fatal("select failed");
         }
 
         /* ── Network → stdout ── */
-        if (FD_ISSET(sockfd, &rfds)) {
+        if (rdy[0]) {
             n = relay_read(sockfd, netbuf, sizeof(netbuf));
             if (n < 0 && errno == EAGAIN) continue;   /* UDP: dropped datagram(s) */
             if (n < 0) fatal("read from network failed");
@@ -654,7 +645,7 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
         }
 
         /* ── stdin → Network ── */
-        if (!stdin_closed && FD_ISSET(STDIN_FILENO, &rfds)) {
+        if (!stdin_closed && rdy[1]) {
             n = read(STDIN_FILENO, inbuf, relay_read_limit());
             if (n < 0) fatal("read from stdin failed");
             if (n == 0) {
@@ -740,20 +731,15 @@ int relay_encrypted_plain(int enc_fd, int plain_fd) {
     size_t sent = 0, received = 0;
 
     for (;;) {
-        fd_set rfds;
-        int nfds = enc_fd > plain_fd ? enc_fd : plain_fd;
-
-        FD_ZERO(&rfds);
-        FD_SET(enc_fd, &rfds);
-        FD_SET(plain_fd, &rfds);
-
-        int ret = select(nfds + 1, &rfds, NULL, NULL, NULL);
+        int fds[2] = { enc_fd, plain_fd };
+        int rdy[2];
+        int ret = wait_readable(fds, rdy, 2, -1);
         if (ret < 0) {
             if (errno == EINTR) continue;
             return -1;
         }
 
-        if (FD_ISSET(enc_fd, &rfds)) {
+        if (rdy[0]) {
             n = relay_read(enc_fd, buf, sizeof(buf));
             if (n <= 0) break;
             const char *out = buf;
@@ -770,7 +756,7 @@ int relay_encrypted_plain(int enc_fd, int plain_fd) {
             if (write_all(plain_fd, out, (size_t)n) < 0) break;
         }
 
-        if (FD_ISSET(plain_fd, &rfds)) {
+        if (rdy[1]) {
             n = read(plain_fd, buf, relay_read_limit());
             if (n <= 0) break;
             sent += (size_t)n;

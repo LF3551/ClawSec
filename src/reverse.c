@@ -13,7 +13,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
-#include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -40,29 +39,24 @@ static inline int rev_write(int fd, const char *msg, int len) {
  */
 static int reverse_relay(int tunnel_fd, int plain_fd) {
     char buf[REVERSE_BUF_SIZE];
-    fd_set rfds;
-    int maxfd = (tunnel_fd > plain_fd ? tunnel_fd : plain_fd) + 1;
+    int fds[2] = { tunnel_fd, plain_fd }, rdy[2];
 
     for (;;) {
-        FD_ZERO(&rfds);
-        FD_SET(tunnel_fd, &rfds);
-        FD_SET(plain_fd, &rfds);
-
-        int rc = select(maxfd, &rfds, NULL, NULL, NULL);
+        int rc = wait_readable(fds, rdy, 2, -1);
         if (rc < 0) {
             if (errno == EINTR) continue;
             break;
         }
 
         /* Encrypted tunnel → plain socket */
-        if (FD_ISSET(tunnel_fd, &rfds)) {
+        if (rdy[0]) {
             int n = farm9crypt_read(tunnel_fd, buf, sizeof(buf));
             if (n <= 0) break;
             if (write_all(plain_fd, buf, n) < 0) break;
         }
 
         /* Plain socket → encrypted tunnel */
-        if (FD_ISSET(plain_fd, &rfds)) {
+        if (rdy[1]) {
             int n = read(plain_fd, buf, sizeof(buf));
             if (n <= 0) break;
             if (farm9crypt_write(tunnel_fd, buf, n) < 0) break;
