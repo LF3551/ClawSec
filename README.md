@@ -75,7 +75,7 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 - **Directional keys**: HKDF-SHA256 derives separate client→server and server→client keys (TCP and UDP), so frames cannot be reflected
 - **Replay Protection**: Strict sequence numbers on TCP, 256-entry sliding window on the UDP VPN channel
 - **Bounded decryption**: Plaintext is released only after tag verification and never beyond the caller's buffer
-- **Protocol Versioning**: Wire protocol v2; peers on a different version are rejected with a clear error
+- **Protocol Versioning**: Wire protocol v3 (ClawSec 3.x); peers on a different version are rejected with a clear error
 - **Memory Safety**: Key material wiped with `OPENSSL_cleanse`; tests run under ASan/UBSan in CI
 
 ### Anti-Censorship / Anti-DPI
@@ -283,6 +283,7 @@ Options:
   --pad             Pad packets to uniform 1400 bytes
   --jitter ms       Random delay 0-N ms between packets
   -w secs           Timeout for connects
+  --version         Print version and wire protocol
   -e prog           Execute program after connect (requires GAPING_SECURITY_HOLE)
 ```
 
@@ -540,7 +541,7 @@ clawsec -l -p 1234 -k "$CLAW_KEY"
 ```
 
 - Magic number: `0x434C4157` ("CLAW")
-- Version: `0x0002` (protocol v2 — not compatible with ClawSec ≤ 2.8.2)
+- Version: `0x0003` (protocol v3, ClawSec 3.x — not compatible with ClawSec ≤ 2.8.2)
 - Sequence number: strictly consecutive per direction; a session never reuses one
 - The 16-byte header is GCM associated data: altering sequence, length, version or flags invalidates the tag
 
@@ -551,7 +552,7 @@ Client ──TCP connect──▶ Server
 Client ◀──X25519 pubkey (32B)── Server
 Client ──X25519 pubkey (32B)──▶ Server
        [Both: session = SHA256(ECDH_secret || Argon2id(password, SHA256(pubkeys)))]
-       [Both: k_c2s, k_s2c = HKDF-SHA256(session, "ClawSec v2 tcp c2s" / "... s2c")]
+       [Both: k_c2s, k_s2c = HKDF-SHA256(session, "ClawSec v3 tcp c2s" / "... s2c")]
 Client ◀──encrypted messages──▶ Server
 ```
 
@@ -600,7 +601,7 @@ Test coverage:
 - Different salts → different ciphertext
 - Wrong password rejection
 - Replay protection (duplicated packets rejected)
-- Protocol v2 regressions: reflection, replay with edited sequence number,
+- Protocol v3 regressions: reflection, replay with edited sequence number,
   header tampering, version mismatch, forged frames, buffer bounds
 - Large messages (8KB)
 - Input validation (NULL/empty password, invalid salt)
@@ -641,8 +642,13 @@ Missing `-k` password option. Always provide password parameter.
 ### "Decryption/authentication failed"
 Password mismatch or corrupted data. Verify both endpoints use identical password.
 
+### "peer uses protocol vN, this build requires v3"
+ClawSec 3.x speaks wire protocol 3 and does not interoperate with 2.x.
+Upgrade both endpoints to the same major release; `clawsec --version`
+prints the release and protocol version.
+
 ### "Connection closed by peer"
-Protocol version mismatch or network error. Update both endpoints to same version.
+Network error or the peer rejected the session (e.g. wrong password).
 
 ### OpenSSL library errors
 ```bash

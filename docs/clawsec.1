@@ -1,4 +1,4 @@
-.TH CLAWSEC 1 "May 2026" "ClawSec 2.8.2" "User Commands"
+.TH CLAWSEC 1 "November 2026" "ClawSec 3.0.0" "User Commands"
 .SH NAME
 clawsec \- encrypted network tool with AES-256-GCM and Perfect Forward Secrecy
 .SH SYNOPSIS
@@ -228,6 +228,9 @@ Chat mode. Display messages with timestamps and colored roles
 .B \-v
 Verbose output. Use \fB\-vv\fR for extra debug information.
 .TP
+.B \-\-version
+Print the ClawSec release and wire protocol version, then exit.
+.TP
 .BI \-w " secs"
 Connection timeout in seconds.
 .TP
@@ -421,8 +424,8 @@ Authenticated frame header and strict sequence numbers (replay and reflection pr
 2. Server/Client exchange X25519 ephemeral public keys (32 bytes each)
 3. Both compute: shared_secret = ECDH(my_priv, peer_pub)
 4. Both compute: session = SHA256(shared_secret || Argon2id(password, SHA256(pubkeys)))
-5. Both derive directional keys: HKDF-SHA256(session, "ClawSec v2 tcp c2s" / "... s2c")
-6. Encrypted communication begins (wire protocol v2)
+5. Both derive directional keys: HKDF-SHA256(session, "ClawSec v3 tcp c2s" / "... s2c")
+6. Encrypted communication begins (wire protocol v3)
 .fi
 .SS Wire Format
 .PP
@@ -430,8 +433,8 @@ Authenticated frame header and strict sequence numbers (replay and reflection pr
 [MAGIC:4][VERSION:2][FLAGS:2][SEQ:4][LENGTH:4][IV:12][TAG:16][CIPHERTEXT]
 .fi
 .PP
-VERSION is 2. The 16-byte header is authenticated as GCM associated data.
-Protocol v2 is not compatible with ClawSec 2.8.2 and earlier.
+VERSION is 3. The 16-byte header is authenticated as GCM associated data.
+Protocol v3 (ClawSec 3.x) is not compatible with ClawSec 2.8.2 and earlier.
 .SH EXIT STATUS
 .TP
 .B 0

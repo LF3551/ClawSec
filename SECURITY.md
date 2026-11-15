@@ -19,9 +19,9 @@ ClawSec implements modern authenticated encryption using **AES-256-GCM** (Galois
 - **Argon2id parameters**: t=3, m=19 MiB, p=1 (OWASP minimum profile)
 - **Session key**: session = SHA256(ECDH_shared_secret [|| ML-KEM secret] || KDF(password, SHA256(server_pub || client_pub)))
 - **Traffic keys** (HKDF-SHA256, empty salt, info labels bound to the protocol version):
-  - `ClawSec v2 tcp c2s` / `ClawSec v2 tcp s2c` — stream channel, one key per direction
-  - `ClawSec v2 udp c2s` / `ClawSec v2 udp s2c` — `--tun-udp` data channel, one key per direction
-  - `ClawSec v2 fingerprint` — session fingerprint shown in chat mode
+  - `ClawSec v3 tcp c2s` / `ClawSec v3 tcp s2c` — stream channel, one key per direction
+  - `ClawSec v3 udp c2s` / `ClawSec v3 udp s2c` — `--tun-udp` data channel, one key per direction
+  - `ClawSec v3 fingerprint` — session fingerprint shown in chat mode
 - **Property**: Both ECDH agreement AND password knowledge required for decryption; each
   direction and channel uses an independent key, so frames cannot be reflected or moved
   between channels
@@ -32,7 +32,7 @@ ClawSec implements modern authenticated encryption using **AES-256-GCM** (Galois
 [MAGIC:4][VERSION:2][FLAGS:2][SEQ:4][LENGTH:4][IV:12][TAG:16][CIPHERTEXT:variable]
 
 MAGIC    = 0x434C4157 ("CLAW")
-VERSION  = 0x0002 (protocol version 2)
+VERSION  = 0x0003 (protocol version 3, ClawSec 3.x)
 FLAGS    = 0x0000 (reserved, must be zero)
 SEQ      = message sequence number (network byte order, replay protection)
 LENGTH   = ciphertext length in bytes (network byte order, == plaintext length)
@@ -40,15 +40,16 @@ IV       = random initialization vector (unique per message)
 TAG      = GCM authentication tag over AAD = the 16-byte header, and the ciphertext
 ```
 
-Receiver rules (v2):
+Receiver rules (v3):
 - the header is authenticated: any change to MAGIC, VERSION, FLAGS, SEQ or LENGTH fails the tag;
 - SEQ must equal the next expected value; a direction never reuses a SEQ (the session
   refuses to continue after 2^32 messages instead of wrapping);
 - plaintext is decrypted into an internal buffer and copied to the caller only after the
   tag verifies, and only if it fits the caller's buffer (otherwise `EMSGSIZE`).
 
-Protocol v2 is not wire-compatible with v1 (ClawSec ≤ 2.8.2); a v1 peer is rejected
-with an explicit version error.
+Protocol v3 (ClawSec 3.0.0+) is not wire-compatible with protocol v1 (ClawSec ≤ 2.8.2);
+a v1 peer is rejected with an explicit version error. The protocol number follows the
+release major version, so there is no protocol v2.
 
 ### UDP VPN data channel (`--tun-udp`)
 
@@ -175,7 +176,7 @@ test password guesses offline (no PAKE yet) — use a long random password
 ### 2. Replay Attacks
 **Threat**: Attacker captures and resends encrypted messages
 **Mitigation**: Sequence counter per direction, authenticated as GCM AAD; receiver rejects any message with an unexpected sequence number, and editing the number invalidates the tag. Separate keys per direction prevent reflection.
-**Status**: ✅ Implemented (v2.4.0); header authentication and directional keys added in protocol v2 (v1 accepted replays with an edited sequence number and reflected frames)
+**Status**: ✅ Implemented (v2.4.0); header authentication and directional keys added in protocol v3 / ClawSec 3.0.0 (v1 accepted replays with an edited sequence number and reflected frames)
 
 ### 3. Brute Force
 **Threat**: Attacker tries to guess password
@@ -292,5 +293,6 @@ For production environments, consider professionally audited solutions like:
 ---
 
 **Last Updated**: November 15, 2026  
-**Protocol Version**: 2  
+**Release**: 3.0.0  
+**Protocol Version**: 3  
 **Maintainer**: ClawSec Project

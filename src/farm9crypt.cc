@@ -1,14 +1,14 @@
 /*
  *  farm9crypt.cc
  *
- *  C interface between netcat and AES-256-GCM encryption (wire protocol v2).
+ *  C interface between netcat and AES-256-GCM encryption (wire protocol v3).
  *
  *  Key schedule:
  *    session_key  = output of the password-bound handshake (ecdhe.cc) or,
  *                   for local/test use, Argon2id(password, salt)
- *    k_c2s, k_s2c = HKDF-SHA256(session_key, info = "ClawSec v2 tcp c2s|s2c")
- *    udp_c2s/s2c  = HKDF-SHA256(session_key, info = "ClawSec v2 udp c2s|s2c")
- *    fingerprint  = HKDF-SHA256(session_key, info = "ClawSec v2 fingerprint")
+ *    k_c2s, k_s2c = HKDF-SHA256(session_key, info = "ClawSec v3 tcp c2s|s2c")
+ *    udp_c2s/s2c  = HKDF-SHA256(session_key, info = "ClawSec v3 udp c2s|s2c")
+ *    fingerprint  = HKDF-SHA256(session_key, info = "ClawSec v3 fingerprint")
  *  Each endpoint encrypts with its own direction key and decrypts with the
  *  peer's, so a frame can never be reflected back to its sender.
  *
@@ -76,11 +76,11 @@ static_assert(sizeof(struct farm9_header) == FARM9_HEADER_LEN,
 #define FARM9_SEQ_LIMIT ((uint64_t)UINT32_MAX + 1)   /* first sequence number we must not use */
 
 /* HKDF labels: bound to protocol version, distinct per purpose and direction */
-#define LABEL_TCP_C2S "ClawSec v2 tcp c2s"
-#define LABEL_TCP_S2C "ClawSec v2 tcp s2c"
-#define LABEL_UDP_C2S "ClawSec v2 udp c2s"
-#define LABEL_UDP_S2C "ClawSec v2 udp s2c"
-#define LABEL_FINGERPRINT "ClawSec v2 fingerprint"
+#define LABEL_TCP_C2S "ClawSec v3 tcp c2s"
+#define LABEL_TCP_S2C "ClawSec v3 tcp s2c"
+#define LABEL_UDP_C2S "ClawSec v3 udp c2s"
+#define LABEL_UDP_S2C "ClawSec v3 udp s2c"
+#define LABEL_FINGERPRINT "ClawSec v3 fingerprint"
 
 static int debug = false;
 static int initialized = false;

@@ -78,6 +78,13 @@ stream_test() {   # stream_test <label> [extra options...]
 
 echo
 echo "=== ClawSec end-to-end tests ($BIN) ==="
+
+# --version must report the release and the wire protocol
+if "$BIN" --version | grep -Eq '^ClawSec [0-9]+\.[0-9]+\.[0-9]+ \(wire protocol [0-9]+\)$'; then
+    echo "  [E2E] --version ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --version ... FAIL"; FAIL=$((FAIL + 1))
+fi
 stream_test "stream (plain)"
 stream_test "stream --obfs http" --obfs http
 stream_test "stream --obfs tls"  --obfs tls

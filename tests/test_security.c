@@ -1,7 +1,7 @@
 /*
- * test_security.c — Regression tests for wire-protocol v2 security properties
+ * test_security.c — Regression tests for wire-protocol v3 security properties
  *
- * Each test corresponds to a concrete attack that succeeded against v1:
+ * Each test corresponds to a concrete attack that succeeded against protocol v1 (ClawSec <= 2.8.2):
  *   - reflection of a node's own frame back to it
  *   - replay of a captured frame with an edited (unauthenticated) seq number
  *   - tampering with header fields (flags/version)
@@ -66,7 +66,7 @@ static int deliver(int role, const unsigned char *frame, int flen,
 }
 
 void test_sec_roles_roundtrip(void) {
-    TEST_BEGIN("v2: server->client frame decrypts with client role") {
+    TEST_BEGIN("v3: server->client frame decrypts with client role") {
         unsigned char frame[256];
         const char *msg = "hello across roles";
         int flen = capture_frame(FARM9_ROLE_SERVER, (const unsigned char *)msg,
@@ -81,7 +81,7 @@ void test_sec_roles_roundtrip(void) {
 }
 
 void test_sec_reflection_rejected(void) {
-    TEST_BEGIN("v2: own frame reflected back is rejected") {
+    TEST_BEGIN("v3: own frame reflected back is rejected") {
         unsigned char frame[256];
         const char *msg = "reflect me";
         int flen = capture_frame(FARM9_ROLE_SERVER, (const unsigned char *)msg,
@@ -96,7 +96,7 @@ void test_sec_reflection_rejected(void) {
 }
 
 void test_sec_edited_seq_replay_rejected(void) {
-    TEST_BEGIN("v2: replay with edited sequence number rejected") {
+    TEST_BEGIN("v3: replay with edited sequence number rejected") {
         unsigned char frame[256];
         const char *msg = "pay 100 EUR";
         int flen = capture_frame(FARM9_ROLE_CLIENT, (const unsigned char *)msg,
@@ -129,7 +129,7 @@ void test_sec_edited_seq_replay_rejected(void) {
 }
 
 void test_sec_header_flags_tamper_rejected(void) {
-    TEST_BEGIN("v2: tampered header flags rejected") {
+    TEST_BEGIN("v3: tampered header flags rejected") {
         unsigned char frame[256];
         const char *msg = "flags are authenticated";
         int flen = capture_frame(FARM9_ROLE_CLIENT, (const unsigned char *)msg,
@@ -145,7 +145,7 @@ void test_sec_header_flags_tamper_rejected(void) {
 }
 
 void test_sec_version_mismatch_rejected(void) {
-    TEST_BEGIN("v2: frame with other protocol version rejected") {
+    TEST_BEGIN("v3: frame with other protocol version rejected") {
         unsigned char frame[256];
         const char *msg = "old peer";
         int flen = capture_frame(FARM9_ROLE_CLIENT, (const unsigned char *)msg,
@@ -171,7 +171,7 @@ void test_sec_version_mismatch_rejected(void) {
 }
 
 void test_sec_forged_frame_leaves_buffer_untouched(void) {
-    TEST_BEGIN("v2: forged frame never writes caller buffer") {
+    TEST_BEGIN("v3: forged frame never writes caller buffer") {
         unsigned char msg[200];
         memset(msg, 'X', sizeof(msg));
         unsigned char frame[512];
@@ -193,7 +193,7 @@ void test_sec_forged_frame_leaves_buffer_untouched(void) {
 }
 
 void test_sec_oversized_message_bounded(void) {
-    TEST_BEGIN("v2: message larger than buffer is not copied") {
+    TEST_BEGIN("v3: message larger than buffer is not copied") {
         unsigned char msg[128];
         memset(msg, 'Y', sizeof(msg));
         unsigned char frame[256];
@@ -215,7 +215,7 @@ void test_sec_oversized_message_bounded(void) {
 }
 
 void test_sec_large_caller_buffer_accepted(void) {
-    TEST_BEGIN("v2: caller buffer larger than FARM9_MAX_MSG ok") {
+    TEST_BEGIN("v3: caller buffer larger than FARM9_MAX_MSG ok") {
         const char *msg = "big buffers are fine";
         unsigned char frame[256];
         int flen = capture_frame(FARM9_ROLE_CLIENT, (const unsigned char *)msg,
@@ -232,7 +232,7 @@ void test_sec_large_caller_buffer_accepted(void) {
 }
 
 void test_sec_write_rejects_oversize(void) {
-    TEST_BEGIN("v2: write rejects message > FARM9_MAX_MSG") {
+    TEST_BEGIN("v3: write rejects message > FARM9_MAX_MSG") {
         int fds[2];
         ASSERT(make_socketpair(fds) == 0, "socketpair");
         ASSERT(farm9crypt_init_password(SEC_PASS, strlen(SEC_PASS), FARM9_ROLE_CLIENT) == 0,
@@ -251,7 +251,7 @@ void test_sec_write_rejects_oversize(void) {
 }
 
 void test_sec_ecdhe_directional_keys(void) {
-    TEST_BEGIN("v2: ECDHE peers get mirrored directional keys") {
+    TEST_BEGIN("v3: ECDHE peers get mirrored directional keys") {
         int fds[2], pipefd[2];
         ASSERT(make_socketpair(fds) == 0, "socketpair");
         ASSERT(pipe(pipefd) == 0, "pipe");
