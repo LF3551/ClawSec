@@ -19,6 +19,11 @@
 static int roundtrip(int tx_padding, int rx_padding, int len, int *rt, int *rx_errno) {
     int fds[2];
     if (make_socketpair(fds) != 0) return -1;
+    /* writer and reader are the same thread: the whole frame (up to 8444
+     * bytes) must fit into the socket buffers (macOS defaults to 8 KiB) */
+    int big = 64 * 1024;
+    setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &big, sizeof(big));
+    setsockopt(fds[1], SOL_SOCKET, SO_RCVBUF, &big, sizeof(big));
     char *msg = malloc((size_t)len), *got = malloc(FARM9_MAX_MSG);
     for (int i = 0; i < len; i++) msg[i] = (char)(i * 7 + 3);
 
