@@ -21,6 +21,8 @@
 #include "filetx.h"
 #include "persistent.h"
 #include "fuzz_common.h"
+#include "vpn.h"
+#include "users.h"
 
 static int valid_port_string(const char *p) {
     long v = 0;
@@ -35,7 +37,7 @@ static int valid_port_string(const char *p) {
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t len) {
     if (len < 1 || len > 4096) return 0;
-    int which = data[0] % 12;
+    int which = data[0] % 15;
     data++; len--;
 
     char *str = malloc(len + 1);
@@ -138,6 +140,40 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t len) {
     case 10:                                    /* SOCKS5 greeting from a local app */
         if (mux_socks_parse_greeting(data, len) > (int)len) abort();
         break;
+    case 12: {                                  /* VPN address request/reply (TCFQ/TCFG) */
+        struct in_addr want;
+        int st;
+        vpn_cfg_t cfg;
+        (void)vpn_cfg_parse_request(data, len, &want);
+        if (vpn_cfg_parse_reply(data, len, &st, &cfg) == 0 && st == VPN_CFG_OK &&
+            (cfg.v4_prefix < 1 || cfg.v4_prefix > 32)) abort();
+        break;
+    }
+    case 13: {                                  /* IP packets through the hub */
+        static vpn_pool_t *pool;
+        if (!pool) {
+            struct in_addr s4;
+            struct in6_addr s6;
+            inet_pton(AF_INET, "10.8.0.1", &s4);
+            inet_pton(AF_INET6, "fd00::1", &s6);
+            pool = vpn_pool_new(s4, 24, &s6, 64, 1400);
+            vpn_cfg_t c;
+            struct in_addr any = { 0 };
+            vpn_pool_assign(pool, any, 1, &c);
+            vpn_pool_assign(pool, any, 2, &c);
+        }
+        int o = vpn_pool_route(pool, data, len);
+        if (o < -1 || o > 2) abort();
+        (void)vpn_pool_src_ok(pool, 1, data, len);
+        (void)vpn_packet_local_noise(data, len);
+        break;
+    }
+    case 14: {                                  /* a line of the users file */
+        char name[USER_NAME_MAX + 1];
+        unsigned char w[32];
+        if (users_parse_line(str, name, w) == 1 && !user_name_valid(name)) abort();
+        break;
+    }
     case 11: {                                  /* SOCKS5 request from a local app */
         char host[256];
         uint16_t port;

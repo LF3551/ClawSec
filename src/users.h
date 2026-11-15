@@ -31,6 +31,10 @@ int users_lookup(const char *path, const char *name, unsigned char w[32]);
 /* Add or replace name (atomic rename, mode 0600). Returns 0 or -1. */
 int users_set(const char *path, const char *name, const unsigned char w[32]);
 
+/* Parse one line of the users file in place (it is modified). Returns 1
+ * (name and w filled), 0 for a blank line or comment, -1 if malformed. */
+int users_parse_line(char *line, char name[USER_NAME_MAX + 1], unsigned char w[32]);
+
 /* Startup check: the file exists and is readable; warns if group/other can
  * read it. Returns 0 or -1. */
 int users_check_file(const char *path);
