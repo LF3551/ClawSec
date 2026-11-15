@@ -128,7 +128,7 @@ aux:
 next:
 	make -e $(ALL) $(MFLAGS) XFLAGS='-DNEXT' STATIC=-Bstatic
 
-ecdhe.o: ecdhe.cc ecdhe.h obfs.h tofu.h pqkem.h argon2kdf.h
+ecdhe.o: ecdhe.cc ecdhe.h obfs.h tofu.h pqkem.h argon2kdf.h farm9crypt.h
 		${CC} $(XFLAGS) -c ecdhe.cc
 
 argon2kdf.o: argon2kdf.c argon2kdf.h

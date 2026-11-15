@@ -80,7 +80,9 @@ static char s_socks_host[256], s_socks_lport[8];   /* --socks [host:]port (clien
 static char s_mux_host[256], s_mux_lport[8];       /* -p [host:]port with --mux (client) */
 
 /* Handle one client connection (used by keep-open and normal mode) */
-static void handle_client(int sockfd, const char *password, int is_server,
+/* Returns 0 on success, 1 if the session could not be set up or failed.
+ * The return value becomes the exit status in single-session modes. */
+static int handle_client(int sockfd, const char *password, int is_server,
                           int send_first, const char *exec_prog,
                           const char *fwd_host, const char *fwd_port,
                           const char *peer_host, const char *peer_port) {
@@ -90,7 +92,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
         if (tls_rc < 0) {
             fprintf(stderr, "ERROR: TLS camouflage handshake failed\n");
             close(sockfd);
-            return;
+            return 1;
         }
         log_msg(1, "TLS 1.3 camouflage established");
     }
@@ -105,11 +107,11 @@ static void handle_client(int sockfd, const char *password, int is_server,
                 fallback_proxy(sockfd, g_fallback_host, g_fallback_port,
                                NULL, 0);
                 close(sockfd);
-                return;
+                return 0;
             } else if (knock < 0) {
                 log_msg(1, "fallback: connection error during knock");
                 close(sockfd);
-                return;
+                return 1;
             }
             log_msg(1, "knock verified — ClawSec client");
         } else {
@@ -117,7 +119,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
             if (fallback_send_knock(sockfd) < 0) {
                 fprintf(stderr, "ERROR: Failed to send knock\n");
                 close(sockfd);
-                return;
+                return 1;
             }
         }
     }
@@ -127,27 +129,27 @@ static void handle_client(int sockfd, const char *password, int is_server,
                                      send_first, peer_host, peer_port) != 0) {
             fprintf(stderr, "ERROR: Post-quantum hybrid handshake failed\n");
             close(sockfd);
-            return;
+            return 1;
         }
         if (g_tofu)
-            log_msg(1, "PFS session established (X25519 + ML-KEM-768 + Ed25519 TOFU + PBKDF2)");
+            log_msg(1, "PFS session established (X25519 + ML-KEM-768 + Ed25519 TOFU + password KDF)");
         else
-            log_msg(1, "PFS session established (X25519 + ML-KEM-768 + PBKDF2)");
+            log_msg(1, "PFS session established (X25519 + ML-KEM-768 + password KDF)");
     } else if (g_tofu) {
         if (farm9crypt_init_ecdhe_tofu(sockfd, password, strlen(password),
                                        send_first, peer_host, peer_port) != 0) {
             fprintf(stderr, "ERROR: ECDHE+TOFU handshake failed\n");
             close(sockfd);
-            return;
+            return 1;
         }
-        log_msg(1, "PFS session established (X25519 + Ed25519 TOFU + PBKDF2)");
+        log_msg(1, "PFS session established (X25519 + Ed25519 TOFU + password KDF)");
     } else {
         if (farm9crypt_init_ecdhe(sockfd, password, strlen(password), send_first) != 0) {
             fprintf(stderr, "ERROR: ECDHE handshake failed\n");
             close(sockfd);
-            return;
+            return 1;
         }
-        log_msg(1, "PFS session established (X25519 + PBKDF2)");
+        log_msg(1, "PFS session established (X25519 + password KDF)");
     }
 
     /* SOCKS5 proxy mode */
@@ -159,21 +161,21 @@ static void handle_client(int sockfd, const char *password, int is_server,
         }
         close(sockfd);
         farm9crypt_cleanup();
-        return;
+        return 0;
     }
 
     /* File transfer mode */
     if (s_send_file) {
-        filetx_send(sockfd, s_send_file);
+        int rc = filetx_send(sockfd, s_send_file) == 0 ? 0 : 1;
         close(sockfd);
         farm9crypt_cleanup();
-        return;
+        return rc;
     }
     if (s_recv_dir) {
-        filetx_recv(sockfd, s_recv_dir);
+        int rc = filetx_recv(sockfd, s_recv_dir) == 0 ? 0 : 1;
         close(sockfd);
         farm9crypt_cleanup();
-        return;
+        return rc;
     }
 
     /* TUN VPN mode (--tun) */
@@ -184,7 +186,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
             fprintf(stderr, "ERROR: Invalid TUN CIDR '%s'\n", s_tun_cidr);
             close(sockfd);
             farm9crypt_cleanup();
-            return;
+            return 1;
         }
         char dev_name[32];
         tun_install_cleanup_handlers();
@@ -193,7 +195,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
             fprintf(stderr, "ERROR: Failed to open TUN device (need root/sudo)\n");
             close(sockfd);
             farm9crypt_cleanup();
-            return;
+            return 1;
         }
         if (g_masquerade) {
             char subnet[80];
@@ -248,7 +250,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
         tun_close(tun_fd, dev_name);
         close(sockfd);
         farm9crypt_cleanup();
-        return;
+        return 0;
     }
 
     /* Reverse tunnel mode (-R) */
@@ -270,7 +272,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
         }
         close(sockfd);
         farm9crypt_cleanup();
-        return;
+        return 0;
     }
 
     /* Mux mode: multiplex streams over single tunnel */
@@ -282,7 +284,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
         }
         close(sockfd);
         farm9crypt_cleanup();
-        return;
+        return 0;
     }
 
     /* Port forwarding mode: connect to target and relay */
@@ -293,14 +295,14 @@ static void handle_client(int sockfd, const char *password, int is_server,
         close(target_fd);
         close(sockfd);
         farm9crypt_cleanup();
-        return;
+        return 0;
     }
 
 #ifdef GAPING_SECURITY_HOLE
     if (exec_prog) {
         run_encrypted_exec(sockfd, exec_prog);
         farm9crypt_cleanup();
-        return;
+        return 0;
     }
 #else
     (void)exec_prog;
@@ -309,6 +311,7 @@ static void handle_client(int sockfd, const char *password, int is_server,
     relay_socket_stdio(sockfd, is_server, g_chat_mode);
     close(sockfd);
     farm9crypt_cleanup();
+    return 0;
 }
 
 static void usage(const char *prog) {
@@ -544,6 +547,13 @@ int main(int argc, char **argv) {
         }
     }
 
+    int exit_status = 0;
+#ifdef GAPING_SECURITY_HOLE
+    const char *exec_arg = exec_prog;
+#else
+    const char *exec_arg = NULL;
+#endif
+
     /* Port scan mode — doesn't need password */
     s_bind_port = bind_port;  /* expose to handle_client for --tun-udp */
 
@@ -677,18 +687,11 @@ int main(int argc, char **argv) {
                 if (pid == 0) {
                     /* Child: handle this client */
                     close(listen_fd);
-#ifdef GAPING_SECURITY_HOLE
-                    handle_client(client_fd, password, 1, 1, exec_prog,
-                                  fwd_spec ? fwd_host : NULL,
-                                  fwd_spec ? fwd_port : NULL,
-                                  NULL, NULL);
-#else
-                    handle_client(client_fd, password, 1, 1, NULL,
-                                  fwd_spec ? fwd_host : NULL,
-                                  fwd_spec ? fwd_port : NULL,
-                                  NULL, NULL);
-#endif
-                    _exit(0);
+                    int child_rc = handle_client(client_fd, password, 1, 1, exec_arg,
+                                                 fwd_spec ? fwd_host : NULL,
+                                                 fwd_spec ? fwd_port : NULL,
+                                                 NULL, NULL);
+                    _exit(child_rc);
                 }
                 /* Parent: continue accepting */
                 close(client_fd);
@@ -705,17 +708,10 @@ int main(int argc, char **argv) {
             }
 
             int send_first = g_udp_mode ? 0 : 1;
-#ifdef GAPING_SECURITY_HOLE
-            handle_client(sockfd, password, 1, send_first, exec_prog,
-                          fwd_spec ? fwd_host : NULL,
-                          fwd_spec ? fwd_port : NULL,
-                          NULL, NULL);
-#else
-            handle_client(sockfd, password, 1, send_first, NULL,
-                          fwd_spec ? fwd_host : NULL,
-                          fwd_spec ? fwd_port : NULL,
-                          NULL, NULL);
-#endif
+            exit_status = handle_client(sockfd, password, 1, send_first, exec_arg,
+                                        fwd_spec ? fwd_host : NULL,
+                                        fwd_spec ? fwd_port : NULL,
+                                        NULL, NULL);
         }
     } else {
         /* Client mode */
@@ -760,12 +756,12 @@ int main(int argc, char **argv) {
             log_msg(1, "connected to %s:%s%s", host, port, g_udp_mode ? " (UDP)" : "");
 
             int send_first = g_udp_mode ? 1 : 0;
-            handle_client(sockfd, password, 0, send_first, NULL,
-                          fwd_spec ? fwd_host : NULL,
-                          fwd_spec ? fwd_port : NULL,
-                          host, port);
+            exit_status = handle_client(sockfd, password, 0, send_first, NULL,
+                                        fwd_spec ? fwd_host : NULL,
+                                        fwd_spec ? fwd_port : NULL,
+                                        host, port);
         }
     }
 
-    return 0;
+    return exit_status;
 }

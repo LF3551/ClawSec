@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
 
 #define SEC_PASS "SecurityRegression!1"
 #define HDR_SEQ_OFF     8
@@ -291,5 +292,110 @@ void test_sec_ecdhe_directional_keys(void) {
         ASSERT(memcmp(tx, peer + 32, 32) == 0, "client tx must equal server rx");
         ASSERT(memcmp(rx, peer, 32) == 0, "client rx must equal server tx");
         ASSERT(memcmp(fp, peer + 64, 8) == 0, "fingerprints must match on both ends");
+    } TEST_END;
+}
+
+/* Run a handshake role in a child with a receive timeout so a protocol bug
+ * shows up as a failure, not a hung test. */
+static void set_timeouts(int fd) {
+    struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
+
+static void quiet_stderr(int *saved) {
+    *saved = dup(STDERR_FILENO);
+    int devnull = open("/dev/null", O_WRONLY);
+    dup2(devnull, STDERR_FILENO);
+    close(devnull);
+}
+
+static void restore_stderr(int saved) {
+    dup2(saved, STDERR_FILENO);
+    close(saved);
+}
+
+void test_sec_wrong_password_detected(void) {
+    TEST_BEGIN("v3: wrong password fails the handshake on both ends") {
+        int fds[2];
+        ASSERT(make_socketpair(fds) == 0, "socketpair");
+        set_timeouts(fds[0]); set_timeouts(fds[1]);
+        int saved; quiet_stderr(&saved);
+        pid_t pid = fork();
+        if (pid == 0) {
+            close(fds[1]);
+            int rc = farm9crypt_init_ecdhe(fds[0], "server-password-1", 17, FARM9_ROLE_SERVER);
+            _exit(rc == -1 ? 0 : 1);
+        }
+        close(fds[0]);
+        int rc = farm9crypt_init_ecdhe(fds[1], "client-password-2", 17, FARM9_ROLE_CLIENT);
+        int inited = farm9crypt_initialized();
+        int status;
+        waitpid(pid, &status, 0);
+        restore_stderr(saved);
+        close(fds[1]);
+        ASSERT_EQ(rc, -1, "client must reject the session");
+        ASSERT_EQ(inited, 0, "no keys may remain installed after a failed confirmation");
+        ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0, "server must reject the session");
+    } TEST_END;
+}
+
+void test_sec_old_server_detected(void) {
+    TEST_BEGIN("v3: protocol-1 server (no hello) rejected, no hang") {
+        int fds[2];
+        ASSERT(make_socketpair(fds) == 0, "socketpair");
+        set_timeouts(fds[1]);
+        pid_t pid = fork();
+        if (pid == 0) {
+            /* ClawSec <= 2.8.2 server: sends a raw 32-byte X25519 key first */
+            close(fds[1]);
+            unsigned char pub[32];
+            memset(pub, 0x5A, sizeof(pub));
+            (void)write(fds[0], pub, sizeof(pub));
+            unsigned char buf[64];
+            (void)read(fds[0], buf, sizeof(buf));
+            _exit(0);
+        }
+        close(fds[0]);
+        int saved; quiet_stderr(&saved);
+        int rc = farm9crypt_init_ecdhe(fds[1], SEC_PASS, strlen(SEC_PASS), FARM9_ROLE_CLIENT);
+        restore_stderr(saved);
+        close(fds[1]);
+        waitpid(pid, NULL, 0);
+        ASSERT_EQ(rc, -1, "old server must be rejected");
+    } TEST_END;
+}
+
+void test_sec_old_client_detected(void) {
+    TEST_BEGIN("v3: protocol-1 client (no hello) rejected, no hang") {
+        int fds[2];
+        ASSERT(make_socketpair(fds) == 0, "socketpair");
+        set_timeouts(fds[0]);
+        pid_t pid = fork();
+        if (pid == 0) {
+            /* ClawSec <= 2.8.2 client: reads 32 bytes, then sends its key */
+            close(fds[0]);
+            unsigned char buf[32];
+            size_t got = 0;
+            while (got < sizeof(buf)) {
+                ssize_t n = read(fds[1], buf + got, sizeof(buf) - got);
+                if (n <= 0) _exit(1);
+                got += (size_t)n;
+            }
+            unsigned char pub[32];
+            memset(pub, 0xA5, sizeof(pub));
+            (void)write(fds[1], pub, sizeof(pub));
+            _exit(0);
+        }
+        close(fds[1]);
+        int saved; quiet_stderr(&saved);
+        int rc = farm9crypt_init_ecdhe(fds[0], SEC_PASS, strlen(SEC_PASS), FARM9_ROLE_SERVER);
+        restore_stderr(saved);
+        close(fds[0]);
+        int status;
+        waitpid(pid, &status, 0);
+        ASSERT_EQ(rc, -1, "old client must be rejected");
+        ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0,
+               "server must send hello+key before reading (old client got 32 bytes)");
     } TEST_END;
 }

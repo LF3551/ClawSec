@@ -41,6 +41,7 @@
 #include <openssl/params.h>
 #include <openssl/core_names.h>
 #include <openssl/crypto.h>
+#include <openssl/hmac.h>
 #include <arpa/inet.h>
 #else
 #include <fcntl.h>
@@ -81,6 +82,10 @@ static_assert(sizeof(struct farm9_header) == FARM9_HEADER_LEN,
 #define LABEL_UDP_C2S "ClawSec v3 udp c2s"
 #define LABEL_UDP_S2C "ClawSec v3 udp s2c"
 #define LABEL_FINGERPRINT "ClawSec v3 fingerprint"
+#define LABEL_CONFIRM_C2S "ClawSec v3 confirm c2s"
+#define LABEL_CONFIRM_S2C "ClawSec v3 confirm s2c"
+#define CONFIRM_MSG       "ClawSec v3 key confirmation"
+#define CONFIRM_LEN 32
 
 static int debug = false;
 static int initialized = false;
@@ -91,6 +96,8 @@ static AESGCM* encryptor = NULL;
 static unsigned char udp_tx_key[FARM9_KEY_LEN];
 static unsigned char udp_rx_key[FARM9_KEY_LEN];
 static unsigned char session_fp[32];
+static unsigned char confirm_tx_key[FARM9_KEY_LEN];   /* wiped after confirmation */
+static unsigned char confirm_rx_key[FARM9_KEY_LEN];
 static uint64_t send_seq = 0;    /* Next outgoing sequence number */
 static uint64_t recv_seq = 0;    /* Next expected incoming sequence number */
 
@@ -139,6 +146,8 @@ static void reset_state(void) {
     secure_zero(udp_tx_key, sizeof(udp_tx_key));
     secure_zero(udp_rx_key, sizeof(udp_rx_key));
     secure_zero(session_fp, sizeof(session_fp));
+    secure_zero(confirm_tx_key, sizeof(confirm_tx_key));
+    secure_zero(confirm_rx_key, sizeof(confirm_rx_key));
     send_seq = 0;
     recv_seq = 0;
     initialized = false;
@@ -152,6 +161,7 @@ static int install_session(unsigned char session_key[FARM9_KEY_LEN], int server_
                            const char* label) {
     unsigned char c2s[FARM9_KEY_LEN], s2c[FARM9_KEY_LEN];
     unsigned char udp_c2s[FARM9_KEY_LEN], udp_s2c[FARM9_KEY_LEN];
+    unsigned char cf_c2s[FARM9_KEY_LEN], cf_s2c[FARM9_KEY_LEN];
     int rc = -1;
 
     reset_state();
@@ -160,7 +170,9 @@ static int install_session(unsigned char session_key[FARM9_KEY_LEN], int server_
         hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_TCP_S2C, s2c, sizeof(s2c)) != 0 ||
         hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_UDP_C2S, udp_c2s, sizeof(udp_c2s)) != 0 ||
         hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_UDP_S2C, udp_s2c, sizeof(udp_s2c)) != 0 ||
-        hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_FINGERPRINT, session_fp, sizeof(session_fp)) != 0) {
+        hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_FINGERPRINT, session_fp, sizeof(session_fp)) != 0 ||
+        hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_CONFIRM_C2S, cf_c2s, sizeof(cf_c2s)) != 0 ||
+        hkdf_sha256(session_key, FARM9_KEY_LEN, LABEL_CONFIRM_S2C, cf_s2c, sizeof(cf_s2c)) != 0) {
         fprintf(stderr, "[%s] Error: HKDF key derivation failed\n", label);
         goto out;
     }
@@ -173,6 +185,8 @@ static int install_session(unsigned char session_key[FARM9_KEY_LEN], int server_
     }
     memcpy(udp_tx_key, server_mode ? udp_s2c : udp_c2s, FARM9_KEY_LEN);
     memcpy(udp_rx_key, server_mode ? udp_c2s : udp_s2c, FARM9_KEY_LEN);
+    memcpy(confirm_tx_key, server_mode ? cf_s2c : cf_c2s, FARM9_KEY_LEN);
+    memcpy(confirm_rx_key, server_mode ? cf_c2s : cf_s2c, FARM9_KEY_LEN);
 
     initialized = true;
     rc = 0;
@@ -186,6 +200,50 @@ out:
     secure_zero(s2c, sizeof(s2c));
     secure_zero(udp_c2s, sizeof(udp_c2s));
     secure_zero(udp_s2c, sizeof(udp_s2c));
+    secure_zero(cf_c2s, sizeof(cf_c2s));
+    secure_zero(cf_s2c, sizeof(cf_s2c));
+    return rc;
+}
+
+/*
+ * Explicit key confirmation after a handshake: each side sends
+ * HMAC-SHA256(confirm_key_own_direction, CONFIRM_MSG) and verifies the
+ * peer's. Both send before reading (32 bytes, never blocks), so a wrong
+ * password is reported immediately on both ends instead of surfacing as a
+ * silent disconnect after the first data frame.
+ */
+static int confirm_session(int sockfd, const char* label) {
+    unsigned char mine[CONFIRM_LEN], expect[CONFIRM_LEN], got[CONFIRM_LEN];
+    unsigned int len = 0;
+    int rc = -1;
+
+    if (!HMAC(EVP_sha256(), confirm_tx_key, FARM9_KEY_LEN,
+              (const unsigned char*)CONFIRM_MSG, strlen(CONFIRM_MSG), mine, &len) ||
+        len != CONFIRM_LEN ||
+        !HMAC(EVP_sha256(), confirm_rx_key, FARM9_KEY_LEN,
+              (const unsigned char*)CONFIRM_MSG, strlen(CONFIRM_MSG), expect, &len) ||
+        len != CONFIRM_LEN) {
+        fprintf(stderr, "[%s] Error: key confirmation failed (HMAC)\n", label);
+        goto out;
+    }
+    if (ecdhe_send(sockfd, mine, CONFIRM_LEN) < 0 ||
+        ecdhe_recv(sockfd, got, CONFIRM_LEN) < 0) {
+        fprintf(stderr, "[%s] Error: connection closed during key confirmation "
+                        "(wrong password on the other side?)\n", label);
+        goto out;
+    }
+    if (CRYPTO_memcmp(got, expect, CONFIRM_LEN) != 0) {
+        fprintf(stderr, "[%s] Error: authentication failed - wrong password "
+                        "(or the handshake was tampered with)\n", label);
+        goto out;
+    }
+    rc = 0;
+
+out:
+    secure_zero(confirm_tx_key, sizeof(confirm_tx_key));
+    secure_zero(confirm_rx_key, sizeof(confirm_rx_key));
+    secure_zero(expect, sizeof(expect));
+    if (rc != 0) reset_state();
     return rc;
 }
 
@@ -245,7 +303,8 @@ extern "C" int farm9crypt_init_ecdhe(int sockfd, const char* password, size_t pa
         secure_zero(key, sizeof(key));
         return -1;
     }
-    return install_session(key, server_mode, "ECDHE");
+    if (install_session(key, server_mode, "ECDHE") != 0) return -1;
+    return confirm_session(sockfd, "ECDHE");
 }
 
 extern "C" int farm9crypt_init_ecdhe_tofu(int sockfd, const char* password, size_t pass_len,
@@ -256,7 +315,8 @@ extern "C" int farm9crypt_init_ecdhe_tofu(int sockfd, const char* password, size
         secure_zero(key, sizeof(key));
         return -1;
     }
-    return install_session(key, server_mode, "ECDHE-TOFU");
+    if (install_session(key, server_mode, "ECDHE-TOFU") != 0) return -1;
+    return confirm_session(sockfd, "ECDHE-TOFU");
 }
 
 extern "C" int farm9crypt_init_ecdhe_pq(int sockfd, const char* password, size_t pass_len,
@@ -267,7 +327,8 @@ extern "C" int farm9crypt_init_ecdhe_pq(int sockfd, const char* password, size_t
         secure_zero(key, sizeof(key));
         return -1;
     }
-    return install_session(key, server_mode, "ECDHE-PQ");
+    if (install_session(key, server_mode, "ECDHE-PQ") != 0) return -1;
+    return confirm_session(sockfd, "ECDHE-PQ");
 }
 
 /* Clean up resources */
