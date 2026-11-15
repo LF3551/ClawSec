@@ -29,6 +29,7 @@
 #include "children.h"
 #include "session.h"
 #include "vpnrun.h"
+#include "control.h"
 
 /* --tun / --tun6: this side's own configuration (server, or a client that
  * gets no answer from a ClawSec < 4.2 server) */
@@ -191,7 +192,35 @@ typedef struct {
     pid_t pid;
     int assigned;
     int spoof_warned;
+    char v4[INET_ADDRSTRLEN];
+    char v6[INET6_ADDRSTRLEN];
+    unsigned long long rx_pkts, rx_bytes, tx_pkts, tx_bytes;   /* from / to the client */
 } hub_client_t;
+
+static hub_client_t *s_hub_clients;   /* (defined again below: tentative) */
+static int s_hub_max;
+
+/* --status for the hub: sessions with their VPN addresses and traffic */
+static void hub_status(FILE *out, void *ctx) {
+    (void)ctx;
+    children_status(out, NULL);
+    int any = 0;
+    for (int k = 0; k < s_hub_max; k++) {
+        hub_client_t *c = &s_hub_clients[k];
+        if (c->fd < 0) continue;
+        if (!any) {
+            fprintf(out, "\nVPN %-6s %-8s %-16s %-16s %-24s %14s %14s\n", "SLOT", "PID", "USER",
+                    "IPV4", "IPV6", "RX (pkts/B)", "TX (pkts/B)");
+            any = 1;
+        }
+        const char *u = children_user(c->pid);
+        char rx[48], tx[48];
+        snprintf(rx, sizeof(rx), "%llu/%llu", c->rx_pkts, c->rx_bytes);
+        snprintf(tx, sizeof(tx), "%llu/%llu", c->tx_pkts, c->tx_bytes);
+        fprintf(out, "    %-6d %-8d %-16s %-16s %-24s %14s %14s\n", k, (int)c->pid, u ? u : "-",
+                c->v4[0] ? c->v4 : "-", c->v6[0] ? c->v6 : "-", rx, tx);
+    }
+}
 
 /* Hub <-> session socket: one IP packet per message. SOCK_SEQPACKET reports
  * the session's end as EOF; macOS/BSD have no AF_UNIX SOCK_SEQPACKET, so
@@ -213,6 +242,7 @@ static int hub_socketpair(int sv[2]) {
 }
 
 static hub_client_t *s_hub_clients;
+static void hub_status(FILE *out, void *ctx);
 static int s_hub_max;
 static vpn_pool_t *s_hub_pool;
 
@@ -266,7 +296,10 @@ int run_vpn_hub(int listen_fd, const char *password) {
     iplimit_configure(g_opt.max_per_ip, g_opt.auth_fail_limit, AUTH_FAIL_WINDOW, AUTH_BLOCK_TIME);
     int max = g_opt.max_clients;
     hub_client_t *cl = calloc((size_t)max, sizeof(*cl));
-    struct pollfd *pfd = calloc((size_t)max + 2, sizeof(*pfd));
+    struct pollfd *pfd = calloc((size_t)max + 4, sizeof(*pfd));
+    children_reports_init();
+    int control_fd = g_opt.control_path ? control_listen(g_opt.control_path) : -1;
+    if (g_opt.control_path && control_fd < 0) return 1;
     if (!cl || !pfd) {
         perror("calloc");
         return 1;
@@ -297,8 +330,10 @@ int run_vpn_hub(int listen_fd, const char *password) {
 
         pfd[0] = (struct pollfd){ tun_fd, POLLIN, 0 };
         pfd[1] = (struct pollfd){ room ? listen_fd : -1, POLLIN, 0 };
-        for (int k = 0; k < max; k++) pfd[k + 2] = (struct pollfd){ cl[k].fd, POLLIN, 0 };
-        int rc = poll(pfd, (nfds_t)max + 2, 1000);
+        pfd[2] = (struct pollfd){ control_fd, POLLIN, 0 };
+        pfd[3] = (struct pollfd){ children_reports_fd(), POLLIN, 0 };
+        for (int k = 0; k < max; k++) pfd[k + 4] = (struct pollfd){ cl[k].fd, POLLIN, 0 };
+        int rc = poll(pfd, (nfds_t)max + 4, 1000);
         if (rc < 0) {
             if (errno == EINTR) continue;
             perror("vpn hub: poll");
@@ -306,13 +341,18 @@ int run_vpn_hub(int listen_fd, const char *password) {
         }
 
         /* TUN -> the client that owns the destination */
+        if (pfd[3].revents & POLLIN) children_reports_read();
+        if (pfd[2].revents & POLLIN) control_serve(control_fd, hub_status, NULL);
         if (pfd[0].revents & POLLIN) {
             for (int burst = 0; burst < 64; burst++) {
                 int n = tun_device_read(tun_fd, buf, sizeof(buf));
                 if (n <= 0) break;
                 int owner = vpn_pool_route(pool, (unsigned char *)buf, (size_t)n);
                 if (owner >= 0 && owner < max && cl[owner].fd >= 0)
-                    (void)send(cl[owner].fd, buf, (size_t)n, 0);   /* non-blocking: dropped if full */
+                    if (send(cl[owner].fd, buf, (size_t)n, 0) == n) {   /* non-blocking: dropped if full */
+                        cl[owner].tx_pkts++;
+                        cl[owner].tx_bytes += (unsigned long long)n;
+                    }
             }
         }
 
@@ -347,6 +387,7 @@ int run_vpn_hub(int listen_fd, const char *password) {
                     signal(SIGCHLD, SIG_DFL);
                     close(listen_fd);
                     close(tun_fd);
+                    if (control_fd >= 0) close(control_fd);
                     close(sv[0]);
                     for (int i = 0; i < max; i++)
                         if (cl[i].fd >= 0) close(cl[i].fd);
@@ -364,14 +405,17 @@ int run_vpn_hub(int listen_fd, const char *password) {
                     close(sv[0]);
                 } else {
                     fcntl(sv[0], F_SETFL, fcntl(sv[0], F_GETFL) | O_NONBLOCK);
-                    cl[k] = (hub_client_t){ sv[0], pid, 0, 0 };
+                    memset(&cl[k], 0, sizeof(cl[k]));
+                    cl[k].fd = sv[0];
+                    cl[k].pid = pid;
+                    children_track(pid, have_key ? ipkey : NULL);
                 }
             }
         }
 
         /* Sessions -> TUN, address requests */
         for (int k = 0; k < max; k++) {
-            if (cl[k].fd < 0 || !(pfd[k + 2].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+            if (cl[k].fd < 0 || !(pfd[k + 4].revents & (POLLIN | POLLHUP | POLLERR))) continue;
             for (int burst = 0; burst < 64; burst++) {
                 ssize_t n = recv(cl[k].fd, buf, sizeof(buf), 0);            /* non-blocking socket */
                 if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) break;
@@ -400,10 +444,14 @@ int run_vpn_hub(int listen_fd, const char *password) {
                         log_msg(0, "vpn hub: client %d (pid %d) at %s%s%s", k, (int)cl[k].pid,
                                 a4, c.has_v6 ? " " : "", a6);
                         cl[k].assigned = 1;
+                        snprintf(cl[k].v4, sizeof(cl[k].v4), "%s", a4);
+                        snprintf(cl[k].v6, sizeof(cl[k].v6), "%s", a6);
                     }
                 } else if (cl[k].assigned && (t >> 4 == 4 || t >> 4 == 6)) {
                     if (vpn_pool_src_ok(pool, k, (unsigned char *)buf, (size_t)n)) {
                         tun_device_write(tun_fd, buf, (int)n);
+                        cl[k].rx_pkts++;
+                        cl[k].rx_bytes += (unsigned long long)n;
                     } else if (vpn_packet_local_noise((unsigned char *)buf, (size_t)n)) {
                         /* the client's kernel: IPv6 link-local / unspecified source
                          * (router solicitation, MLD, DAD); not routed, not a spoof */

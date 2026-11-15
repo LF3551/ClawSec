@@ -46,6 +46,8 @@
 #include "children.h"
 #include "session.h"
 #include "vpnrun.h"
+#include "config.h"
+#include "control.h"
 #include "ecdhe.h"
 
 /* Global config */
@@ -91,6 +93,9 @@ static void usage(const char *prog) {
             "                    (with --mux on the client: [host:]port, default 127.0.0.1)\n"
             "  -K                Keep-open: accept multiple clients (fork per client)\n"
             "  --max-clients <n> With -K: concurrent handlers (default 16)\n"
+            "  --control <path>  With -K: status socket (mode 0600); read it with\n"
+            "                    clawsec --status <path>\n"
+            "  --config <file>   Read options from a file (key = value; see the man page)\n"
             "  --max-per-ip <n>  With -K: concurrent handlers per address, IPv6 per /64\n"
             "                    (default 8, 0=unlimited)\n"
             "  --auth-fail-limit <n>  With -K: refuse an address for 10 min after n wrong\n"
@@ -160,6 +165,9 @@ enum {
     OPT_AUTH_FAIL_LIMIT,
     OPT_HANDSHAKE_TIMEOUT,
     OPT_SOCKS_ALLOW,
+    OPT_CONFIG,
+    OPT_CONTROL,
+    OPT_STATUS,
 };
 
 /* Parse a non-negative decimal integer option. Returns -1 if invalid. */
@@ -229,6 +237,9 @@ int main(int argc, char **argv) {
         {"auth-fail-limit", required_argument, NULL, OPT_AUTH_FAIL_LIMIT},
         {"handshake-timeout", required_argument, NULL, OPT_HANDSHAKE_TIMEOUT},
         {"socks-allow", required_argument, NULL, OPT_SOCKS_ALLOW},
+        {"config", required_argument, NULL, OPT_CONFIG},
+        {"control", required_argument, NULL, OPT_CONTROL},
+        {"status", required_argument, NULL, OPT_STATUS},
         {NULL, 0, NULL, 0}
     };
 
@@ -240,6 +251,7 @@ int main(int argc, char **argv) {
 #endif
 
     int opt;
+    if (config_expand(&argc, &argv, long_opts) != 0) return 1;
     while ((opt = getopt_long(argc, argv, optstring, long_opts, NULL)) != -1) {
         switch (opt) {
         case 'h': usage(argv[0]); return 0;
@@ -260,6 +272,9 @@ int main(int argc, char **argv) {
             password_from_argv = 1;
             break;
         case OPT_KEY_FILE: key_file = optarg; break;
+        case OPT_CONFIG: break;              /* expanded by config_expand() */
+        case OPT_CONTROL: g_opt.control_path = optarg; break;
+        case OPT_STATUS: return control_status(optarg);
         case OPT_USER: login_user = optarg; break;
         case OPT_USERS: users_file = optarg; break;
         case OPT_ADD_USER: add_user = optarg; break;
@@ -746,17 +761,38 @@ password_done:;
              * at a time (each handshake costs ~19 MiB of Argon2id memory) */
             install_sigchld();
             iplimit_configure(g_opt.max_per_ip, g_opt.auth_fail_limit, AUTH_FAIL_WINDOW, AUTH_BLOCK_TIME);
+            children_reports_init();
+            int control_fd = g_opt.control_path ? control_listen(g_opt.control_path) : -1;
+            if (g_opt.control_path && control_fd < 0) return 1;
             sigset_t chld, prev;
             sigemptyset(&chld);
             sigaddset(&chld, SIGCHLD);
+            int was_full = 0;
             for (;;) {
                 sigprocmask(SIG_BLOCK, &chld, &prev);
-                if (g_active_children >= g_opt.max_clients)
+                reap_handler_exits();
+                int room = g_active_children < g_opt.max_clients;
+                sigprocmask(SIG_SETMASK, &prev, NULL);
+                if (!room && !was_full)
                     log_msg(1, "max clients (%d) reached, waiting for a handler to finish",
                             g_opt.max_clients);
-                while (g_active_children >= g_opt.max_clients)
-                    sigsuspend(&prev);
-                sigprocmask(SIG_SETMASK, &prev, NULL);
+                was_full = !room;
+
+                /* a full server stops accepting; SIGCHLD (EINTR) or the
+                 * 1 s timeout re-checks */
+                struct pollfd pfd[3] = {
+                    { room ? listen_fd : -1, POLLIN, 0 },
+                    { control_fd, POLLIN, 0 },
+                    { children_reports_fd(), POLLIN, 0 },
+                };
+                if (poll(pfd, 3, room ? -1 : 1000) < 0 && errno != EINTR) {
+                    perror("poll");
+                    exit_status = 1;
+                    break;
+                }
+                if (pfd[2].revents & POLLIN) children_reports_read();
+                if (pfd[1].revents & POLLIN) control_serve(control_fd, children_status, NULL);
+                if (!(pfd[0].revents & POLLIN)) continue;
 
                 char ipkey[IPLIMIT_KEY_LEN];
                 int have_key = 0;
@@ -767,6 +803,7 @@ password_done:;
                 if (pid > 0) {
                     g_active_children++;
                     if (have_key) iplimit_started(ipkey, pid, time(NULL));
+                    children_track(pid, have_key ? ipkey : NULL);
                 }
                 sigprocmask(SIG_SETMASK, &prev, NULL);
                 if (pid < 0) {
@@ -778,6 +815,7 @@ password_done:;
                     /* Child: handle this client */
                     signal(SIGCHLD, SIG_DFL);   /* the parent's reaper is not ours */
                     close(listen_fd);
+                    if (control_fd >= 0) close(control_fd);
                     int child_rc = handle_client(client_fd, password, 1, 1, exec_arg,
                                                  fwd_spec ? fwd_host : NULL,
                                                  fwd_spec ? fwd_port : NULL,

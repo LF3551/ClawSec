@@ -41,6 +41,7 @@
 #include "vpnrun.h"
 #include "users.h"
 #include "acl.h"
+#include "children.h"
 
 /* Bound blocking socket I/O during session setup, so a client that connects
  * and stays silent cannot hold a handler (or the single-session server)
@@ -154,6 +155,7 @@ static int handle_client_inner(int sockfd, const char *password, int is_server,
     }
     if (is_server && ecdhe_peer_user()) {
         log_msg(0, "user '%s' logged in", ecdhe_peer_user());
+        children_report_user(ecdhe_peer_user());         /* for --status */
         setenv("CLAWSEC_USER", ecdhe_peer_user(), 1);      /* for -e programs */
         /* per-user options (this process serves only this user) */
         user_entry_t ue;

@@ -38,6 +38,7 @@ struct clawsec_options {
 
     /* per-user login (server) */
     const char *users_file;        /* --users */
+    const char *control_path;      /* --control (status socket, -K) */
     /* set in the session process after a per-user login: the user's fixed
      * VPN address (users file "ip="), 0.0.0.0 = none */
     struct in_addr session_user_ip;

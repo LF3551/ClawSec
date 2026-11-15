@@ -265,6 +265,23 @@ Without \fB\-k\fR or \fB\-\-key\-file\fR, the password is taken from the
 after reading), or prompted for on the terminal without echo.
 \fB\-k\fR is visible to other users until ClawSec overwrites it.
 .TP
+.BI \-\-config " file"
+Read options from \fIfile\fR before the command line (which wins). One
+option per line: \fIkey\fR or \fIkey\fR = \fIvalue\fR, \fB#\fR comments, values
+may be quoted. Keys are long option names, or \fBlisten\fR, \fBport\fR,
+\fBkeep\-open\fR, \fBudp\fR, \fBipv4\fR, \fBipv6\fR, \fBchat\fR, \fBverbose\fR,
+\fBtimeout\fR, \fBcompress\fR, \fBprogress\fR, \fBverify\fR, \fBname\fR,
+\fBbanner\fR, \fBforward\fR, \fBreverse\fR for the short ones. Flags take
+\fByes\fR/\fBno\fR. A password is not accepted here (use \fBkey\-file\fR).
+.TP
+.BI \-\-control " path"
+With \fB\-K\fR: create a status socket at \fIpath\fR (mode 0600). It
+answers every connection with the list of sessions (PID, peer address, user,
+age) and, for a VPN hub, every client's addresses and traffic.
+.TP
+.BI \-\-status " path"
+Print the status of the server whose \fB\-\-control\fR socket is \fIpath\fR.
+.TP
 .BI \-\-max\-clients " n"
 With \fB\-K\fR: at most \fIn\fR concurrent handlers (default 16); further
 clients wait in the listen queue.
