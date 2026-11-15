@@ -32,6 +32,23 @@ release major version (protocol 1 → 3).
   happened to start with `0x01` was silently dropped (corrupting transfers), and data
   starting with `0x01 'F'` made the receiver write a file into its working directory.
   Control messages are now only processed in interactive chat mode (`-c`).
+- **Handshake version check and key confirmation.** Each side sends a hello with
+  its protocol version; a 2.x peer or a non-ClawSec service is reported immediately
+  instead of failing silently. After the key exchange both sides prove knowledge of
+  the session key (HMAC-SHA256), so a wrong password is reported on both ends.
+- **SOCKS proxy bound to all interfaces.** The unauthenticated `--socks` client
+  proxy listened on `0.0.0.0` (the log said 127.0.0.1), so anyone on the LAN could
+  use it. `--socks [host:]port` and the `--mux` client port (`-p [host:]port`) now
+  default to loopback; the `-R` server listens on the address given in its spec
+  (previously the host part was ignored and it listened on all interfaces).
+- **Command injection via `--tun` (root).** The address part of `--tun` went
+  unvalidated into `ip`/`ifconfig`/`iptables` command lines. The CIDR is now parsed
+  strictly, and gateway/interface values read back from `ip route`/`route` are
+  validated before reuse.
+- **`-e` is opt-in.** Remote program execution was compiled into every build; build
+  with `make <target> DFLAGS=-DGAPING_SECURITY_HOLE` to get it.
+- The TUN signal handler no longer calls `system()` (not async-signal-safe); it sets
+  a flag and cleanup runs on the normal path.
 - Key material is wiped with `OPENSSL_cleanse`.
 
 ### Fixed
@@ -42,6 +59,21 @@ release major version (protocol 1 → 3).
   before the server had bound its socket, silently falling back to TCP on one side.
   The server now binds before announcing its token, the client retransmits the probe
   until it is acknowledged, and invalid datagrams are ignored instead of aborting.
+- `-z` aborted on incompressible data and `--pad` aborted any read above 1398 bytes:
+  input is now read in chunks whose compressed/padded size fits one message. `-z`
+  also works with `-L` (the server side never compressed). Inline `/file` in chat is
+  limited to what fits in one message (~8 KB) with a clear error instead of failing.
+- `--obfs tls` ended every session with "read from network failed" (exit 1): the
+  sender now sends TLS `close_notify` and a bare TCP EOF ends the stream like plain TCP.
+- `--masquerade` left its NAT rule and `ip_forward=1` behind; both are undone on exit
+  (iptables, or a dedicated `ip clawsec` nftables table). On macOS the NAT rule goes
+  into the `com.apple/clawsec` pf anchor instead of replacing the whole pf ruleset,
+  uses the default-route interface instead of `en0`, and the utun netmask follows
+  the prefix (was always /24). *(macOS paths are not covered by CI.)*
+- Failures now exit with status 1 (handshake, wrong password, TLS camouflage, file
+  transfer, TUN setup); previously the process exited 0.
+- `--persistent` stops instead of reconnecting after Ctrl-C in VPN mode.
+- `ecdhe_recv()` accepted short reads in `--obfs tls`/`http` as complete messages.
 - Test suite builds with GCC 14 (`usleep` replaced by a `nanosleep` helper).
 
 ### Changed
@@ -49,6 +81,12 @@ release major version (protocol 1 → 3).
   The deprecated `farm9crypt_init(char*)` (which read a raw key with `strlen`) was
   removed. `farm9crypt_export_key()` was replaced by `farm9crypt_export_udp_keys()`.
 - Session fingerprint is derived with HKDF (still identical on both ends).
+- **Breaking:** `-e` requires an opt-in build (see Security). `--socks` and the
+  `--mux` client port listen on loopback unless an address is given.
+- Host/port specs are validated at startup (port must be 1-65535).
+- Docs: the duplicate root `EXAMPLE_USAGE.md` was merged into
+  `docs/EXAMPLE_USAGE.md`; SECURITY.md lists the fixed issues and a private
+  reporting channel.
 - Packaging: AUR `pkgver`, Homebrew formula (also fixed its build directory:
   `src`, not `unix`) and `scripts/build-release.sh` default to 3.0.0.
 
@@ -60,7 +98,10 @@ release major version (protocol 1 → 3).
   `--obfs http|tls`, `--tofu`, `--pq`, `--mux`, `--socks`, `-R`, `--send/--recv`,
   wrong password, control-byte payloads.
 - `tests/e2e_vpn.sh` (`sudo make e2e-vpn`): `--tun` and `--tun-udp` across two
-  network namespaces.
+  network namespaces, plus `--default-route` + `--masquerade` set-up and cleanup on
+  SIGINT/SIGTERM.
+- e2e also covers `-z`, `--pad`, `-L`, exit statuses, listener addresses and the
+  `-e` opt-in.
 - `make test-asan`; CI runs the unit tests under ASan/UBSan and both e2e suites.
 
 ## [2.8.2] - 2026-05-11

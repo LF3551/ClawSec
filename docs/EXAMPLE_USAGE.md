@@ -57,6 +57,9 @@ Both sides need `-c` flag for chat mode:
 
 Interactive shell with PTY support (vim, nano, top work correctly).
 
+> `-e` is not built by default since ClawSec 3.0 (it gives a program to anyone
+> who knows the password). Build it explicitly: `make linux DFLAGS=-DGAPING_SECURITY_HOLE`.
+
 ```bash
 # Server (target machine)
 ./clawsec -l -p 8888 -k "ShellPassword" -e /bin/bash
@@ -145,8 +148,8 @@ exit            # Close connection
 # Chat mode with verbose output
 ./clawsec -l -p 4444 -k "Pass" -c -v
 
-# Reverse shell with timeout
-./clawsec -k "Pass" -w 30 -e /bin/bash server.example.com 8888
+# Client with a 30-second connect timeout (e.g. to a reverse-shell server)
+./clawsec -k "Pass" -w 30 server.example.com 8888
 ```
 
 ## Stealth Mode (Anti-DPI / Anti-Fingerprint)
@@ -286,6 +289,169 @@ exit            # Close connection
 ./clawsec -l -p 8888 -k "Pass" --jitter 50
 ./clawsec -k "Pass" --jitter 50 server.example.com 8888
 ```
+
+## Port Scanning & Banner Grabbing
+
+### Stealth port scan with randomized order
+```bash
+# Scan common ports (1-1024)
+./clawsec --scan 1-1024 target.example.com
+
+# Scan specific range
+./clawsec --scan 80-443 target.example.com
+
+# Scan all 65535 ports
+./clawsec --scan all target.example.com
+
+# Scan with custom timeout and jitter (evade IDS)
+./clawsec --scan 1-1024 --jitter 200 -w 3 target.example.com
+```
+
+### Banner grabbing (service detection)
+```bash
+# Scan and grab service banners
+./clawsec --scan 1-1024 -b target.example.com
+
+# Output:
+#   22/tcp  open
+#        └─ SSH-2.0-OpenSSH_9.6
+#   80/tcp  open
+#        └─ HTTP/1.1 200 OK
+#   443/tcp open
+```
+
+## SOCKS5 Proxy (Encrypted Tunnel)
+
+```bash
+# Server: accept connections and proxy outbound
+./clawsec -l -k "SocksPass" -p 9999 --socks 0
+
+# Client: open local SOCKS5 proxy on 127.0.0.1:1080 (loopback by default:
+# the proxy has no authentication; use --socks 0.0.0.0:1080 to share it)
+./clawsec -k "SocksPass" --socks 1080 server.example.com 9999
+
+# Use with curl
+curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
+
+# Use with Firefox: Settings → Network → SOCKS5 → 127.0.0.1:1080
+
+# Use with SSH through SOCKS5
+ssh -o ProxyCommand='nc -x 127.0.0.1:1080 %h %p' user@internal.host
+
+# Combine with stealth mode
+./clawsec -k "Pass" --socks 1080 --pq --obfs tls server.example.com 443
+```
+
+## Encrypted File Transfer (--send / --recv)
+
+```bash
+# Receiver: listen and save files to ./incoming/
+./clawsec -l -k "FilePass" -p 4444 --recv ./incoming
+
+# Sender: encrypt and transfer a file
+./clawsec -k "FilePass" --send backup.tar.gz server.example.com 4444
+
+# Features:
+# - AES-256-GCM encryption during transfer
+# - SHA-256 end-to-end integrity verification
+# - Auto-resume on interrupted transfers (receiver keeps partial)
+# - Progress bar with speed display
+# - Path traversal protection on receiver
+
+# Transfer with post-quantum security
+./clawsec -k "Pass" --send secret.pdf --pq --obfs tls server.example.com 4444
+```
+
+## Reverse Tunnel (-R)
+
+```bash
+# Expose internal service to remote server (like SSH -R)
+
+# Server: listen on 9999, open public port 8080 for reverse
+# (the server listens on exactly the given address: 0.0.0.0 = public,
+#  127.0.0.1 = local only)
+./clawsec -l -k "RevPass" -p 9999 -R 0.0.0.0:8080 -v
+
+# Client (behind NAT): connect and forward to local web app on :3000
+./clawsec -k "RevPass" -R 127.0.0.1:3000 -v server.example.com 9999
+
+# Now: http://server.example.com:8080 → tunnel → client's localhost:3000
+
+# Reverse SSH access (expose local SSH through tunnel)
+./clawsec -l -k "Pass" -p 9999 -R 0.0.0.0:2222
+./clawsec -k "Pass" -R 127.0.0.1:22 server.example.com 9999
+# ssh -p 2222 server.example.com → arrives at client's sshd
+
+# Covert reverse tunnel (stealth)
+./clawsec -k "Pass" -R 127.0.0.1:22 --pq --obfs tls --persistent server.com 443
+```
+
+## Persistent Auto-Reconnect
+
+```bash
+# Client auto-reconnects on disconnect (exponential backoff 1s → 60s)
+./clawsec -k "Pass" --persistent -R 127.0.0.1:22 server.example.com 9999
+
+# Works with any mode:
+./clawsec -k "Pass" --persistent --socks 1080 server.example.com 443
+./clawsec -k "Pass" --persistent -L 127.0.0.1:5432 server.example.com 9999
+
+# Ideal for:
+# - Unstable networks (mobile, satellite, roaming)
+# - Long-running tunnels that survive network changes
+# - Pentest persistent channels (with --obfs tls --pq)
+```
+
+## TUN VPN Mode
+
+**Requirements:**
+- Root/sudo for TUN device creation
+- Server needs a **public IP** (static or dynamic) or port forwarding on the router
+- Behind CGNAT? Use a cheap VPS as relay, or ask your ISP for a public IP
+- Dynamic IP? Use DDNS (noip.com, duckdns.org) for a stable hostname
+
+```bash
+# Zero-config encrypted VPN
+
+# Server (public IP or port-forwarded) — VPN gateway with NAT:
+sudo ./clawsec -l -k "VpnSecret" -p 9000 --tun 10.0.0.1/24 --masquerade
+
+# Client — ALL internet traffic through VPN:
+sudo ./clawsec -k "VpnSecret" vpn.example.com 9000 --tun 10.0.0.2/24 --default-route
+
+# UDP data channel — no TCP-over-TCP meltdown, lower latency:
+# Both sides must use --tun-udp. TCP is still used for key exchange,
+# then VPN data is relayed over a dedicated UDP channel with per-packet AES-GCM.
+sudo ./clawsec -l -k "VpnSecret" -p 9000 --tun 10.0.0.1/24 --masquerade --tun-udp
+sudo ./clawsec -k "VpnSecret" vpn.example.com 9000 --tun 10.0.0.2/24 --default-route --tun-udp
+
+# Now ALL your traffic goes through the server:
+curl ifconfig.me       # shows server's IP
+ping google.com        # goes through VPN
+# Ctrl+C to disconnect — original routes auto-restored
+
+# Without --default-route, only VPN subnet (10.0.0.x) goes through tunnel
+# With --default-route, everything goes through VPN (full tunnel mode)
+
+# Quantum-resistant VPN with auto-reconnect:
+sudo ./clawsec -k "Pass" --tun 10.0.0.2/24 --default-route --pq --persistent vpn.example.com 9000
+
+# Stealth VPN (disguised as HTTPS traffic):
+sudo ./clawsec -k "Pass" --tun 10.0.0.2/24 --default-route --obfs tls --persistent vpn.example.com 443
+
+# Dynamic IP server with DDNS:
+sudo ./clawsec -k "Pass" --tun 10.0.0.2/24 --persistent myvpn.ddns.net 9000
+
+# No public IP? Use a $3/mo VPS as relay:
+# VPS:    ./clawsec -l -k "Pass" -p 9000 --tun 10.0.0.1/24 --masquerade
+# Client: sudo ./clawsec -k "Pass" vps.example.com 9000 --tun 10.0.0.2/24
+
+# One VPN client per server process: run another server (other port and
+# subnet) for each additional client.
+```
+
+On Ctrl+C / SIGTERM, ClawSec removes the routes, the NAT rule (`--masquerade`)
+and restores the previous IP-forwarding setting.
 
 ## Security Best Practices
 

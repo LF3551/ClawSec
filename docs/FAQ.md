@@ -14,7 +14,7 @@ ClawSec is a modern encrypted network tool that provides AES-256-GCM encryption 
 - Simpler for one-off connections
 
 ### Is ClawSec production-ready?
-ClawSec uses industry-standard cryptography (AES-256-GCM, PBKDF2) but has not been independently audited. Use for:
+ClawSec uses industry-standard cryptography (AES-256-GCM, X25519, Argon2id, HKDF) but has not been independently audited. Use for:
 - Development/testing environments
 - Internal network transfers
 - Non-critical data transfer
@@ -52,8 +52,10 @@ Not currently. ClawSec requires a POSIX system. Consider using WSL (Windows Subs
 Both sides will see timestamped messages with colored output.
 
 ### How do I get a reverse shell?
+> `-e` is not built by default since ClawSec 3.0 (it gives a program to anyone
+> who knows the password). Build it explicitly: `make linux DFLAGS=-DGAPING_SECURITY_HOLE`.
 ```bash
-# Server (target machine)
+# Server (target machine), binary built with DFLAGS=-DGAPING_SECURITY_HOLE
 ./clawsec -l -p 8888 -k "ShellPass" -e /bin/bash
 
 # Client (your machine)
@@ -131,11 +133,16 @@ Add the `-k` option with a password:
 ./clawsec -l -p 8888 -k "YourPassword"
 ```
 
-### "Authentication failed"
-Passwords don't match between client and server. Verify both use identical passwords.
+### "authentication failed - wrong password"
+Passwords don't match between client and server (detected during the handshake,
+both ends exit with status 1). Verify both use identical passwords.
+
+### "does not speak ClawSec protocol v3"
+The other side runs ClawSec 2.x (or is not ClawSec). 3.x and 2.x are not
+compatible: upgrade both ends. `clawsec --version` shows the protocol.
 
 ### Interactive programs (vim, nano) not working?
-Use `-e` flag for reverse shell mode which provides PTY support:
+Use `-e` (reverse shell mode, opt-in build — see above), which provides PTY support:
 ```bash
 ./clawsec -l -p 8888 -k "Pass" -e /bin/bash
 ```
@@ -243,10 +250,10 @@ docker build -t clawsec .
 
 # For chat mode
 docker run -p 8888:8888 clawsec -l -p 8888 -k "Password" -c
-
-# For reverse shell
-docker run -p 8888:8888 clawsec -l -p 8888 -k "Password" -e /bin/sh
 ```
+
+The published image is built without `-e`. For a reverse shell, build the
+binary yourself with `make linux DFLAGS=-DGAPING_SECURITY_HOLE`.
 
 ### How do I use docker-compose?
 ```bash
@@ -296,7 +303,7 @@ Email maintainers privately. Do not open public issues for security vulnerabilit
 ### Where can I get help?
 - GitHub Issues: https://github.com/LF3551/ClawSec/issues
 - Documentation: README.md, SECURITY.md
-- Examples: EXAMPLE_USAGE.md
+- Examples: docs/EXAMPLE_USAGE.md
 
 ### Is there a mailing list?
 Not currently. Use GitHub Discussions or Issues.

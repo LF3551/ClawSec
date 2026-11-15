@@ -433,7 +433,7 @@ static int handle_slash_cmd(int sockfd, const char *line, size_t len,
     if (strcmp(cmd, "/help") == 0) {
         fprintf(stdout,
                 "%s╭──── Chat Commands ────╮%s\n"
-                "%s│ /file <path>  Send file (up to 4MB)  │%s\n"
+                "%s│ /file <path>  Send file (up to 8 KB) │%s\n"
                 "%s│ /ping         Encrypted RTT test     │%s\n"
                 "%s│ /clear        Clear screen            │%s\n"
                 "%s│ /whoami       Show session info       │%s\n"
