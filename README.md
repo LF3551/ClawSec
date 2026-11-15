@@ -72,7 +72,7 @@ beyond the inner encryption, and none makes ClawSec undetectable.
 | `--fingerprint chrome\|firefox\|safari` | Sets cipher suites, groups, signature algorithms, ALPN (and ALPS for Chrome) like the browser | OpenSSL cannot reproduce extension order, GREASE or other details: the ClientHello **approximates** a browser, it does not match its JA3/JA4 exactly |
 | `--ech` | Adds a GREASE Encrypted Client Hello extension | The visible SNI (a fake CDN name) is still sent in clear; nothing is actually hidden by it |
 | `--fallback host:port` | After the TLS handshake, clients that do not send the ClawSec knock are proxied to another service | Probers still see ClawSec's self-signed certificate; unlike REALITY it does not borrow a real site's TLS identity |
-| `--pad` | Pads stream/chat/`-L` messages to 1400 bytes | Not applied in `--mux`, `--socks`, `-R`, `--tun` or file-transfer modes |
+| `--pad` | Every encrypted record is padded to a multiple of 1400 bytes (in every mode: stream, `-L`, `--mux`, `--socks`, `-R`, `-u`, `--tun`, `--tun-udp`, file transfer); stream-like modes send 1400-byte records | Hides message sizes, not timing or total volume; both ends need `--pad` and 4.2+ (negotiated, mismatch is an explicit error); with `--tun` the interface MTU becomes 1392 |
 | `--jitter N` | Random 0–N ms delay before each message | Adds latency; does not hide traffic volume |
 
 ## Quick Start
@@ -302,7 +302,7 @@ Options:
                     127.0.0.1 unless an address is given; no proxy auth)
   --socks-allow l   SOCKS server: allow only destinations in CIDR list l
                     (default: all except loopback, link-local/metadata, multicast)
-  --pad             Pad packets to uniform 1400 bytes
+  --pad             Pad every record to 1400-byte units (all modes; both ends)
   --jitter ms       Random delay 0-N ms between packets
   -w secs           Timeout for connects
   --version         Print version and wire protocol

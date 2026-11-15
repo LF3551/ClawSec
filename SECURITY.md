@@ -335,7 +335,7 @@ add secrecy and do not make ClawSec undetectable (see the README table for limit
 | Browser Mimicry | `--fingerprint chrome\|firefox\|safari` | ClientHello approximates a browser (not an exact JA3/JA4 match) |
 | Encrypted Client Hello | `--ech` | Adds a GREASE ECH extension (the SNI stays visible) |
 | Fallback | `--fallback host:port` | Clients without the knock are proxied to another service (they still see the self-signed certificate) |
-| Packet Padding | `--pad` | Stream/chat/`-L` messages padded to 1400 bytes |
+| Record Padding | `--pad` | Every record padded to 1400-byte units in all modes (negotiated in the handshake) |
 | Timing Jitter | `--jitter N` | Random 0-N ms delay before each message |
 
 **All layers combined** (none of them makes ClawSec undetectable; see README):

@@ -22,6 +22,10 @@
 
 /* Maximum IP packet size through TUN */
 #define TUN_MTU         1400
+
+/* Interface MTU: TUN_MTU, or 1392 with --pad so that a full packet plus the
+ * 6-byte TVPN header is exactly one padded record (1398 bytes of data) */
+int tun_effective_mtu(void);
 /* TUN packet header: "TVPN" + 2-byte length */
 #define TUN_HDR_SIZE    6
 /* TUN buffer: header + MTU */

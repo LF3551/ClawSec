@@ -44,6 +44,10 @@
 
 #include "tun.h"
 #include "farm9crypt.h"
+
+int tun_effective_mtu(void) {
+    return farm9crypt_padding() ? FARM9_PAD_UNIT - 2 - TUN_HDR_SIZE : TUN_MTU;
+}
 #include "util.h"
 
 #include <openssl/evp.h>
@@ -240,7 +244,7 @@ int tun_open(const char *ip, int prefix_len, char *dev_name, size_t dev_name_len
 
     /* Set MTU */
     char mtu[16];
-    snprintf(mtu, sizeof(mtu), "%d", TUN_MTU);
+    snprintf(mtu, sizeof(mtu), "%d", tun_effective_mtu());
     (void)RUN(0, "ifconfig", dev_name, "mtu", mtu);
 
     log_msg(1, "tun: %s configured %s/%d (peer %s)", dev_name, ip, prefix_len, peer_ip);
@@ -308,7 +312,7 @@ int tun_open(const char *ip, int prefix_len, char *dev_name, size_t dev_name_len
     /* Configure IP */
     char addr_cidr[32], mtu[16];
     snprintf(addr_cidr, sizeof(addr_cidr), "%s/%d", ip, prefix_len);
-    snprintf(mtu, sizeof(mtu), "%d", TUN_MTU);
+    snprintf(mtu, sizeof(mtu), "%d", tun_effective_mtu());
     if (RUN(0, "ip", "addr", "add", addr_cidr, "dev", dev_name) != 0) {
         fprintf(stderr, "tun: failed to assign IP to %s\n", dev_name);
         close(fd);
@@ -859,7 +863,7 @@ static int udp_vpn_decrypt(const unsigned char *key,
 
     const unsigned char *nonce = in + TUN_UDP_MAGIC_LEN;
     int ct_len = in_len - hdr_len - TUN_UDP_TAG_LEN;
-    if (ct_len <= 0 || ct_len > TUN_MTU) return -1;
+    if (ct_len <= 0 || ct_len > TUN_MTU + 2) return -1;
 
     const unsigned char *ct  = in + hdr_len;
     const unsigned char *tag = in + hdr_len + ct_len;
@@ -897,6 +901,37 @@ static int udp_vpn_decrypt(const unsigned char *key,
 done:
     EVP_CIPHER_CTX_free(ctx);
     return ok ? 0 : -1;
+}
+
+/* ── --pad on the UDP data channel ───────────────────────
+ * With record padding negotiated, every datagram carries
+ * [u16 length][packet][random] of exactly tun_effective_mtu() + 2 bytes, so
+ * datagram sizes no longer reveal packet sizes (heartbeats included). */
+static int udp_seal(const unsigned char *key, uint32_t seq, const unsigned char *pkt,
+                    int len, unsigned char *out, int *out_len) {
+    if (!farm9crypt_padding())
+        return udp_vpn_encrypt(key, seq, pkt, len, out, out_len);
+    unsigned char padded[TUN_MTU + 2];
+    int full = tun_effective_mtu() + 2;
+    if (len < 0 || len > full - 2) return -1;
+    padded[0] = (unsigned char)(len >> 8);
+    padded[1] = (unsigned char)(len & 0xff);
+    memcpy(padded + 2, pkt, (size_t)len);
+    if (RAND_bytes(padded + 2 + len, full - 2 - len) != 1) return -1;
+    return udp_vpn_encrypt(key, seq, padded, full, out, out_len);
+}
+
+/* Returns 0 with the packet in pkt/pkt_len (pkt: >= TUN_MTU + 2 bytes) */
+static int udp_open(const unsigned char *key, const unsigned char *in, int in_len,
+                    unsigned char *pkt, int *pkt_len, uint32_t *seq) {
+    if (udp_vpn_decrypt(key, in, in_len, pkt, pkt_len, seq) < 0) return -1;
+    if (!farm9crypt_padding()) return 0;
+    if (*pkt_len != tun_effective_mtu() + 2) return -1;
+    int real = (pkt[0] << 8) | pkt[1];
+    if (real > *pkt_len - 2) return -1;
+    memmove(pkt, pkt + 2, (size_t)real);
+    *pkt_len = real;
+    return 0;
 }
 
 /* ── Public wrappers for testing ──────────────────────── */
@@ -1261,14 +1296,14 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
 
         if (rc == 0) {
             /* Timeout: send keepalive via UDP */
-            unsigned char hb_enc[TUN_UDP_OVERHEAD + 16];
+            unsigned char hb_enc[TUN_UDP_OVERHEAD + TUN_MTU + 32];
             int hb_len = 0;
             const unsigned char hb[] = "THB\n";
             if (send_seq > UINT32_MAX) {
                 log_msg(1, "tun-udp: sequence space exhausted, reconnect required");
                 break;
             }
-            if (udp_vpn_encrypt(tx_key, (uint32_t)send_seq++, hb, 4, hb_enc, &hb_len) == 0) {
+            if (udp_seal(tx_key, (uint32_t)send_seq++, hb, 4, hb_enc, &hb_len) == 0) {
                 send(udp_fd, hb_enc, hb_len, 0);
             }
             continue;
@@ -1284,8 +1319,8 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
                 log_msg(1, "tun-udp: sequence space exhausted, reconnect required");
                 break;
             }
-            if (udp_vpn_encrypt(tx_key, (uint32_t)send_seq++, pkt_buf, pkt_len,
-                                 enc_buf, &enc_len) < 0) {
+            if (udp_seal(tx_key, (uint32_t)send_seq++, pkt_buf, pkt_len,
+                         enc_buf, &enc_len) < 0) {
                 log_msg(1, "tun-udp: encrypt failed");
                 continue;
             }
@@ -1306,11 +1341,11 @@ int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
                 break;
             }
 
-            unsigned char dec_buf[TUN_MTU];
+            unsigned char dec_buf[TUN_MTU + 2];
             int dec_len = 0;
             uint32_t seq = 0;
 
-            if (udp_vpn_decrypt(rx_key, recv_buf, (int)nr, dec_buf, &dec_len, &seq) < 0) {
+            if (udp_open(rx_key, recv_buf, (int)nr, dec_buf, &dec_len, &seq) < 0) {
                 /* Tampered or corrupted — silently drop */
                 continue;
             }

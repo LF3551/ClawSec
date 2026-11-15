@@ -1,4 +1,7 @@
 #include "aesgcm.h"
+extern "C" {
+#include "farm9crypt.h"
+}
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <cstring>
@@ -52,7 +55,7 @@ bool AESGCM::encrypt(const unsigned char* plaintext, int plaintext_len,
         return false;
     }
 
-    if (plaintext_len <= 0 || plaintext_len > 8192) {
+    if (plaintext_len <= 0 || plaintext_len > FARM9_MAX_WIRE) {
         fprintf(stderr, "[AESGCM] Encrypt error: Invalid plaintext length %d\n", plaintext_len);
         return false;
     }
@@ -145,7 +148,7 @@ bool AESGCM::decrypt(const unsigned char* ciphertext, int ciphertext_len,
         return false;
     }
 
-    if (ciphertext_len <= 0 || ciphertext_len > 8192) {
+    if (ciphertext_len <= 0 || ciphertext_len > FARM9_MAX_WIRE) {
         fprintf(stderr, "[AESGCM] Decrypt error: Invalid ciphertext length %d\n", ciphertext_len);
         return false;
     }

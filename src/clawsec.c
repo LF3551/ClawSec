@@ -653,7 +653,7 @@ int main(int argc, char **argv) {
         case 'P': g_progress = 1; break;
         case 'V': g_verify = 1; break;
         case 'n': g_nickname = optarg; break;
-        case 'D': g_pad = 1; break;
+        case 'D': g_pad = 1; farm9crypt_set_padding(1); break;
         case 'J':
             g_jitter = atoi(optarg);
             if (g_jitter < 0) g_jitter = 0;

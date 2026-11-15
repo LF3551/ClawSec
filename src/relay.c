@@ -145,12 +145,13 @@ static uint64_t now_ms(void) {
 }
 
 /* ── Message size limits ──
- * Every relay_write() must fit into one encrypted message: FARM9_MAX_MSG
- * bytes, or OBFS_PAD_SIZE - 2 with --pad. With -z the *compressed* chunk
+ * Every relay_write() must fit into one encrypted message:
+ * farm9crypt_max_payload() bytes (smaller with --pad, so that every padded
+ * record has the same size). With -z the *compressed* chunk
  * must fit, and incompressible data grows slightly, so input is read in
  * chunks whose worst-case compressed size (compressBound) still fits. */
 static size_t relay_msg_limit(void) {
-    return g_pad ? (size_t)(OBFS_PAD_SIZE - 2) : (size_t)FARM9_MAX_MSG;
+    return (size_t)farm9crypt_max_payload();
 }
 
 static size_t relay_read_limit(void) {
@@ -165,28 +166,14 @@ static size_t relay_read_limit(void) {
 
 /* ── Anti-fingerprint wrappers ── */
 
-/* Write with optional padding + jitter */
+/* Write with optional jitter (--pad is applied by the record layer) */
 static int relay_write(int sockfd, char *data, int len) {
     if (g_jitter > 0)
         obfs_jitter(g_jitter);
-
-    if (g_pad) {
-        char padded[OBFS_PAD_SIZE];
-        int plen = obfs_pad(data, (size_t)len, padded, sizeof(padded));
-        if (plen < 0) return -1;
-        return farm9crypt_write(sockfd, padded, plen) == plen ? len : -1;
-    }
     return farm9crypt_write(sockfd, data, len) == len ? len : -1;
 }
 
-/* Read with optional unpadding */
 static int relay_read(int sockfd, char *buf, int bufsize) {
-    if (g_pad) {
-        char padded[OBFS_PAD_SIZE];
-        int got = farm9crypt_read(sockfd, padded, sizeof(padded));
-        if (got <= 0) return got;
-        return obfs_unpad(padded, (size_t)got, buf, (size_t)bufsize);
-    }
     return farm9crypt_read(sockfd, buf, bufsize);
 }
 

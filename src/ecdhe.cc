@@ -134,6 +134,7 @@ extern "C" void ecdhe_forget_password(void) {
 #define HELLO_LEN   6
 #define FLAG_TOFU   0x0001
 #define FLAG_PQ     0x0002
+#define FLAG_PAD    0x0004
 #define ID_CLIENT   "ClawSec v4 client"
 #define ID_SERVER   "ClawSec v4 server"
 #define SIG_LABEL   "ClawSec v4 server signature"
@@ -165,13 +166,15 @@ static void hello_build(unsigned char out[HELLO_LEN], unsigned flags) {
     out[5] = (unsigned char)(flags & 0xff);
 }
 
-static const char *flag_names(unsigned f) {
-    switch (f & (FLAG_TOFU | FLAG_PQ)) {
-    case 0: return "no --tofu, no --pq";
-    case FLAG_TOFU: return "--tofu";
-    case FLAG_PQ: return "--pq";
-    default: return "--tofu --pq";
-    }
+static const char *flag_names(unsigned f, char *buf, size_t len) {
+    buf[0] = '\0';
+    if (f & FLAG_TOFU) strncat(buf, " --tofu", len - strlen(buf) - 1);
+    if (f & FLAG_PQ)   strncat(buf, " --pq", len - strlen(buf) - 1);
+    if (f & FLAG_PAD)  strncat(buf, " --pad", len - strlen(buf) - 1);
+    if (f & ~(unsigned)(FLAG_TOFU | FLAG_PQ | FLAG_PAD))
+        strncat(buf, " (options unknown to this version)", len - strlen(buf) - 1);
+    if (!buf[0]) strncat(buf, " none of --tofu/--pq/--pad", len - 1);
+    return buf + 1;
 }
 
 /* Validate the first 4 bytes (magic + version). len = bytes available.
@@ -200,9 +203,11 @@ static int hello_flags_ok(const unsigned char *buf, unsigned mine) {
     unsigned theirs = ((unsigned)buf[4] << 8) | buf[5];
     if (theirs != mine) {
         farm9crypt_set_failure(FARM9_FAIL_CONFIG);
-        fprintf(stderr, "[ClawSec] Error: option mismatch: this side uses %s, the %s uses %s. "
-                        "--tofu and --pq must be set identically on both ends.\n",
-                flag_names(mine), "other end", flag_names(theirs));
+        char a[96], b[96];
+        fprintf(stderr, "[ClawSec] Error: option mismatch: this side uses %s, the other end "
+                        "uses %s. --tofu, --pq and --pad must be set identically on both ends "
+                        "(--pad also needs ClawSec 4.2+ on both).\n",
+                flag_names(mine, a, sizeof(a)), flag_names(theirs, b, sizeof(b)));
         return -1;
     }
     return 0;
@@ -391,6 +396,10 @@ static int handshake(int fd, const char *password, size_t pass_len, int server_m
     const int tofu = (flags & FLAG_TOFU) != 0, pq = (flags & FLAG_PQ) != 0;
 
     if (!password || pass_len == 0) return -1;
+    if (farm9crypt_padding()) flags |= FLAG_PAD;
+    l1 = msg1_len(flags);
+    l2 = msg2_len(flags);
+    l3 = msg3_len(flags);
     if (pq && !pq_available()) {
         fprintf(stderr, "[ClawSec] Error: --pq needs OpenSSL 3.5+ with ML-KEM-768\n");
         return -1;

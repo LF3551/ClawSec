@@ -141,7 +141,9 @@ void test_sec_header_flags_tamper_rejected(void) {
         int err = 0;
         int rn = deliver(FARM9_ROLE_SERVER, frame, flen, buf, sizeof(buf), &err);
         ASSERT_EQ(rn, -1, "tampered frame must be rejected");
-        ASSERT_EQ(err, EBADMSG, "errno should be EBADMSG");
+        /* Flags are checked against the negotiated --pad setting before
+         * decryption (EPROTO); they are also authenticated as AAD. */
+        ASSERT(err == EPROTO || err == EBADMSG, "errno should be EPROTO/EBADMSG");
     } TEST_END;
 }
 
