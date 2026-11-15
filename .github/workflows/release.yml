@@ -33,8 +33,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Oldest supported runners: the binaries need this glibc or newer
           - name: linux-x86_64
-            os: ubuntu-latest
+            os: ubuntu-24.04
           - name: linux-arm64
             os: ubuntu-24.04-arm
           - name: macos-arm64
@@ -44,6 +45,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
+          fetch-depth: 0
+
+      # Build the tagged source, but run the release test harness from the
+      # workflow's own commit, so a tooling fix can be re-run for an existing
+      # tag without moving it (moving a tag changes the source tarball hash
+      # already published to AUR).
+      - name: Use test harness from the workflow commit
+        run: git show "${GITHUB_SHA}:tests/e2e.sh" > "$RUNNER_TEMP/e2e.sh"
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
@@ -67,7 +76,7 @@ jobs:
 
       - name: End-to-end tests
         if: runner.os == 'Linux'
-        run: bash tests/e2e.sh src/clawsec
+        run: bash "$RUNNER_TEMP/e2e.sh" src/clawsec
 
       - name: Package
         run: scripts/build-release.sh "$TAG"

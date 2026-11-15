@@ -109,7 +109,12 @@ stream_test "stream (plain)"
 stream_test "stream --obfs http" --obfs http
 stream_test "stream --obfs tls"  --obfs tls
 stream_test "stream --tofu"      --tofu
-stream_test "stream --pq --tofu" --pq --tofu
+# --pq needs ML-KEM-768 (OpenSSL >= 3.5) in the libcrypto the binary loads
+if command -v openssl >/dev/null && openssl list -kem-algorithms 2>/dev/null | grep -qi 'ml-kem-768'; then
+    stream_test "stream --pq --tofu" --pq --tofu
+else
+    echo "  [E2E] stream --pq --tofu ... SKIP (OpenSSL without ML-KEM-768)"
+fi
 stream_test "stream -z (incompressible data)" -z
 stream_test "stream --pad" --pad
 stream_test "stream -z --pad" -z --pad
