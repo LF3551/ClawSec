@@ -1,28 +1,31 @@
 <p align="center">
-  <img src="ClawSec-small.png" alt="ClawSec logo" width="150" />
+  <img src="docs/assets/social-preview.png" alt="ClawSec — encrypted netcat with forward secrecy: tunnels, file transfer, SOCKS5, port forwarding, VPN" width="820" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/LF3551/ClawSec/actions">
-    <img src="https://github.com/LF3551/ClawSec/actions/workflows/build.yml/badge.svg" alt="Build Status" />
-  </a>
-  <a href="LICENSE">
-    <img src="https://img.shields.io/badge/License-BSD-blue.svg" alt="License: BSD" />
-  </a>
-  <a href="https://github.com/LF3551/ClawSec">
-    <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20BSD-lightgrey.svg" alt="Platforms" />
-  </a>
-  <a href="https://github.com/LF3551/ClawSec/releases">
-    <img src="https://img.shields.io/github/v/release/LF3551/ClawSec" alt="GitHub release" />
-  </a>
-  <a href="https://github.com/LF3551/ClawSec/stargazers">
-    <img src="https://img.shields.io/github/stars/LF3551/ClawSec?style=social" alt="GitHub stars" />
-  </a>
+  <a href="https://github.com/LF3551/ClawSec/actions/workflows/build.yml"><img src="https://github.com/LF3551/ClawSec/actions/workflows/build.yml/badge.svg" alt="Build and Test" /></a>
+  <a href="https://github.com/LF3551/ClawSec/actions/workflows/codeql.yml"><img src="https://github.com/LF3551/ClawSec/actions/workflows/codeql.yml/badge.svg" alt="CodeQL" /></a>
+  <a href="https://github.com/LF3551/ClawSec/releases/latest"><img src="https://img.shields.io/github/v/release/LF3551/ClawSec" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="License: BSD-3-Clause" /></a>
+  <br />
+  <a href="https://github.com/LF3551/homebrew-clawsec"><img src="https://img.shields.io/badge/homebrew-lf3551%2Fclawsec-orange?logo=homebrew" alt="Homebrew" /></a>
+  <a href="https://github.com/LF3551/ClawSec/pkgs/container/clawsec"><img src="https://img.shields.io/badge/docker-ghcr.io%2Flf3551%2Fclawsec-2496ED?logo=docker&logoColor=white" alt="Docker" /></a>
+  <a href="https://aur.archlinux.org/packages/clawsec"><img src="https://img.shields.io/aur/version/clawsec?logo=archlinux" alt="AUR" /></a>
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20BSD-lightgrey" alt="Platforms: Linux, macOS, BSD" />
 </p>
 
-Encrypted netcat-style network tool (a modern descendant of Cryptcat):
-password-authenticated, forward-secret tunnels for streams, files, port
-forwarding, SOCKS5 and a point-to-point VPN, without certificates.
+**ClawSec** is an **encrypted netcat alternative** (a modern descendant of
+Cryptcat) for **secure tunnels without certificates**: pipe data, transfer
+files with resume and SHA-256 verification, forward ports, run a SOCKS5 proxy
+or a point-to-point **TUN VPN** — all protected by AES-256-GCM, X25519 forward
+secrecy and an Argon2id-bound shared password, with optional post-quantum
+ML-KEM-768.
+
+```bash
+brew install lf3551/clawsec/clawsec            # or a static binary / Docker, see below
+clawsec -l -p 4444 --key-file key --recv ./in   # receiver
+clawsec --key-file key --send backup.tgz host 4444
+```
 
 > **Scope.** ClawSec is a community project that has not been externally
 > audited. For production remote access prefer OpenSSH or WireGuard; see
@@ -378,7 +381,7 @@ tar -czf - /data | ./clawsec -k "pass" server 9999
 # Scan ALL ports (65535) — takes ~2 seconds on localhost, ~60s remote
 ./clawsec --scan all target.com
 
-# Custom range with jitter (anti-IDS)
+# Custom range, slower and randomised (--jitter between probes)
 ./clawsec --scan 1-65535 --jitter 50 target.com
 
 # Force IPv4/IPv6
@@ -480,7 +483,7 @@ curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 # Ideal for:
 # - Unstable networks (mobile, satellite)
 # - Long-running tunnels that must survive reboots
-# - Pentest implant persistence (with --obfs tls --pq)
+# - Unattended links that must come back after outages
 ```
 
 ### TUN VPN Mode (--tun)

@@ -308,7 +308,7 @@ exit            # Close connection
 # Scan all 65535 ports
 ./clawsec --scan all target.example.com
 
-# Scan with custom timeout and jitter (evade IDS)
+# Scan with custom timeout and jitter between probes
 ./clawsec --scan 1-1024 --jitter 200 -w 3 target.example.com
 ```
 
