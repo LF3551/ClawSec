@@ -33,12 +33,33 @@ jobs:
         cd src
         ./clawsec -h || true
         test -f clawsec
+
+    - name: End-to-end tests
+      run: bash tests/e2e.sh src/clawsec
+
+    - name: VPN end-to-end tests (TUN + network namespaces)
+      run: sudo bash tests/e2e_vpn.sh src/clawsec
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: clawsec-linux
         path: src/clawsec
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev zlib1g-dev build-essential
+
+    - name: Unit tests under AddressSanitizer + UndefinedBehaviorSanitizer
+      run: |
+        cd src
+        make test-asan
 
   build-macos:
     runs-on: macos-latest

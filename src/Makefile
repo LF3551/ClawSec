@@ -219,6 +219,22 @@ test: farm9crypt.o aesgcm.o ecdhe.o argon2kdf.o obfs.o mux.o fallback.o fingerpr
 	$(LD) $(XFLAGS) -I. -I$(TESTDIR) -o test_clawsec $(TEST_SRC) farm9crypt.o aesgcm.o ecdhe.o argon2kdf.o obfs.o mux.o fallback.o fingerprint.o tofu.o pqkem.o net.o util.o portscan.o socks5.o filetx.o reverse.o persistent.o tun.o $(XLIBS)
 	./test_clawsec
 
+# Sanitizer build of the unit tests (Linux, GCC/Clang).
+# Leak detection is off: TLS camouflage objects are not freed on teardown yet.
+test-asan:
+	$(MAKE) clean
+	ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	$(MAKE) -e test CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
+
+# End-to-end tests against the built ./clawsec binary (Linux).
+e2e:
+	bash $(TESTDIR)/e2e.sh ./clawsec
+
+# VPN end-to-end tests (Linux, root: run as `sudo make e2e-vpn`).
+e2e-vpn:
+	bash $(TESTDIR)/e2e_vpn.sh ./clawsec
+
 test-macos:
 	make -e test \
 		XFLAGS='-I/opt/homebrew/opt/openssl@3/include' \
