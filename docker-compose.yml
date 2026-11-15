@@ -1,5 +1,5 @@
-version: '3.8'
-
+# Usage:  CLAWSEC_PASSWORD="$(openssl rand -base64 24)" docker compose up
+# The password is passed through the environment, never on the command line.
 services:
   clawsec-server:
     build: .
@@ -7,8 +7,8 @@ services:
     ports:
       - "8888:8888"
     environment:
-      - CLAW_PASSWORD=TestPassword123
-    command: ["-l", "-p", "8888", "-k", "${CLAW_PASSWORD}", "-v"]
+      CLAWSEC_PASSWORD: ${CLAWSEC_PASSWORD:?set CLAWSEC_PASSWORD}
+    command: ["-l", "-p", "8888", "-v"]
     restart: unless-stopped
     networks:
       - clawsec-net
@@ -19,8 +19,8 @@ services:
     depends_on:
       - clawsec-server
     environment:
-      - CLAW_PASSWORD=TestPassword123
-    command: ["-k", "${CLAW_PASSWORD}", "clawsec-server", "8888"]
+      CLAWSEC_PASSWORD: ${CLAWSEC_PASSWORD:?set CLAWSEC_PASSWORD}
+    command: ["clawsec-server", "8888"]
     stdin_open: true
     tty: true
     networks:
