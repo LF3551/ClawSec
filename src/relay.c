@@ -27,7 +27,8 @@
 #define COLOR_BOLD    "\033[1m"
 
 #define BUFSIZE 8192
-#define MAX_FILE_SIZE (4 * 1024 * 1024) /* 4MB inline file limit */
+/* Inline chat files travel in a single encrypted message (see cmd_file) */
+#define MAX_FILE_SIZE BUFSIZE
 
 /* Feature flags — set from clawsec.c */
 int g_compress = 0;
@@ -140,6 +141,25 @@ static uint64_t now_ms(void) {
     return (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
+/* ── Message size limits ──
+ * Every relay_write() must fit into one encrypted message: FARM9_MAX_MSG
+ * bytes, or OBFS_PAD_SIZE - 2 with --pad. With -z the *compressed* chunk
+ * must fit, and incompressible data grows slightly, so input is read in
+ * chunks whose worst-case compressed size (compressBound) still fits. */
+static size_t relay_msg_limit(void) {
+    return g_pad ? (size_t)(OBFS_PAD_SIZE - 2) : (size_t)FARM9_MAX_MSG;
+}
+
+static size_t relay_read_limit(void) {
+    size_t lim = relay_msg_limit();
+    if (g_compress) {
+        size_t r = lim;
+        while (r > 0 && compressBound((uLong)r) > lim) r--;
+        lim = r;
+    }
+    return lim < BUFSIZE ? lim : BUFSIZE;
+}
+
 /* ── Anti-fingerprint wrappers ── */
 
 /* Write with optional padding + jitter */
@@ -229,8 +249,8 @@ static int cmd_file(int sockfd, const char *path, const char *local_label,
         return -1;
     }
     if ((size_t)st.st_size > MAX_FILE_SIZE) {
-        fprintf(stdout, "%s  ⚠ File too large (max 4MB for inline). Use file transfer mode.%s\n",
-                COLOR_YELLOW, COLOR_RESET);
+        fprintf(stdout, "%s  ⚠ File too large for inline chat transfer (max ~8 KB). "
+                "Use --send/--recv.%s\n", COLOR_YELLOW, COLOR_RESET);
         close(fd);
         return -1;
     }
@@ -242,6 +262,13 @@ static int cmd_file(int sockfd, const char *path, const char *local_label,
     /* Build: \x01F + "size:filename\n" + raw data */
     size_t hdr_len = snprintf(NULL, 0, "%zu:%s\n", fsize, basename);
     size_t total = 2 + hdr_len + fsize;
+    /* The receiver decompresses into a BUFSIZE buffer: keep raw size within it */
+    if (total > BUFSIZE) {
+        fprintf(stdout, "%s  ⚠ File too large for inline chat transfer (max ~8 KB). "
+                "Use --send/--recv.%s\n", COLOR_YELLOW, COLOR_RESET);
+        close(fd);
+        return -1;
+    }
     char *msg = malloc(total);
     if (!msg) { close(fd); return -1; }
     msg[0] = CTRL_SOH;
@@ -260,6 +287,14 @@ static int cmd_file(int sockfd, const char *path, const char *local_label,
         send_len = zlib_compress_buf(msg, total, zbig, total + 256);
         if (send_len < 0) { free(msg); free(zbig); return -1; }
         send_data = zbig;
+    }
+    if ((size_t)send_len > relay_msg_limit()) {
+        fprintf(stdout, "%s  ⚠ File too large for one message with current options "
+                "(max %zu bytes on the wire). Use --send/--recv.%s\n",
+                COLOR_YELLOW, relay_msg_limit(), COLOR_RESET);
+        free(msg);
+        if (zbig) free(zbig);
+        return -1;
     }
     int rc = (relay_write(sockfd, send_data, send_len) > 0) ? 0 : -1;
     free(msg);
@@ -612,7 +647,7 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
 
         /* ── stdin → Network ── */
         if (!stdin_closed && FD_ISSET(STDIN_FILENO, &rfds)) {
-            n = read(STDIN_FILENO, inbuf, sizeof(inbuf));
+            n = read(STDIN_FILENO, inbuf, relay_read_limit());
             if (n < 0) fatal("read from stdin failed");
             if (n == 0) {
                 if (g_verify) {
@@ -692,6 +727,7 @@ int relay_socket_stdio(int sockfd, int is_server, int chat_enabled) {
 
 int relay_encrypted_plain(int enc_fd, int plain_fd) {
     char buf[BUFSIZE];
+    char zbuf[BUFSIZE + 256];
     ssize_t n;
     size_t sent = 0, received = 0;
 
@@ -712,15 +748,32 @@ int relay_encrypted_plain(int enc_fd, int plain_fd) {
         if (FD_ISSET(enc_fd, &rfds)) {
             n = relay_read(enc_fd, buf, sizeof(buf));
             if (n <= 0) break;
+            const char *out = buf;
+            if (g_compress) {
+                int dn = zlib_decompress_buf(buf, (size_t)n, zbuf, sizeof(zbuf));
+                if (dn < 0) {
+                    log_msg(1, "forward: zlib decompress failed (is -z set on both ends?)");
+                    break;
+                }
+                out = zbuf;
+                n = dn;
+            }
             received += (size_t)n;
-            if (write_all(plain_fd, buf, (size_t)n) < 0) break;
+            if (write_all(plain_fd, out, (size_t)n) < 0) break;
         }
 
         if (FD_ISSET(plain_fd, &rfds)) {
-            n = read(plain_fd, buf, sizeof(buf));
+            n = read(plain_fd, buf, relay_read_limit());
             if (n <= 0) break;
             sent += (size_t)n;
-            if (relay_write(enc_fd, buf, (int)n) < 0) break;
+            char *out = buf;
+            int olen = (int)n;
+            if (g_compress) {
+                olen = zlib_compress_buf(buf, (size_t)n, zbuf, sizeof(zbuf));
+                if (olen < 0) break;
+                out = zbuf;
+            }
+            if (relay_write(enc_fd, out, olen) < 0) break;
         }
     }
 

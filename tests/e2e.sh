@@ -105,6 +105,9 @@ stream_test "stream --obfs http" --obfs http
 stream_test "stream --obfs tls"  --obfs tls
 stream_test "stream --tofu"      --tofu
 stream_test "stream --pq --tofu" --pq --tofu
+stream_test "stream -z (incompressible data)" -z
+stream_test "stream --pad" --pad
+stream_test "stream -z --pad" -z --pad
 
 # Stream data that looks like a chat control frame (SOH + 'F' = inline file)
 # must be delivered verbatim and must never create files on the receiver.
@@ -125,6 +128,30 @@ WEB=$(free_port)
 PIDS+=($!)
 wait_port "$WEB" || die "http origin did not start"
 URL_PATH="/payload.bin"
+
+# ── -L: single-connection port forwarding (target sends the payload) ────
+forward_test() {   # forward_test <label> [extra options...]
+    local label=$1; shift
+    local tp p out
+    tp=$(free_port); p=$(free_port); out="$WORK/fwd.out"; rm -f "$out"
+    python3 - "$tp" "$PAYLOAD" <<'PY' &
+import socket, sys
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(1); s.settimeout(20)
+c, _ = s.accept(); c.sendall(open(sys.argv[2], "rb").read()); c.close()
+PY
+    local tgt=$!
+    wait_port "$tp"
+    timeout 20 "$BIN" -l -p "$p" -k "$KEY" -L "127.0.0.1:$tp" "$@" >/dev/null 2>&1 &
+    local srv=$!
+    wait_port "$p"
+    # stdin stays open (no early half-close) without making us wait for it
+    timeout 20 "$BIN" -k "$KEY" "$@" 127.0.0.1 "$p" < <(sleep 20) > "$out" 2>/dev/null
+    kill "$srv" "$tgt" 2>/dev/null; wait "$srv" "$tgt" 2>/dev/null
+    check "$label" "$PAYLOAD" "$out"
+}
+forward_test "-L port forwarding"
+forward_test "-L port forwarding -z --pad" -z --pad
 
 # ── --mux -L: multiplexed port forwarding (max-size frames) ─────────────
 P=$(free_port); LP=$(free_port)
