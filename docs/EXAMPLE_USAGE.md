@@ -221,7 +221,7 @@ exit            # Close connection
 # Server: DPI probes see a real nginx website
 ./clawsec -l -p 443 -k "Pass" --fallback 127.0.0.1:80
 
-# Client: sends knock before ECDHE handshake
+# Client: sends knock before the handshake
 ./clawsec -k "Pass" --fallback 127.0.0.1:80 server.example.com 443
 
 # Test: curl gets the fallback service (note the self-signed certificate)
@@ -252,12 +252,12 @@ exit            # Close connection
 # If server key changed: WARNING: SERVER IDENTITY HAS CHANGED!
 ```
 
-### Post-Quantum Hybrid (X25519 + ML-KEM-768)
+### Post-Quantum Hybrid (SPAKE2 + ML-KEM-768)
 ```bash
 # Server: quantum-resistant key exchange (requires OpenSSL >= 3.5)
 ./clawsec -l -p 9999 -k "Pass" --pq
 
-# Client: hybrid X25519 + ML-KEM-768 handshake
+# Client: hybrid SPAKE2 + ML-KEM-768 handshake
 ./clawsec -k "Pass" --pq server.example.com 9999
 
 # Combine with TOFU for maximum security:

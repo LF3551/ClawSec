@@ -17,9 +17,9 @@
 **ClawSec** is an **encrypted netcat alternative** (a modern descendant of
 Cryptcat) for **secure tunnels without certificates**: pipe data, transfer
 files with resume and SHA-256 verification, forward ports, run a SOCKS5 proxy
-or a point-to-point **TUN VPN** — all protected by AES-256-GCM, X25519 forward
-secrecy and an Argon2id-bound shared password, with optional post-quantum
-ML-KEM-768.
+or a point-to-point **TUN VPN** — all protected by AES-256-GCM and a
+**SPAKE2 password-authenticated key exchange** (RFC 9382): forward secrecy, no
+offline password guessing, optional post-quantum ML-KEM-768.
 
 ```bash
 brew install lf3551/clawsec/clawsec            # or a static binary / Docker, see below
@@ -29,16 +29,15 @@ clawsec --key-file key --send backup.tgz host 4444
 
 > **Scope.** ClawSec is a community project that has not been externally
 > audited. For production remote access prefer OpenSSH or WireGuard; see
-> [SECURITY.md](SECURITY.md) for the threat model and known limitations
-> (notably: no PAKE yet, so use a long random password).
+> [SECURITY.md](SECURITY.md) for the threat model and known limitations.
 
 ## Features
 
 | Area | What you get |
 |------|--------------|
-| **Crypto** | AES-256-GCM records with authenticated headers, X25519 ECDHE (forward secrecy), Argon2id password binding, HKDF directional keys, explicit key confirmation, optional `--pq` hybrid with ML-KEM-768 (OpenSSL ≥ 3.5), optional `--tofu` server identity (Ed25519, `known_hosts`) |
+| **Crypto** | SPAKE2 PAKE (RFC 9382) with transcript-bound mutual key confirmation and forward secrecy, Argon2id, AES-256-GCM records with authenticated headers, HKDF directional keys, optional `--pq` hybrid with ML-KEM-768 (OpenSSL ≥ 3.5), optional `--tofu` server identity (Ed25519, `known_hosts`) |
 | **Modes** | stdin/stdout stream, chat (`-c`), file transfer with resume + SHA-256 (`--send`/`--recv`), port forwarding (`-L`, `--mux`), reverse tunnel (`-R`), SOCKS5 (`--socks`), TUN VPN (`--tun`, `--tun-udp`, `--default-route`, `--masquerade`), opt-in remote program (`-e`), UDP (`-u`) |
-| **Operations** | `-K` multi-client with `--max-clients`, `--handshake-timeout`, `--persistent` reconnect, `-z` compression, `-P` progress, `-V` verification, IPv4/IPv6, shell completions, man page |
+| **Operations** | `-K` multi-client with `--max-clients`, `--max-per-ip`, `--auth-fail-limit`, `--handshake-timeout`, `--persistent` reconnect, `-z` compression, `-P` progress, `-V` verification, IPv4/IPv6, shell completions, man page |
 | **Traffic shaping** | `--obfs http\|tls`, `--fingerprint`, `--ech`, `--fallback`, `--pad`, `--jitter` (see their limits below) |
 | **Recon** | `--scan` (Linux SYN half-open as root, otherwise parallel connect scan, randomised order), `-b` banner grabbing |
 | **Footprint** | ~135 KB dynamically linked; release binaries for Linux are fully static (~5.6 MB, no runtime dependencies); Docker image ~18 MB |
@@ -49,13 +48,15 @@ authenticates both ends with a shared password.
 ## Security Features
 
 - **AES-256-GCM**: Authenticated encryption; the frame header (sequence number, length, version) is authenticated too
-- **X25519 ECDHE**: Perfect Forward Secrecy — each session has unique ephemeral keys
-- **Argon2id**: Memory-hard password binding via libargon2 (identical keys on every platform and OpenSSL version)
+- **SPAKE2 (RFC 9382)**: password-authenticated key exchange — an eavesdropper or man-in-the-middle cannot test password guesses offline; every attempt costs a connection. Forward secrecy from fresh scalars per session; verified against the RFC test vectors
+- **Transcript binding**: both confirmation MACs (and the `--tofu` signature) cover the whole handshake — versions, options, identity key, ML-KEM data
+- **Argon2id**: memory-hard password scalar via libargon2, computed once per process
+- **Guessing limits**: with `-K`, `--auth-fail-limit` blocks an address after repeated wrong passwords, `--max-per-ip` caps concurrent handlers per address
 - **Directional keys**: HKDF-SHA256 derives separate client→server and server→client keys (TCP and UDP), so frames cannot be reflected
-- **Key confirmation & version check**: wrong passwords and incompatible peers are rejected during the handshake, with a clear error and exit status 1
+- **Version and option check**: wrong passwords, incompatible versions and different `--tofu`/`--pq` settings are reported during the handshake, with a clear error and exit status 1
 - **Replay Protection**: Strict sequence numbers on TCP; sliding anti-replay windows for UDP (`-u`: 64, `--tun-udp`: 256)
 - **Bounded decryption**: Plaintext is released only after tag verification and never beyond the caller's buffer
-- **Protocol Versioning**: Wire protocol v3 (ClawSec 3.x); peers on a different version are rejected with a clear error
+- **Protocol Versioning**: Wire protocol v4 (ClawSec 4.x); peers on a different version are rejected with a clear error on both ends
 - **Memory Safety**: Key material wiped with `OPENSSL_cleanse`; CI runs ASan/UBSan/LeakSanitizer, `-Werror` and libFuzzer
 
 ### Traffic shaping (anti-DPI) — what it does and does not do
@@ -229,7 +230,7 @@ pv largefile.iso | ./clawsec -k "pass" server 7777
 
 ## Requirements
 
-- **OpenSSL 3.x**: AES-GCM, X25519, HKDF, TLS camouflage (`--pq` needs OpenSSL ≥ 3.5)
+- **OpenSSL 3.x**: AES-GCM, P-256 (SPAKE2), HKDF, TLS camouflage (`--pq` needs OpenSSL ≥ 3.5)
 - **libargon2**: Argon2id password hashing (same result on every platform)
 - **zlib**: `-z` compression
 - **GCC/G++ or Clang**: C11 / C++11
@@ -271,6 +272,10 @@ Connection:
   -p port           Local port number
   -K                Keep-open: one handler process per client
   --max-clients n   With -K: concurrent handlers (default 16)
+  --max-per-ip n    With -K: concurrent handlers per address, IPv6 per /64
+                    (default 8, 0 = unlimited)
+  --auth-fail-limit n  With -K: refuse an address for 10 min after n wrong
+                    passwords within 10 min (default 5, 0 = off)
   --handshake-timeout s  Abort session setup after s seconds (default 15, 0 = off)
 
 Options:
@@ -287,7 +292,7 @@ Options:
   --mux             Multiplex streams over one tunnel (with -L)
   --fallback h:p    Proxy clients without the ClawSec knock to h:p
   --tofu            Trust On First Use (SSH-like server identity)
-  --pq              Post-quantum hybrid (X25519 + ML-KEM-768)
+  --pq              Post-quantum hybrid (SPAKE2 + ML-KEM-768)
   --fingerprint p   Browser-like TLS ClientHello (chrome, firefox, safari)
   --scan range      Port scan, randomised order (1-1024, 22-443, all)
   -b                Banner grab (show service version on open ports)
@@ -529,15 +534,9 @@ sudo ./clawsec -k "pass" --tun 10.0.0.2/24 --persistent myvpn.ddns.net 9000
 
 ### Password Requirements
 
-**Strong passwords:**
-- Minimum 12 characters recommended
-- Mix of uppercase, lowercase, numbers, symbols
-- Example: `MyS3cur3Tr@nsf3r2025`
-
-**Avoid:**
-- Default passwords
-- Dictionary words
-- Short passwords (less than 8 characters)
+SPAKE2 rules out offline guessing, but each connection is still one online
+guess. Use a random password (`openssl rand -base64 24`, ≥ 128 bits) or a long
+passphrase; never default, example or dictionary passwords.
 
 ### Passing the password
 
@@ -564,11 +563,13 @@ use the environment variable or a systemd credential.
 
 ### Operational Security
 
-1. Use a long random password (`openssl rand -base64 24`): there is no PAKE yet
+1. Use a random password (`openssl rand -base64 24`)
 2. Never put passwords in scripts or command lines; use `--key-file` or `CLAWSEC_PASSWORD`
 3. Share passwords through secure channels only
-4. Expose servers with `-K` and keep the defaults `--max-clients 16` and
-   `--handshake-timeout 15` (or lower) so idle or slow clients cannot pile up
+4. Expose servers with `-K` and keep the defaults `--max-clients 16`,
+   `--max-per-ip 8`, `--auth-fail-limit 5` and `--handshake-timeout 15` (or
+   lower): idle clients cannot pile up and password guessing is throttled
+   (`authentication failure from <address>` is logged; a block is always logged)
 
 ## Cryptographic Specifications
 
@@ -576,7 +577,9 @@ use the environment variable or a systemd credential.
 |-----------|-----------|------------|
 | Cipher | AES-256 | 256-bit key |
 | Mode | GCM | AEAD with authentication |
-| Password binding | Argon2id (libargon2) | t=3, m=19 MiB, p=1 |
+| Key exchange | SPAKE2, RFC 9382 | P-256, SHA-256, HKDF, HMAC; fresh scalars per session |
+| Password scalar | Argon2id (libargon2) | t=3, m=19 MiB, p=1 |
+| Post-quantum (`--pq`) | ML-KEM-768 (FIPS 203) | hybrid with SPAKE2 |
 | Traffic keys | HKDF-SHA256 | separate keys per direction, per channel (TCP / UDP) |
 | IV | CSPRNG | 96 bits (12 bytes) |
 | Auth Tag | GMAC | 128 bits (16 bytes), covers header (AAD) + ciphertext |
@@ -588,7 +591,7 @@ use the environment variable or a systemd credential.
 ```
 
 - Magic number: `0x434C4157` ("CLAW")
-- Version: `0x0003` (protocol v3, ClawSec 3.x — not compatible with ClawSec ≤ 2.8.2)
+- Version: `0x0004` (protocol v4, ClawSec 4.x — not compatible with ClawSec ≤ 3.1.0)
 - Sequence number: strictly consecutive per direction; a session never reuses one
 - The 16-byte header is GCM associated data: altering sequence, length, version or flags invalidates the tag
 
@@ -596,22 +599,21 @@ use the environment variable or a systemd credential.
 
 ```
 Client ──TCP connect──▶ Server
-Client ◀──hello "CS"+version (4B), X25519 pubkey (32B)── Server
-Client ──hello "CS"+version (4B), X25519 pubkey (32B)──▶ Server
-       [Both: session = SHA256(ECDH_secret || Argon2id(password, SHA256(pubkeys)))]
-       [Both: k_c2s, k_s2c = HKDF-SHA256(session, "ClawSec v3 tcp c2s" / "... s2c")]
-Client ◀──key confirmation HMAC (32B) each way──▶ Server
+Client ◀── hello "CS"+v4+flags, pB = y·P + w·N  [, identity key] [, ML-KEM pk] ── Server
+Client ── hello "CS"+v4+flags, pA = x·P + w·M  [, ML-KEM ciphertext] ──▶ Server
+       [Both: K, TT, Ke as in RFC 9382; AAD = SHA-256(message 1 ‖ message 2)]
+Client ◀── cB = HMAC(KcB, TT)  [, Ed25519 signature over TT and AAD] ── Server
+Client ── cA = HMAC(KcA, TT) ──▶ Server
+       [Both: session = HKDF(Ke [‖ ML-KEM secret], "ClawSec v4 session" ‖ AAD)]
 Client ◀──encrypted messages──▶ Server
 ```
 
-A peer on another protocol version (e.g. ClawSec 2.x) is rejected at the
-hello; a wrong password is rejected at key confirmation, on both ends.
+w = Argon2id(password). A peer on another protocol version or with other
+`--tofu`/`--pq` settings is reported at the hello; a wrong password or any
+change to the handshake fails the confirmation, on both ends. A failed attempt
+gives an attacker nothing to test further password guesses against offline.
 
-> **Password strength matters.** The password is not protected by a PAKE yet:
-> an active attacker who completes a handshake can test password guesses
-> offline. Use a long random password (e.g. `openssl rand -base64 24`).
-
-Perfect Forward Secrecy: even if password is later compromised,
+Perfect Forward Secrecy: even if the password is later compromised,
 previously recorded sessions cannot be decrypted.
 
 See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
@@ -652,8 +654,12 @@ Test coverage:
 - Different salts → different ciphertext
 - Wrong password rejection
 - Replay protection (duplicated packets rejected)
-- Protocol v3 regressions: reflection, replay with edited sequence number,
+- SPAKE2 against all RFC 9382 test vectors; invalid points rejected
+- Protocol v4 handshake: v3 peers rejected without hanging, option mismatch,
+  wrong password reported on both ends, man-in-the-middle tampering detected
+- Record layer: reflection, replay with edited sequence number,
   header tampering, version mismatch, forged frames, buffer bounds
+- `-K` per-address limits and authentication lockout (IPv6 per /64)
 - Large messages (8KB)
 - Input validation (NULL/empty password, invalid salt)
 - Protocol magic validation
@@ -692,12 +698,20 @@ Missing `-k` password option. Always provide password parameter.
 
 ### "authentication failed - wrong password"
 Key confirmation failed: the two endpoints use different passwords (or the
-handshake was tampered with). Both ends exit with status 1.
+handshake was tampered with). Both ends exit with status 1. With `-K`, the
+server counts the failure against the client address (`--auth-fail-limit`).
 
-### "does not speak ClawSec protocol v3" / "uses ClawSec protocol vN"
-ClawSec 3.x speaks wire protocol 3 and does not interoperate with 2.x.
+### "the other end speaks protocol vN" / "uses ClawSec protocol vN"
+ClawSec 4.x speaks wire protocol 4 and does not interoperate with 3.x or 2.x.
 Upgrade both endpoints to the same major release; `clawsec --version`
 prints the release and protocol version.
+
+### "option mismatch: this side uses --pq, the other end uses ..."
+`--tofu` and `--pq` change the handshake and must be set identically on both ends.
+
+### Connection closed immediately by a `-K` server
+The address is temporarily blocked after repeated wrong passwords (the server
+logs `blocking it for 600 s`), or it already has `--max-per-ip` sessions.
 
 ### "Decryption/authentication failed"
 A data frame failed authentication after the handshake: corrupted or
