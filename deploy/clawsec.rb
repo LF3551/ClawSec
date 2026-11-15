@@ -6,6 +6,7 @@ class Clawsec < Formula
   sha256 "REPLACE_WITH_ACTUAL_SHA256"
   license "BSD-3-Clause"
 
+  depends_on "argon2"
   depends_on "openssl@3"
 
   def install

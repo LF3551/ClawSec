@@ -247,7 +247,7 @@ out:
     return rc;
 }
 
-/* Initialize with Argon2id/PBKDF2 key derivation from password + salt */
+/* Initialize with Argon2id key derivation from password + salt */
 extern "C" int farm9crypt_init_password_with_salt(const char* password, size_t pass_len,
                                                    const unsigned char* salt, size_t salt_len,
                                                    int server_mode) {

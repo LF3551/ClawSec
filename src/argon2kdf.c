@@ -1,20 +1,22 @@
 /*
- * argon2kdf.c — Argon2id key derivation (OpenSSL 3.2+) with PBKDF2 fallback
+ * argon2kdf.c — Argon2id password key derivation (libargon2)
  *
- * Argon2id is memory-hard: resistant to GPU/ASIC brute force attacks.
- * Falls back to PBKDF2-SHA256 (100k iterations) on older OpenSSL.
+ * libargon2 is the reference implementation from the Password Hashing
+ * Competition; it gives identical results on every platform. OpenSSL's
+ * ARGON2ID KDF (3.2+) is only used to cross-check it in tests.
  */
 
 #include "argon2kdf.h"
 
 #include <string.h>
-#include <stdio.h>
+#include <stdint.h>
+#include <argon2.h>
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
 #include <openssl/params.h>
 #include <openssl/core_names.h>
 
-/* OpenSSL < 3.2 lacks Argon2 parameter names */
+/* OpenSSL < 3.2 lacks the Argon2 parameter names */
 #ifndef OSSL_KDF_PARAM_ARGON2_MEMCOST
 #define OSSL_KDF_PARAM_ARGON2_MEMCOST "memcost"
 #endif
@@ -26,26 +28,44 @@
 #endif
 
 int argon2_available(void) {
-    EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
-    if (!kdf) return 0;
-    EVP_KDF_free(kdf);
     return 1;
 }
 
-static int derive_argon2id(const char *password, size_t pass_len,
-                            const unsigned char *salt, size_t salt_len,
-                            unsigned char *key_out, size_t key_len) {
-    EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
-    if (!kdf) return -1;
+static int valid_args(const char *password, size_t pass_len,
+                      const unsigned char *salt, size_t salt_len,
+                      const unsigned char *key_out, size_t key_len) {
+    return password && pass_len > 0 && pass_len <= UINT32_MAX &&
+           salt && salt_len >= 16 && salt_len <= UINT32_MAX &&
+           key_out && key_len >= 4 && key_len <= UINT32_MAX;
+}
 
+int kdf_derive(const char *password, size_t pass_len,
+               const unsigned char *salt, size_t salt_len,
+               unsigned char *key_out, size_t key_len) {
+    if (!valid_args(password, pass_len, salt, salt_len, key_out, key_len))
+        return -1;
+    int rc = argon2id_hash_raw(CLAWSEC_ARGON2_T_COST, CLAWSEC_ARGON2_M_COST,
+                               CLAWSEC_ARGON2_LANES,
+                               password, pass_len, salt, salt_len,
+                               key_out, key_len);
+    return rc == ARGON2_OK ? 0 : -1;
+}
+
+int kdf_derive_openssl(const char *password, size_t pass_len,
+                       const unsigned char *salt, size_t salt_len,
+                       unsigned char *key_out, size_t key_len) {
+    if (!valid_args(password, pass_len, salt, salt_len, key_out, key_len))
+        return -1;
+    EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
+    if (!kdf) return -2;
     EVP_KDF_CTX *ctx = EVP_KDF_CTX_new(kdf);
     EVP_KDF_free(kdf);
     if (!ctx) return -1;
 
-    uint32_t t_cost = ARGON2_T_COST;
-    uint32_t m_cost = ARGON2_M_COST;
-    uint32_t lanes  = ARGON2_LANES;
-    uint32_t threads = ARGON2_LANES;
+    uint32_t t_cost = CLAWSEC_ARGON2_T_COST;
+    uint32_t m_cost = CLAWSEC_ARGON2_M_COST;
+    uint32_t lanes  = CLAWSEC_ARGON2_LANES;
+    uint32_t threads = CLAWSEC_ARGON2_LANES;
 
     OSSL_PARAM params[] = {
         OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
@@ -62,31 +82,4 @@ static int derive_argon2id(const char *password, size_t pass_len,
     int rc = EVP_KDF_derive(ctx, key_out, key_len, params);
     EVP_KDF_CTX_free(ctx);
     return rc > 0 ? 0 : -1;
-}
-
-static int derive_pbkdf2(const char *password, size_t pass_len,
-                           const unsigned char *salt, size_t salt_len,
-                           unsigned char *key_out, size_t key_len) {
-    if (PKCS5_PBKDF2_HMAC(password, pass_len, salt, salt_len,
-                           100000, EVP_sha256(),
-                           (int)key_len, key_out) != 1)
-        return -1;
-    return 0;
-}
-
-int kdf_derive(const char *password, size_t pass_len,
-               const unsigned char *salt, size_t salt_len,
-               unsigned char *key_out, size_t key_len) {
-    if (!password || pass_len == 0 || !salt || salt_len < 16 ||
-        !key_out || key_len == 0)
-        return -1;
-
-    if (argon2_available())
-        return derive_argon2id(password, pass_len, salt, salt_len,
-                                key_out, key_len);
-
-    /* Fallback for OpenSSL < 3.2 */
-    fprintf(stderr, "[KDF] Warning: Argon2id unavailable, using PBKDF2 fallback\n");
-    return derive_pbkdf2(password, pass_len, salt, salt_len,
-                          key_out, key_len);
 }
