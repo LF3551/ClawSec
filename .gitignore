@@ -34,3 +34,4 @@ leak-*
 timeout-*
 src/fuzz_frame
 src/fuzz_parsers
+src/fuzz_spake2
