@@ -407,7 +407,8 @@ int main(int argc, char **argv) {
 #ifdef GAPING_SECURITY_HOLE
     const char *optstring = "hblKu46ck:p:w:ve:L:R:zPVn:";
 #else
-    const char *optstring = "hblKu46ck:p:w:vL:R:zPVn:";
+    /* -e is recognised only to explain how to enable it */
+    const char *optstring = "hblKu46ck:p:w:ve:L:R:zPVn:";
 #endif
 
     int opt;
@@ -524,6 +525,11 @@ int main(int argc, char **argv) {
             break;
 #ifdef GAPING_SECURITY_HOLE
         case 'e': exec_prog = optarg; break;
+#else
+        case 'e':
+            fprintf(stderr, "ERROR: -e (execute program) is not built into this binary.\n"
+                            "Rebuild with: make <target> DFLAGS=-DGAPING_SECURITY_HOLE\n");
+            return 1;
 #endif
         default: usage(argv[0]); return 1;
         }

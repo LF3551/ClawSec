@@ -46,6 +46,13 @@ jobs:
         name: clawsec-linux
         path: src/clawsec
 
+    - name: Opt-in -e build compiles and offers -e
+      run: |
+        cd src
+        make clean
+        make linux DFLAGS=-DGAPING_SECURITY_HOLE
+        ./clawsec -h 2>&1 | grep -- '-e <program>'
+
   sanitizers:
     runs-on: ubuntu-latest
     steps:

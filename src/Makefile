@@ -10,10 +10,10 @@
 # debugging
 # DFLAGS = -DTEST -DDEBUG
 #
-# WARNING: -DGAPING_SECURITY_HOLE enables the -e flag (execute program after
-# connect). This allows running arbitrary commands via encrypted reverse shell.
-# Remove this define to build without remote exec capability.
-DFLAGS = -DGAPING_SECURITY_HOLE
+# The -e flag (execute a program, e.g. a shell, for each connection) is NOT
+# built by default: anyone who knows the password gets that program. Opt in
+# explicitly, e.g.:  make linux DFLAGS=-DGAPING_SECURITY_HOLE
+DFLAGS =
 CFLAGS = -O
 XFLAGS =
 XLIBS = -lssl -lcrypto -lstdc++ -lz

@@ -197,6 +197,15 @@ timeout 20 "$BIN" -k "$KEY" --send "$PAYLOAD" 127.0.0.1 "$P" >/dev/null 2>&1
 wait "$RX" 2>/dev/null
 check "--send/--recv file transfer" "$PAYLOAD" "$WORK/inbox/payload.bin"
 
+# ── -e must be opt-in: a default build refuses it with guidance ─────────
+if ! "$BIN" -h 2>&1 | grep -q -- '-e <program>'; then
+    if "$BIN" -k "$KEY" -e /bin/sh 127.0.0.1 1 2>&1 | grep -q 'DFLAGS=-DGAPING_SECURITY_HOLE'; then
+        echo "  [E2E] -e not built by default ... PASS"; PASS=$((PASS + 1))
+    else
+        echo "  [E2E] -e not built by default ... FAIL"; FAIL=$((FAIL + 1))
+    fi
+fi
+
 # ── Wrong password must not leak data ──────────────────────────────────
 P=$(free_port); rm -f "$WORK/wrong.out"
 (sleep 10 | timeout 15 "$BIN" -l -p "$P" -k "$KEY" > "$WORK/wrong.out" 2>/dev/null) &
