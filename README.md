@@ -83,12 +83,19 @@ cd ClawSec
 ./scripts/install.sh
 ```
 
+### Homebrew (macOS, Linux)
+
+```bash
+brew install lf3551/clawsec/clawsec
+```
+
 ### Prebuilt binaries
 
 Every [release](https://github.com/LF3551/ClawSec/releases) has tested binaries
-for Linux x86_64, Linux arm64 and macOS arm64 (`clawsec-<version>-<os>-<arch>.tar.gz`,
-verify with `SHA256SUMS`). They link dynamically against OpenSSL 3, libargon2 and
-zlib — install those runtime packages first (see Requirements).
+(`clawsec-<version>-<os>-<arch>.tar.gz`, verify with `SHA256SUMS`):
+Linux x86_64 and arm64 are fully static (no runtime dependencies, any
+distribution); macOS arm64 and x86_64 use Homebrew's `openssl@3` and `argon2`
+(`brew install openssl@3 argon2`, or use the tap above).
 
 ### Manual Build
 

@@ -4,7 +4,8 @@ name: Release
 #   1. builds and tests static Linux binaries (x86_64, arm64) and macOS
 #      binaries (arm64, x86_64)
 #   2. attaches clawsec-<version>-<os>-<arch>.tar.gz and SHA256SUMS to the release
-#   3. records the source tarball checksum in the Homebrew formula and PKGBUILD
+#   3. records the source tarball checksum in PKGBUILD and updates the
+#      Homebrew tap (LF3551/homebrew-clawsec)
 # Docker images (docker-publish.yml) and the AUR package (aur-publish.yml) are
 # published by their own workflows on the same event.
 
@@ -139,21 +140,47 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
 
-      - name: Update Homebrew formula and PKGBUILD
+      - name: Source tarball checksum
+        id: src
         run: |
-          ver="${TAG#v}"
           url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
           sha=$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "source tarball sha256: $sha"
-          sed -i -E "s|^  url \".*\"|  url \"$url\"|; s|^  sha256 \".*\"|  sha256 \"$sha\"|" deploy/clawsec.rb
-          sed -i -E "s|^pkgver=.*|pkgver=$ver|; s|^sha256sums=.*|sha256sums=('$sha')|" aur/PKGBUILD
-          git diff
 
-      - name: Commit
+      - name: Update PKGBUILD
+        env:
+          SHA: ${{ steps.src.outputs.sha }}
         run: |
+          sed -i -E "s|^pkgver=.*|pkgver=${TAG#v}|; s|^sha256sums=.*|sha256sums=('$SHA')|" aur/PKGBUILD
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add deploy/clawsec.rb aur/PKGBUILD
+          git add aur/PKGBUILD
           if git diff --cached --quiet; then echo "Already up to date"; exit 0; fi
-          git commit -m "chore(release): packaging checksums for ${TAG}"
+          git commit -m "chore(release): PKGBUILD checksum for ${TAG}"
           git push origin HEAD
+
+      # Homebrew tap: LF3551/homebrew-clawsec (its own CI builds and tests the
+      # formula on macOS arm64/x86_64 and Linux). Pushed with a deploy key
+      # that can write to the tap repository only.
+      - name: Update Homebrew tap
+        env:
+          URL: ${{ steps.src.outputs.url }}
+          SHA: ${{ steps.src.outputs.sha }}
+          TAP_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [ -z "$TAP_KEY" ]; then echo "HOMEBREW_TAP_DEPLOY_KEY not set, skipping"; exit 0; fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$TAP_KEY" > ~/.ssh/tap_key && chmod 600 ~/.ssh/tap_key
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap_key -o IdentitiesOnly=yes"
+          git clone -q git@github.com:LF3551/homebrew-clawsec.git "$RUNNER_TEMP/tap"
+          cd "$RUNNER_TEMP/tap"
+          sed -i -E "s|^  url \".*\"|  url \"$URL\"|; s|^  sha256 \".*\"|  sha256 \"$SHA\"|" Formula/clawsec.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/clawsec.rb
+          if git diff --cached --quiet; then echo "Tap already up to date"; exit 0; fi
+          git commit -m "clawsec ${TAG#v}"
+          git push -q origin HEAD
