@@ -12,6 +12,7 @@
 #include <netdb.h>
 #include <errno.h>
 #include <time.h>
+#include <openssl/crypto.h>
 
 #include "farm9crypt.h"
 #include "util.h"
@@ -225,10 +226,11 @@ static void handle_client(int sockfd, const char *password, int is_server,
                 fprintf(stderr, "ERROR: UDP VPN negotiation failed, falling back to TCP\n");
                 tun_relay(tun_fd, sockfd);
             } else {
-                unsigned char vpn_key[32];
-                if (farm9crypt_export_key(vpn_key, 32) == 0) {
-                    tun_udp_relay(tun_fd, udp_fd, sockfd, vpn_key);
-                    memset(vpn_key, 0, 32);
+                unsigned char vpn_tx[32], vpn_rx[32];
+                if (farm9crypt_export_udp_keys(vpn_tx, vpn_rx) == 0) {
+                    tun_udp_relay(tun_fd, udp_fd, sockfd, vpn_tx, vpn_rx);
+                    OPENSSL_cleanse(vpn_tx, sizeof(vpn_tx));
+                    OPENSSL_cleanse(vpn_rx, sizeof(vpn_rx));
                 } else {
                     fprintf(stderr, "ERROR: Cannot export key for UDP VPN\n");
                     tun_relay(tun_fd, sockfd);

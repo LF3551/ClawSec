@@ -49,21 +49,42 @@ void test_bidirectional(void) {
     int fds[2];
     TEST_BEGIN("bidirectional encrypted communication") {
         ASSERT(make_socketpair(fds) == 0, "socketpair");
+        const char *password = "BiDirTest123";
+        const char *msg_c = "from client";
+        const char *msg_s = "from server";
 
-        unsigned char salt[16];
-        farm9crypt_generate_salt(salt, sizeof(salt));
-        farm9crypt_init_password_with_salt("BiDirTest123", 12, salt, 16);
+        pid_t pid = fork();
+        ASSERT(pid >= 0, "fork");
+        if (pid == 0) {
+            /* Child: server echoes a reply after receiving the client message */
+            close(fds[1]);
+            char sbuf[64];
+            int ok = farm9crypt_init_ecdhe(fds[0], password, strlen(password),
+                                           FARM9_ROLE_SERVER) == 0 &&
+                     farm9crypt_read(fds[0], sbuf, sizeof(sbuf)) == (int)strlen(msg_c) &&
+                     memcmp(sbuf, msg_c, strlen(msg_c)) == 0 &&
+                     farm9crypt_write(fds[0], (char *)msg_s, strlen(msg_s)) == (int)strlen(msg_s);
+            farm9crypt_cleanup();
+            close(fds[0]);
+            _exit(ok ? 0 : 1);
+        }
 
-        const char *msg_a = "from A";
-        farm9crypt_write(fds[0], (char *)msg_a, strlen(msg_a));
-
+        close(fds[0]);
+        int rc = farm9crypt_init_ecdhe(fds[1], password, strlen(password), FARM9_ROLE_CLIENT);
+        int wn = rc == 0 ? farm9crypt_write(fds[1], (char *)msg_c, strlen(msg_c)) : -1;
         char buf[64];
-        int rn = farm9crypt_read(fds[1], buf, sizeof(buf));
-        ASSERT_EQ(rn, (int)strlen(msg_a), "read size");
-        buf[rn] = '\0';
-        ASSERT_STR_EQ(buf, msg_a, "content");
-
-        close(fds[0]); close(fds[1]);
+        int rn = wn > 0 ? farm9crypt_read(fds[1], buf, sizeof(buf) - 1) : -1;
         farm9crypt_cleanup();
+        close(fds[1]);
+
+        int status;
+        waitpid(pid, &status, 0);
+
+        ASSERT_EQ(rc, 0, "client ECDHE");
+        ASSERT_EQ(wn, (int)strlen(msg_c), "client write");
+        ASSERT_EQ(rn, (int)strlen(msg_s), "client read size");
+        buf[rn] = '\0';
+        ASSERT_STR_EQ(buf, msg_s, "content");
+        ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0, "server side failed");
     } TEST_END;
 }

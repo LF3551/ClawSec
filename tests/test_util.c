@@ -16,7 +16,7 @@ void test_initialized_flag(void) {
     farm9crypt_cleanup();
     ASSERT_EQ(farm9crypt_initialized(), 0, "should not be initialized after cleanup");
 
-    int rc = farm9crypt_init_password("testpass12", 10);
+    int rc = farm9crypt_init_password("testpass12", 10, FARM9_ROLE_CLIENT);
     ASSERT_EQ(rc, 0, "init_password should succeed");
     ASSERT_EQ(farm9crypt_initialized(), 1, "should be initialized after init");
 
@@ -25,11 +25,10 @@ void test_initialized_flag(void) {
     TEST_END;
 }
 
-void test_raw_key_init(void) {
-    TEST_BEGIN("farm9crypt_init with raw 32-byte key");
-    char key[32];
-    memset(key, 0x42, 32);
-    farm9crypt_init(key);
+void test_password_roles_interop(void) {
+    TEST_BEGIN("password init: client and server roles interoperate");
+    const char *key = "role-interop-password";
+    ASSERT_EQ(farm9crypt_init_password(key, strlen(key), FARM9_ROLE_CLIENT), 0, "init");
     ASSERT_EQ(farm9crypt_initialized(), 1, "should be initialized");
 
     int sv[2];
@@ -43,8 +42,9 @@ void test_raw_key_init(void) {
 
     if (pid == 0) {
         close(sv[0]);
-        farm9crypt_init(key);
-        farm9crypt_write(sv[1], (char*)msg, mlen);
+        farm9crypt_cleanup();
+        if (farm9crypt_init_password(key, strlen(key), FARM9_ROLE_SERVER) != 0) _exit(1);
+        if (farm9crypt_write(sv[1], (char*)msg, mlen) != mlen) _exit(1);
         farm9crypt_cleanup();
         close(sv[1]);
         _exit(0);

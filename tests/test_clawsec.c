@@ -34,6 +34,18 @@ extern void test_invalid_salt(void);
 extern void test_replay_protection(void);
 extern void test_bad_magic(void);
 
+/* test_security.c — protocol v2 regression tests */
+extern void test_sec_roles_roundtrip(void);
+extern void test_sec_reflection_rejected(void);
+extern void test_sec_edited_seq_replay_rejected(void);
+extern void test_sec_header_flags_tamper_rejected(void);
+extern void test_sec_version_mismatch_rejected(void);
+extern void test_sec_forged_frame_leaves_buffer_untouched(void);
+extern void test_sec_oversized_message_bounded(void);
+extern void test_sec_large_caller_buffer_accepted(void);
+extern void test_sec_write_rejects_oversize(void);
+extern void test_sec_ecdhe_directional_keys(void);
+
 /* test_handshake.c */
 extern void test_full_handshake(void);
 extern void test_bidirectional(void);
@@ -65,7 +77,7 @@ extern void test_ctrl_msg_build(void);
 
 /* test_util.c */
 extern void test_initialized_flag(void);
-extern void test_raw_key_init(void);
+extern void test_password_roles_interop(void);
 extern void test_fingerprint_uninitialized(void);
 extern void test_write_all_basic(void);
 
@@ -175,6 +187,7 @@ extern void test_tun_udp_wire_format(void);
 extern void test_tun_udp_constants(void);
 extern void test_tun_udp_truncated(void);
 extern void test_tun_udp_bad_magic(void);
+extern void test_tun_udp_replay_window(void);
 
 int main(void) {
     printf("\n=== ClawSec Test Suite ===\n\n");
@@ -192,6 +205,18 @@ int main(void) {
     /* Protocol tests */
     test_replay_protection();
     test_bad_magic();
+
+    /* Protocol v2 security regressions */
+    test_sec_roles_roundtrip();
+    test_sec_reflection_rejected();
+    test_sec_edited_seq_replay_rejected();
+    test_sec_header_flags_tamper_rejected();
+    test_sec_version_mismatch_rejected();
+    test_sec_forged_frame_leaves_buffer_untouched();
+    test_sec_oversized_message_bounded();
+    test_sec_large_caller_buffer_accepted();
+    test_sec_write_rejects_oversize();
+    test_sec_ecdhe_directional_keys();
 
     /* Handshake tests */
     test_full_handshake();
@@ -224,7 +249,7 @@ int main(void) {
 
     /* State & utility tests */
     test_initialized_flag();
-    test_raw_key_init();
+    test_password_roles_interop();
     test_fingerprint_uninitialized();
     test_write_all_basic();
 
@@ -336,6 +361,7 @@ int main(void) {
     test_tun_udp_constants();
     test_tun_udp_truncated();
     test_tun_udp_bad_magic();
+    test_tun_udp_replay_window();
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

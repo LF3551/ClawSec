@@ -310,3 +310,23 @@ void test_tun_udp_bad_magic(void) {
         ASSERT(rc != 0, "rejects bad magic");
     } TEST_END;
 }
+
+/*
+ * Test: UDP anti-replay window (seq 0 reserved for negotiation)
+ */
+void test_tun_udp_replay_window(void) {
+    TEST_BEGIN("tun UDP replay window rejects seq 0/dups/old") {
+        tun_udp_replay_reset();
+        ASSERT(tun_udp_replay_check(0) == -1, "seq 0 is reserved (probe/ACK)");
+        ASSERT(tun_udp_replay_check(1) == 0, "first data packet accepted");
+        ASSERT(tun_udp_replay_check(1) == -1, "duplicate rejected");
+        ASSERT(tun_udp_replay_check(5) == 0, "jump forward accepted");
+        ASSERT(tun_udp_replay_check(3) == 0, "reordered within window accepted");
+        ASSERT(tun_udp_replay_check(3) == -1, "reordered duplicate rejected");
+        ASSERT(tun_udp_replay_check(1000) == 0, "far jump accepted");
+        ASSERT(tun_udp_replay_check(5) == -1, "older than window rejected");
+        ASSERT(tun_udp_replay_check(1000 - 255) == 0, "oldest in-window accepted");
+        ASSERT(tun_udp_replay_check(1000 - 256) == -1, "just outside window rejected");
+        tun_udp_replay_reset();
+    } TEST_END;
+}

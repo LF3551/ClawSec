@@ -76,11 +76,20 @@ int tun_restore_default_route(void);
 int tun_udp_negotiate(int tcp_fd, const char *host, const char *port, int is_server);
 
 /* Relay IP packets between TUN and UDP VPN channel.
- * Uses per-packet AES-256-GCM encryption with the given 32-byte key.
+ * Uses per-packet AES-256-GCM with directional 32-byte keys
+ * (see farm9crypt_export_udp_keys): tx_key for sending, rx_key for receiving.
  * Wire format: [4B "CVPN"][12B nonce][ciphertext][16B GCM tag]
  * Nonce = seq_be(4B) + random(8B); AAD = "CVPN" (4B).
+ * Sequence 0 is reserved for the negotiation probe/ACK; data starts at 1.
  * tcp_fd is kept for control/heartbeat; -1 to disable. */
-int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd, const unsigned char *key);
+int tun_udp_relay(int tun_fd, int udp_fd, int tcp_fd,
+                  const unsigned char *tx_key, const unsigned char *rx_key);
+
+/* Anti-replay sliding window for the UDP data channel (exposed for tests).
+ * check returns 0 if seq is fresh (and records it), -1 if it must be dropped:
+ * seq 0 (reserved), duplicates, or older than the window. */
+void tun_udp_replay_reset(void);
+int  tun_udp_replay_check(uint32_t seq);
 
 /* Encrypt a single VPN packet for UDP transport (for testing).
  * out must be at least pt_len + TUN_UDP_OVERHEAD bytes.

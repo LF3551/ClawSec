@@ -38,13 +38,16 @@ public:
      * @param tag Output buffer for authentication tag (16 bytes)
      * @param tag_len Length of tag (must be 16)
      * @param ciphertext_len Output: actual ciphertext length
+     * @param aad Additional authenticated data (authenticated, not encrypted)
+     * @param aad_len Length of aad (0 if none)
      * @return true on success, false on error
      */
     bool encrypt(const unsigned char* plaintext, int plaintext_len,
                  unsigned char* ciphertext,
                  unsigned char* iv, int iv_len,
                  unsigned char* tag, int tag_len,
-                 int& ciphertext_len);
+                 int& ciphertext_len,
+                 const unsigned char* aad = nullptr, int aad_len = 0);
 
     /**
      * Decrypt ciphertext and verify authentication tag
@@ -56,12 +59,17 @@ public:
      * @param tag_len Length of tag (16 bytes)
      * @param plaintext Output buffer for decrypted data
      * @param plaintext_len Output: actual plaintext length
-     * @return true if decryption and authentication succeed, false otherwise
+     * @param aad Additional authenticated data that must match encryption
+     * @param aad_len Length of aad (0 if none)
+     * @return true if decryption and authentication succeed, false otherwise.
+     *         On failure the plaintext buffer (ciphertext_len bytes) is wiped,
+     *         so unauthenticated data is never left behind.
      */
     bool decrypt(const unsigned char* ciphertext, int ciphertext_len,
                  const unsigned char* iv, int iv_len,
                  const unsigned char* tag, int tag_len,
-                 unsigned char* plaintext, int& plaintext_len);
+                 unsigned char* plaintext, int& plaintext_len,
+                 const unsigned char* aad = nullptr, int aad_len = 0);
 
 private:
     unsigned char key[32];
