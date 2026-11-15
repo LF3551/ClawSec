@@ -71,7 +71,7 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 
 - **AES-256-GCM**: Authenticated encryption; the frame header (sequence number, length, version) is authenticated too
 - **X25519 ECDHE**: Perfect Forward Secrecy — each session has unique ephemeral keys
-- **Argon2id**: Memory-hard password binding (OpenSSL ≥ 3.2; PBKDF2-SHA256 100k fallback on older OpenSSL)
+- **Argon2id**: Memory-hard password binding via libargon2 (identical keys on every platform and OpenSSL version)
 - **Directional keys**: HKDF-SHA256 derives separate client→server and server→client keys (TCP and UDP), so frames cannot be reflected
 - **Key confirmation & version check**: wrong passwords and incompatible peers are rejected during the handshake, with a clear error and exit status 1
 - **Replay Protection**: Strict sequence numbers on TCP, 256-entry sliding window on the UDP VPN channel
@@ -104,10 +104,16 @@ Perfect for: Secure file transfers, reverse shells, encrypted tunnels without ce
 git clone https://github.com/LF3551/ClawSec.git
 cd ClawSec
 
-# Run installer
-chmod +x install.sh
-./install.sh
+# Install build dependencies, build, optionally install to /usr/local/bin
+./scripts/install.sh
 ```
+
+### Prebuilt binaries
+
+Every [release](https://github.com/LF3551/ClawSec/releases) has tested binaries
+for Linux x86_64, Linux arm64 and macOS arm64 (`clawsec-<version>-<os>-<arch>.tar.gz`,
+verify with `SHA256SUMS`). They link dynamically against OpenSSL 3, libargon2 and
+zlib — install those runtime packages first (see Requirements).
 
 ### Manual Build
 
@@ -236,21 +242,29 @@ pv largefile.iso | ./clawsec -k "pass" server 7777
 
 ## Requirements
 
-- **OpenSSL 3.x**: For AES-GCM encryption
-- **GCC/G++**: C++11 or later
-- **POSIX System**: Linux, BSD, macOS, Solaris
+- **OpenSSL 3.x**: AES-GCM, X25519, HKDF, TLS camouflage (`--pq` needs OpenSSL ≥ 3.5)
+- **libargon2**: Argon2id password hashing (same result on every platform)
+- **zlib**: `-z` compression
+- **GCC/G++ or Clang**: C11 / C++11
+- **POSIX System**: Linux, BSD, macOS
 
-### Install OpenSSL
+### Install dependencies
 
 ```bash
 # macOS
-brew install openssl@3
+brew install openssl@3 argon2
 
 # Debian/Ubuntu
-sudo apt-get install libssl-dev
+sudo apt-get install libssl-dev libargon2-dev zlib1g-dev build-essential
 
-# RedHat/CentOS
-sudo yum install openssl-devel
+# Fedora/RHEL (EPEL)
+sudo dnf install openssl-devel libargon2-devel zlib-devel gcc gcc-c++ make
+
+# Arch
+sudo pacman -S openssl argon2 zlib
+
+# Alpine
+apk add openssl-dev argon2-dev zlib-dev gcc g++ make musl-dev linux-headers
 ```
 
 ## Usage
@@ -542,7 +556,7 @@ clawsec -l -p 1234 -k "$CLAW_KEY"
 |-----------|-----------|------------|
 | Cipher | AES-256 | 256-bit key |
 | Mode | GCM | AEAD with authentication |
-| Password binding | Argon2id (PBKDF2-HMAC-SHA256 fallback) | t=3, m=19 MiB, p=1 (PBKDF2: 100,000 iterations) |
+| Password binding | Argon2id (libargon2) | t=3, m=19 MiB, p=1 |
 | Traffic keys | HKDF-SHA256 | separate keys per direction, per channel (TCP / UDP) |
 | IV | CSPRNG | 96 bits (12 bytes) |
 | Auth Tag | GMAC | 128 bits (16 bytes), covers header (AAD) + ciphertext |
@@ -588,7 +602,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 |---------|---------|-------------------|--------|
 | Encryption | AES-256-GCM | Twofish (deprecated) | None |
 | Authentication | GCM Tag | None | None |
-| Key Derivation | PBKDF2 | Direct key | N/A |
+| Key Derivation | Argon2id + HKDF | Direct key | N/A |
 | Memory Safety | Secure wiping | No | N/A |
 | Protocol Version | Yes | No | N/A |
 
@@ -597,7 +611,7 @@ See [SECURITY.md](SECURITY.md) for detailed cryptographic documentation.
 ```bash
 cd src
 
-# Unit/integration tests (131 tests)
+# Unit/integration tests (133 tests)
 make linux && make test          # macOS: make macos && make test-macos
 
 # Same tests under AddressSanitizer + UndefinedBehaviorSanitizer
@@ -675,12 +689,14 @@ Since 3.0, `-e` is opt-in: `make linux DFLAGS=-DGAPING_SECURITY_HOLE`.
 ### "Connection closed by peer"
 Network error, or the peer closed the session.
 
-### OpenSSL library errors
+### OpenSSL / argon2 library errors
 ```bash
-# macOS: Set OpenSSL paths
-export CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
-export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
-make clean && make linux
+# macOS (Homebrew): the macos target already uses /opt/homebrew/opt/{openssl@3,argon2}
+brew install openssl@3 argon2
+cd src && make clean && make macos
+
+# Linux: "argon2.h: No such file" -> install libargon2-dev (Debian/Ubuntu),
+# libargon2-devel (Fedora/RHEL), argon2 (Arch), argon2-dev (Alpine)
 ```
 
 ## Contributing
@@ -721,14 +737,14 @@ This tool is for authorized testing and legitimate use only.
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Development guide
 - [OpenSSL GCM Documentation](https://wiki.openssl.org/index.php/EVP_Authenticated_Encryption_and_Decryption)
 - [NIST SP 800-38D](https://csrc.nist.gov/publications/detail/sp/800-38d/final) - GCM Specification
-- [PBKDF2 RFC 8018](https://tools.ietf.org/html/rfc8018)
+- [Argon2 RFC 9106](https://www.rfc-editor.org/rfc/rfc9106)
 
 ## Project Structure
 
 ```
 ClawSec/
 ├── src/              # Source code (C/C++)
-├── tests/            # Unit tests (131) + end-to-end scripts
+├── tests/            # Unit tests (133) + end-to-end scripts
 ├── docs/             # Documentation (FAQ, examples, man page)
 ├── scripts/          # Build, install, quickstart scripts
 ├── deploy/           # Deployment configs (systemd, k8s, Homebrew)

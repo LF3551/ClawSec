@@ -100,7 +100,7 @@ sudo systemctl start clawsec
 ClawSec uses:
 - AES-256-GCM (NIST approved)
 - X25519 ECDHE (Perfect Forward Secrecy)
-- Argon2id password binding (PBKDF2 100k fallback on OpenSSL < 3.2)
+- Argon2id password binding (libargon2)
 - Separate HKDF-derived keys per direction
 - Cryptographically secure random IVs
 - GCM authentication tags covering the frame header
@@ -237,10 +237,10 @@ Yes. Both sides must use `--pq` for the ML-KEM key encapsulation exchange to wor
 
 ### OpenSSL errors on macOS
 ```bash
-brew install openssl@3
+brew install openssl@3 argon2
 export CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
 export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
-cd src && make clean && make linux
+cd src && make clean && make macos
 ```
 
 ## Docker
