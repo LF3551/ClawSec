@@ -119,7 +119,7 @@ void test_portscan_banner_grab(void) {
                 if (client >= 0) {
                     const char *banner = "TESTBANNER/1.0\r\n";
                     write(client, banner, strlen(banner));
-                    usleep(100000);
+                    test_sleep_ms(100);
                     close(client);
                 }
             }

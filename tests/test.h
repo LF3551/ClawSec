@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <time.h>
 
 #include "farm9crypt.h"
 
@@ -66,6 +67,14 @@ extern int tests_passed;
 /* Helper: create connected socket pair */
 static inline int make_socketpair(int fds[2]) {
     return socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+}
+
+/* Portable millisecond sleep (usleep was removed from POSIX.1-2008) */
+static inline void test_sleep_ms(long ms) {
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000L;
+    while (nanosleep(&ts, &ts) != 0) { /* retry on EINTR */ }
 }
 
 /* Test function signature */

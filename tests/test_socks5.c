@@ -168,7 +168,7 @@ void test_socks5_client_binds(void) {
         }
         close(fds[0]);
 
-        usleep(200000); /* wait for bind+listen */
+        test_sleep_ms(200); /* wait for bind+listen */
 
         /* Verify we can connect to the SOCKS5 port */
         int sock = socket(AF_INET, SOCK_STREAM, 0);
