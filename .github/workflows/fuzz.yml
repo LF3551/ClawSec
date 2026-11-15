@@ -1,0 +1,42 @@
+name: Fuzz
+
+# Not on every push/PR (CI minutes): weekly and on demand.
+on:
+  schedule:
+    - cron: '0 3 * * 1'   # Mondays 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 'Seconds per harness'
+        default: '120'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang libssl-dev libargon2-dev zlib1g-dev
+
+    - name: Fuzz the record layer and parsers (ASan + UBSan, 5 s per-input timeout)
+      run: |
+        cd src
+        make fuzz FUZZ_SECONDS=${{ github.event.inputs.seconds || '120' }}
+
+    - name: Upload crashing inputs
+      if: failure()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: fuzz-crashes
+        path: |
+          src/crash-*
+          src/leak-*
+          src/timeout-*
+        if-no-files-found: ignore
