@@ -2,18 +2,28 @@
 #
 # build-release.sh — build and package a ClawSec release for this platform.
 #
-# Usage: scripts/build-release.sh [VERSION]     (default: from src/version.h)
+# Usage: scripts/build-release.sh [VERSION] [--binary PATH]
+#   VERSION         default: from src/version.h
+#   --binary PATH   package an already built binary instead of building one
+#                   (CI builds the static Linux binary in an Alpine container)
 # Output: release-VERSION/clawsec-VERSION-<os>-<arch>.tar.gz (+ .sha256)
 #
 # The archive contains the binary, LICENSE, README.md, the man page and shell
 # completions. Used by .github/workflows/release.yml, so local and CI release
-# artifacts are built the same way. The binary is dynamically linked against
-# OpenSSL 3, libargon2 and zlib (install them on the target system).
+# artifacts are packaged the same way.
 #
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-VERSION=${1:-$(sed -n 's/^#define CLAWSEC_VERSION "\(.*\)"/\1/p' "$ROOT/src/version.h")}
+VERSION=""
+BINARY=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --binary) BINARY=$(cd "$(dirname "$2")" && pwd)/$(basename "$2"); shift 2 ;;
+        *) VERSION=$1; shift ;;
+    esac
+done
+[ -n "$VERSION" ] || VERSION=$(sed -n 's/^#define CLAWSEC_VERSION "\(.*\)"/\1/p' "$ROOT/src/version.h")
 VERSION=${VERSION#v}
 
 case "$(uname -s)" in
@@ -32,18 +42,21 @@ OUT="$ROOT/release-$VERSION"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
-echo "Building ClawSec $VERSION for $OS/$ARCH"
-make -C "$ROOT/src" clean >/dev/null
-make -C "$ROOT/src" "$TARGET"
+if [ -z "$BINARY" ]; then
+    echo "Building ClawSec $VERSION for $OS/$ARCH"
+    make -C "$ROOT/src" clean >/dev/null
+    make -C "$ROOT/src" "$TARGET"
+    BINARY="$ROOT/src/clawsec"
+fi
 
-BUILT=$("$ROOT/src/clawsec" --version)
+BUILT=$("$BINARY" --version)
 case "$BUILT" in
     "ClawSec $VERSION "*) ;;
     *) echo "version mismatch: binary reports '$BUILT', expected $VERSION" >&2; exit 1 ;;
 esac
 
 mkdir -p "$STAGE/$NAME/completions" "$OUT"
-cp "$ROOT/src/clawsec" "$STAGE/$NAME/"
+cp "$BINARY" "$STAGE/$NAME/clawsec"
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/docs/clawsec.1" "$STAGE/$NAME/"
 cp "$ROOT"/completions/* "$STAGE/$NAME/completions/"
 

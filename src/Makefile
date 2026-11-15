@@ -2,6 +2,8 @@
 #
 #   make linux     Linux (glibc), system OpenSSL 3 / libargon2 / zlib
 #   make alpine    Alpine Linux (musl)
+#   make static    Alpine Linux: fully static binary (runs on any Linux; needs
+#                  openssl-libs-static argon2-static zlib-static)
 #   make macos     macOS with Homebrew (Apple Silicon and Intel)
 #   make freebsd   FreeBSD (packages in /usr/local), static
 #   make netbsd    NetBSD (pkgsrc in /usr/pkg), static
@@ -63,7 +65,7 @@ TEST_SRC = $(TESTDIR)/test_clawsec.c $(TESTDIR)/test_crypto.c $(TESTDIR)/test_pr
 	$(COMPILE) -c $<
 
 usage:
-	@echo "Usage: make <linux|alpine|macos|freebsd|netbsd|generic> [DFLAGS=-DGAPING_SECURITY_HOLE]"
+	@echo "Usage: make <linux|alpine|static|macos|freebsd|netbsd|generic> [DFLAGS=-DGAPING_SECURITY_HOLE]"
 	@echo "       make test | test-macos | test-asan | e2e | e2e-vpn | werror | clean"
 
 clawsec: clawsec.c $(OBJS) $(HEADERS)
@@ -82,6 +84,9 @@ alpine:
 	$(MAKE) -e clawsec XFLAGS='-DLINUX -DGENERIC' \
 		XLIBS='-lssl -lcrypto -largon2 -lutil -lstdc++ -lz' \
 		LDHARDEN='-pie -Wl,-z,relro,-z,now'
+
+static:
+	$(MAKE) alpine STATIC=-static
 
 # Homebrew lives in /opt/homebrew (Apple Silicon) or /usr/local (Intel)
 macos:
