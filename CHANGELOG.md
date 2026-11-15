@@ -74,6 +74,10 @@ All notable changes to ClawSec will be documented in this file.
   does not hide the SNI, `--fallback` is not REALITY); size and dependency claims
   corrected.
 - `releases/2.6.0` binary removed from git (it is attached to the GitHub release).
+- **Homebrew tap:** `brew install lf3551/clawsec/clawsec` (LF3551/homebrew-clawsec,
+  built and tested from source on macOS arm64/x86_64 and Linux; the release workflow
+  updates it). `deploy/clawsec.rb` removed.
+- CI runs a macOS TUN smoke test (utun configuration, pf NAT anchor, cleanup).
 - **Behaviour change:** the SOCKS server no longer reaches loopback/link-local
   destinations unless allowed with `--socks-allow` (e.g. `--socks-allow 127.0.0.1/32`).
 - Tests: unit tests for password sources, the SOCKS policy and name sanitising (the
