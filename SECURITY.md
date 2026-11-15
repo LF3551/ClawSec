@@ -245,6 +245,12 @@ server identity
 
 ## Known Vulnerabilities
 
+### Fixed in 4.1.0 (affect ClawSec ≤ 4.0.0)
+
+| Issue | Impact |
+|---|---|
+| SOCKS streams inside the tunnel had no end marker | After a connection to a destination that kept its socket open, the next CONNECT request (including the next host name) was sent as data to the previous destination |
+
 ### Fixed in 4.0.0 (affect ClawSec ≤ 3.1.0 — upgrade both endpoints)
 
 | Issue | Impact |
@@ -276,6 +282,7 @@ server identity
 | `-e` built by default | Every binary could hand out a shell |
 
 Details: [CHANGELOG.md](CHANGELOG.md),
+[releases/4.1.0/RELEASE_NOTES.md](releases/4.1.0/RELEASE_NOTES.md),
 [releases/4.0.0/RELEASE_NOTES.md](releases/4.0.0/RELEASE_NOTES.md),
 [releases/3.1.0/RELEASE_NOTES.md](releases/3.1.0/RELEASE_NOTES.md) and
 [releases/3.0.0/RELEASE_NOTES.md](releases/3.0.0/RELEASE_NOTES.md).
@@ -360,6 +367,6 @@ For production environments, consider professionally audited solutions like:
 ---
 
 **Last Updated**: November 15, 2026  
-**Release**: 4.0.0  
+**Release**: 4.1.0  
 **Protocol Version**: 4  
 **Maintainer**: ClawSec Project
