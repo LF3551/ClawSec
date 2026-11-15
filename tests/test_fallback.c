@@ -8,6 +8,20 @@
 
 #include <signal.h>
 #include <unistd.h>
+#include <sys/time.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+
+/* The client must not close before the server finished SSL_accept: a TLS 1.3
+ * server writes session tickets at the end of the handshake, and a closed
+ * peer turns that into EPIPE (seen as a flaky "TLS accept failed"). The
+ * client therefore waits until the server closes the connection. */
+static void wait_for_server_close(int fd) {
+    char b[256];
+    struct timeval tv = { 5, 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    while (read(fd, b, sizeof(b)) > 0) { }
+}
 
 void test_fallback_knock_roundtrip(void) {
     TEST_BEGIN("fallback knock send/verify roundtrip") {
@@ -27,6 +41,7 @@ void test_fallback_knock_roundtrip(void) {
             if (fallback_send_knock(fds[1]) < 0) _exit(2);
             /* Send some data after knock to prove channel works */
             if (obfs_send(fds[1], "post-knock", 10) < 0) _exit(3);
+            wait_for_server_close(fds[1]);
             _exit(0);
         }
 
@@ -43,11 +58,10 @@ void test_fallback_knock_roundtrip(void) {
         ASSERT_EQ(n, 10, "post-knock data wrong length");
         ASSERT(memcmp(buf, "post-knock", 10) == 0, "post-knock data mismatch");
 
+        close(fds[0]);
         int status;
         waitpid(pid, &status, 0);
         ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0, "client failed");
-
-        close(fds[0]);
         obfs_set_mode(OBFS_NONE);
     } TEST_END;
 }
@@ -69,6 +83,7 @@ void test_fallback_detects_probe(void) {
             if (obfs_tls_connect(fds[1]) < 0) _exit(1);
             const char *http_req = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
             obfs_send(fds[1], http_req, strlen(http_req));
+            wait_for_server_close(fds[1]);
             _exit(0);
         }
 
@@ -79,10 +94,9 @@ void test_fallback_detects_probe(void) {
         int result = fallback_check_knock(fds[0]);
         ASSERT_EQ(result, 0, "should detect foreign probe (not ClawSec)");
 
+        close(fds[0]);
         int status;
         waitpid(pid, &status, 0);
-
-        close(fds[0]);
         obfs_set_mode(OBFS_NONE);
     } TEST_END;
 }
