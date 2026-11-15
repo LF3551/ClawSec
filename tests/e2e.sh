@@ -607,6 +607,45 @@ else
     echo "  [E2E] --del-user ... FAIL"; FAIL=$((FAIL + 1))
 fi
 
+# ── --config file and --status (control socket) ───────────────────────
+P=$(free_port); mkdir -p "$WORK/rx-cfg"
+cat > "$WORK/server.conf" <<CONF
+# ClawSec server configuration (e2e)
+listen
+port = $P
+keep-open
+handshake-timeout = 10
+max-clients = 4
+users = $UF
+recv = "$WORK/rx-cfg"
+control = $WORK/ctl.sock
+CONF
+"$BIN" --config "$WORK/server.conf" </dev/null >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$P"
+python3 -c 'import socket,sys,time; s=socket.create_connection(("127.0.0.1",int(sys.argv[1]))); time.sleep(3)' "$P" &
+HOLDER=$!
+CLAWSEC_PASSWORD='alice-E2e-passw0rd' timeout 15 "$BIN" --user alice --send "$PAYLOAD" 127.0.0.1 "$P" >/dev/null 2>&1
+CFG_RC=$?
+"$BIN" --status "$WORK/ctl.sock" > "$WORK/status.txt" 2>&1
+wait "$HOLDER" 2>/dev/null
+if [ "$CFG_RC" -eq 0 ] && cmp -s "$PAYLOAD" "$WORK/rx-cfg/payload.bin"; then
+    echo "  [E2E] --config: server from a file (listen, port, users, recv, limits) ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --config ... FAIL (exit $CFG_RC)"; FAIL=$((FAIL + 1))
+fi
+if grep -q '^ClawSec .*sessions' "$WORK/status.txt" && grep -q ' 127.0.0.1 ' "$WORK/status.txt" &&
+   [ "$(stat -c %a "$WORK/ctl.sock")" = 600 ]; then
+    echo "  [E2E] --control/--status lists the sessions (socket mode 0600) ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --control/--status ... FAIL"; FAIL=$((FAIL + 1)); cat "$WORK/status.txt"
+fi
+printf 'listen\nport = 1\nno-such-option = 1\n' > "$WORK/bad.conf"
+if ! "$BIN" --config "$WORK/bad.conf" 2>&1 | grep -q "bad.conf:3: unknown option 'no-such-option'"; then
+    echo "  [E2E] --config rejects unknown keys with file:line ... FAIL"; FAIL=$((FAIL + 1))
+else
+    echo "  [E2E] --config rejects unknown keys with file:line ... PASS"; PASS=$((PASS + 1))
+fi
+
 # ── --persistent: stop on a wrong password, reconnect after a drop ─────
 P=$(free_port)
 "$BIN" -l -p "$P" -k "$KEY" -K >/dev/null 2>&1 & PIDS+=($!)

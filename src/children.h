@@ -34,4 +34,25 @@ void reap_handler_exits(void);
  * client fd (ipkey/have_key filled) or -1 if it was refused. */
 int accept_admitted(int listen_fd, char ipkey[IPLIMIT_KEY_LEN], int *have_key);
 
+/* ── Session registry for --control / --status ── */
+#include <stdio.h>
+
+/* Parent: create the report pipe (call once, before forking sessions) */
+int children_reports_init(void);
+/* Parent: read end, to poll; children_reports_read() consumes reports */
+int children_reports_fd(void);
+void children_reports_read(void);
+/* Session process: tell the parent the logged-in user name (no-op without
+ * a report pipe) */
+void children_report_user(const char *user);
+
+/* Parent: a session process started for peer (ipkey) */
+void children_track(pid_t pid, const char *peer);
+/* Look up a tracked session (NULL if unknown) */
+const char *children_user(pid_t pid);
+const char *children_peer(pid_t pid);
+long children_since(pid_t pid);
+/* Plain-text table of the running sessions */
+void children_status(FILE *out, void *ctx);
+
 #endif

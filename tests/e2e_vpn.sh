@@ -174,7 +174,7 @@ hub_test() {
     done
     ip netns exec "$S" sysctl -qw net.ipv4.ip_forward=1 net.ipv6.conf.all.forwarding=1
     ip netns exec "$S" timeout 60 "$BIN" -v -l -p 9000 -k "$KEY" -K --tun 10.232.0.1/24 \
-        --tun6 fd00:232::1/64 </dev/null >/dev/null 2>"$WORK/hub.log" &
+        --tun6 fd00:232::1/64 --control "$WORK/hub.ctl" </dev/null >/dev/null 2>"$WORK/hub.log" &
     local HUB=$!
     sleep 0.8
     local C=()
@@ -214,6 +214,10 @@ hub_test() {
         sh -c "ip netns exec ${H[1]} ping -c2 -i0.2 -W2 10.232.0.1 &&
                ip netns exec ${H[1]} ping -6 -c2 -i0.2 -W2 fd00:232::1"
     hub_check "explicit address 10.232.0.50" ip netns exec "${H[2]}" ping -c2 -i0.2 -W2 10.232.0.1
+    ip netns exec "$S" "$BIN" --status "$WORK/hub.ctl" > "$WORK/hub.status" 2>&1
+    hub_check "--status shows VPN slots with addresses and traffic" \
+        sh -c "grep -q '10.232.0.50' '$WORK/hub.status' && grep -q 'fd00:232::32' '$WORK/hub.status' &&
+               grep -Eq ' [1-9][0-9]*/[1-9][0-9]* ' '$WORK/hub.status'"
     hub_check "client -> client (IPv4, IPv6)" \
         sh -c "ip netns exec ${H[0]} ping -c2 -i0.2 -W2 $A2 &&
                ip netns exec ${H[1]} ping -6 -c2 -i0.2 -W2 $A1v6"

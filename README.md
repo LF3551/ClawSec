@@ -292,6 +292,8 @@ Connection:
   -p port           Local port number
   -K                Keep-open: one handler process per client
   --max-clients n   With -K: concurrent handlers (default 16)
+  --control path    With -K: status socket (read with clawsec --status path)
+  --config file     Read options from a file (key = value)
   --max-per-ip n    With -K: concurrent handlers per address, IPv6 per /64
                     (default 8, 0 = unlimited)
   --users file      Server: per-user passwords instead of one shared password
@@ -651,6 +653,39 @@ clawsec --user alice server.example.com 9000      # password prompt / --key-file
 - An unknown user fails exactly like a wrong password (no user enumeration).
 - The server logs `user 'alice' logged in`; `-e` programs get `CLAWSEC_USER`.
 - Not available with `-u`.
+
+### Server configuration file and status
+
+Long server command lines can live in a file; options given on the command
+line come after it and win. A password cannot be put there (use `key-file`).
+
+```ini
+# /etc/clawsec/server.conf
+listen
+port = 9000
+keep-open
+tun = 10.8.0.1/24
+tun6 = fd00:c1a5::1/64
+masquerade
+users = /etc/clawsec/users
+max-clients = 64
+control = /run/clawsec.sock
+```
+
+```bash
+sudo clawsec --config /etc/clawsec/server.conf
+sudo clawsec --status /run/clawsec.sock
+# ClawSec 4.3.0, pid 1234, up 2h05m, 2 of 64 sessions
+# PID      PEER              USER    AGE
+# 4321     203.0.113.7       alice   1h12m
+# VPN SLOT   PID    USER   IPV4        IPV6           RX (pkts/B)   TX (pkts/B)
+#     0      4321   alice  10.8.0.10   fd00:c1a5::a   48211/31M     52940/58M
+```
+
+Keys are the long option names (`tun`, `users`, `max-per-ip`, …) or `listen`,
+`port`, `keep-open`, `udp`, `ipv4`, `ipv6`, `verbose`, `timeout`, `forward`,
+`reverse`, … for the short ones; flags are `key` or `key = yes|no`. The status
+socket is created with mode 0600 and only reports sessions (no secrets).
 
 ### Operational Security
 
