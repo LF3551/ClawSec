@@ -30,6 +30,7 @@ extern "C"
 #include "tofu.h"
 #include "pqkem.h"
 #include "argon2kdf.h"
+#include "farm9crypt.h"
 }
 
 static int debug = false;
@@ -56,10 +57,21 @@ extern "C" int ecdhe_send(int sockfd, const void *buf, size_t len) {
 }
 
 extern "C" int ecdhe_recv(int sockfd, void *buf, size_t len) {
-    if (obfs_get_mode() != OBFS_NONE)
-        return obfs_recv(sockfd, buf, len) <= 0 ? -1 : 0;
     size_t total = 0;
     unsigned char *ptr = (unsigned char *)buf;
+    if (obfs_get_mode() == OBFS_HTTP) {
+        /* One HTTP body per handshake message: it must be exactly len bytes */
+        return obfs_recv(sockfd, buf, len) == (int)len ? 0 : -1;
+    }
+    if (obfs_get_mode() == OBFS_TLS) {
+        /* A TLS read may return less than requested: keep reading */
+        while (total < len) {
+            int n = obfs_recv(sockfd, ptr + total, len - total);
+            if (n <= 0) return -1;
+            total += (size_t)n;
+        }
+        return 0;
+    }
     while (total < len) {
         ssize_t n = recv(sockfd, ptr + total, len - total, 0);
         if (n <= 0) { if (n == 0) return -1; if (errno == EINTR) continue; return -1; }
@@ -150,15 +162,69 @@ static int derive_session_key(const unsigned char *secret1,
     return 0;
 }
 
+/* ---------- Version hello ----------
+ * Each side announces "CS" + 16-bit protocol version before its first key.
+ * The server sends hello + key before reading anything, so an old (v1)
+ * client never blocks waiting for it; the client checks the server hello
+ * before anything else, so an old server is detected immediately. */
+#define HELLO_LEN 4
+
+static void hello_build(unsigned char out[HELLO_LEN]) {
+    out[0] = 'C';
+    out[1] = 'S';
+    out[2] = (unsigned char)((FARM9_VERSION >> 8) & 0xFF);
+    out[3] = (unsigned char)(FARM9_VERSION & 0xFF);
+}
+
+static int hello_send(int sockfd) {
+    unsigned char h[HELLO_LEN];
+    hello_build(h);
+    return ecdhe_send(sockfd, h, HELLO_LEN);
+}
+
+static int hello_check(int sockfd, int server_mode) {
+    unsigned char h[HELLO_LEN];
+    const char *who = server_mode ? "client" : "server";
+    int foreign = 0;
+    if (obfs_get_mode() == OBFS_HTTP) {
+        /* An old peer's first HTTP body is its 32-byte key, not a hello */
+        unsigned char body[512];
+        int n = obfs_recv(sockfd, body, sizeof(body));
+        if (n <= 0) return -1;
+        if (n != HELLO_LEN) foreign = 1;
+        else memcpy(h, body, HELLO_LEN);
+    } else if (ecdhe_recv(sockfd, h, HELLO_LEN) < 0) {
+        return -1;
+    }
+    if (foreign || h[0] != 'C' || h[1] != 'S') {
+        fprintf(stderr, "[HANDSHAKE] Error: the %s does not speak ClawSec protocol v%d "
+                        "(ClawSec <= 2.8.2, or not ClawSec); upgrade both ends\n",
+                who, FARM9_VERSION);
+        return -1;
+    }
+    unsigned int v = ((unsigned int)h[2] << 8) | h[3];
+    if (v != FARM9_VERSION) {
+        fprintf(stderr, "[HANDSHAKE] Error: the %s uses ClawSec protocol v%u, this build "
+                        "requires v%d; upgrade both ends to the same release\n",
+                who, v, FARM9_VERSION);
+        return -1;
+    }
+    return 0;
+}
+
 /* Exchange X25519 pubkeys: server sends first, client receives first */
 static int x25519_exchange_plain(int sockfd, int server_mode,
                                   const unsigned char my_pub[32],
                                   unsigned char peer_pub_out[32]) {
     if (server_mode) {
+        if (hello_send(sockfd) < 0) return -1;
         if (ecdhe_send(sockfd, my_pub, 32) < 0) return -1;
+        if (hello_check(sockfd, server_mode) < 0) return -1;
         if (ecdhe_recv(sockfd, peer_pub_out, 32) < 0) return -1;
     } else {
+        if (hello_check(sockfd, server_mode) < 0) return -1;
         if (ecdhe_recv(sockfd, peer_pub_out, 32) < 0) return -1;
+        if (hello_send(sockfd) < 0) return -1;
         if (ecdhe_send(sockfd, my_pub, 32) < 0) return -1;
     }
     return 0;
@@ -182,10 +248,13 @@ static int x25519_exchange_tofu(int sockfd, int server_mode,
         memcpy(msg, id_pub, 32);
         memcpy(msg + 32, my_pub, 32);
         memcpy(msg + 64, sig, 64);
+        if (hello_send(sockfd) < 0) return -1;
         if (ecdhe_send(sockfd, msg, 128) < 0) return -1;
+        if (hello_check(sockfd, server_mode) < 0) return -1;
         if (ecdhe_recv(sockfd, peer_pub_out, 32) < 0) return -1;
     } else {
         unsigned char msg[128];
+        if (hello_check(sockfd, server_mode) < 0) return -1;
         if (ecdhe_recv(sockfd, msg, 128) < 0) return -1;
 
         unsigned char server_id[32], server_sig[64];
@@ -204,6 +273,7 @@ static int x25519_exchange_tofu(int sockfd, int server_mode,
             if (kh == -2)
                 fprintf(stderr, "[ECDHE-TOFU] Warning: Could not access known_hosts\n");
         }
+        if (hello_send(sockfd) < 0) return -1;
         if (ecdhe_send(sockfd, my_pub, 32) < 0) return -1;
     }
     return 0;

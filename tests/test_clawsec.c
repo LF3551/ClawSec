@@ -45,6 +45,9 @@ extern void test_sec_oversized_message_bounded(void);
 extern void test_sec_large_caller_buffer_accepted(void);
 extern void test_sec_write_rejects_oversize(void);
 extern void test_sec_ecdhe_directional_keys(void);
+extern void test_sec_wrong_password_detected(void);
+extern void test_sec_old_server_detected(void);
+extern void test_sec_old_client_detected(void);
 
 /* test_handshake.c */
 extern void test_full_handshake(void);
@@ -222,6 +225,9 @@ int main(void) {
     test_sec_large_caller_buffer_accepted();
     test_sec_write_rejects_oversize();
     test_sec_ecdhe_directional_keys();
+    test_sec_wrong_password_detected();
+    test_sec_old_server_detected();
+    test_sec_old_client_detected();
 
     /* Handshake tests */
     test_full_handshake();

@@ -206,17 +206,20 @@ if ! "$BIN" -h 2>&1 | grep -q -- '-e <program>'; then
     fi
 fi
 
-# ── Wrong password must not leak data ──────────────────────────────────
+# ── Wrong password: no data, explicit error, failure exit on both ends ───
 P=$(free_port); rm -f "$WORK/wrong.out"
-(sleep 10 | timeout 15 "$BIN" -l -p "$P" -k "$KEY" > "$WORK/wrong.out" 2>/dev/null) &
+timeout 15 "$BIN" -l -p "$P" -k "$KEY" < <(sleep 10) > "$WORK/wrong.out" 2>"$WORK/wrong-srv.err" &
 SRV=$!
 wait_port "$P"
-timeout 10 "$BIN" -k "not-the-password" 127.0.0.1 "$P" < "$PAYLOAD" >/dev/null 2>&1
-sleep 0.3; kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
-if [ ! -s "$WORK/wrong.out" ]; then
-    echo "  [E2E] wrong password delivers nothing ... PASS"; PASS=$((PASS + 1))
+timeout 10 "$BIN" -k "not-the-password" 127.0.0.1 "$P" < "$PAYLOAD" >/dev/null 2>"$WORK/wrong-cli.err"
+CRC=$?
+wait "$SRV"; SRC=$?
+if [ ! -s "$WORK/wrong.out" ] && [ "$CRC" -eq 1 ] && [ "$SRC" -eq 1 ] &&
+   grep -q 'wrong password' "$WORK/wrong-cli.err"; then
+    echo "  [E2E] wrong password: rejected on both ends, no data ... PASS"; PASS=$((PASS + 1))
 else
-    echo "  [E2E] wrong password delivers nothing ... FAIL"; FAIL=$((FAIL + 1))
+    echo "  [E2E] wrong password: rejected on both ends, no data ... FAIL (client $CRC, server $SRC)"
+    FAIL=$((FAIL + 1))
 fi
 
 echo
