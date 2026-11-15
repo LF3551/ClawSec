@@ -353,9 +353,9 @@ void test_sec_old_server_detected(void) {
             close(fds[1]);
             unsigned char pub[32];
             memset(pub, 0x5A, sizeof(pub));
-            (void)write(fds[0], pub, sizeof(pub));
+            IGNORE_RESULT(write(fds[0], pub, sizeof(pub)));
             unsigned char buf[64];
-            (void)read(fds[0], buf, sizeof(buf));
+            IGNORE_RESULT(read(fds[0], buf, sizeof(buf)));
             _exit(0);
         }
         close(fds[0]);
@@ -388,7 +388,7 @@ void test_sec_old_client_detected(void) {
             }
             unsigned char pub[32];
             memset(pub, 0xA5, sizeof(pub));
-            (void)write(fds[1], pub, sizeof(pub));
+            IGNORE_RESULT(write(fds[1], pub, sizeof(pub)));
             _exit(0);
         }
         close(fds[1]);

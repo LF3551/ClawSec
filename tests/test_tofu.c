@@ -22,7 +22,7 @@ static void tofu_test_setup(void) {
 static void tofu_test_cleanup(void) {
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "rm -rf %s", s_tmpdir);
-    system(cmd);
+    IGNORE_RESULT(system(cmd));
 }
 
 void test_tofu_server_init_generates_key(void) {

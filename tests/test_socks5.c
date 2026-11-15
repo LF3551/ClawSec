@@ -92,7 +92,7 @@ void test_socks5_client_binds(void) {
 
         /* Send SOCKS5 greeting to unblock the child's handle_socks_client */
         unsigned char hello[] = {0x05, 0x01, 0x00};
-        write(sock, hello, 3);
+        IGNORE_RESULT(write(sock, hello, 3));
 
         unsigned char resp[2] = {0};
         int n = read(sock, resp, 2);

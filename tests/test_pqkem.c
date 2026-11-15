@@ -23,7 +23,7 @@ static void pq_test_setup(void) {
 static void pq_test_cleanup(void) {
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "rm -rf %s", s_pq_tmpdir);
-    system(cmd);
+    IGNORE_RESULT(system(cmd));
 }
 
 /* Test 1: ML-KEM-768 availability check */

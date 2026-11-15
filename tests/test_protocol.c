@@ -20,8 +20,8 @@ void test_replay_protection(void) {
 
         /* Replay: write same packet twice into fresh socket */
         ASSERT(make_socketpair(fds2) == 0, "socketpair2");
-        write(fds2[0], captured, cap_len);
-        write(fds2[0], captured, cap_len);
+        IGNORE_RESULT(write(fds2[0], captured, cap_len));
+        IGNORE_RESULT(write(fds2[0], captured, cap_len));
 
         farm9crypt_cleanup();
         farm9crypt_init_password("ReplayTest!!", 12, FARM9_ROLE_SERVER);
@@ -48,7 +48,7 @@ void test_bad_magic(void) {
 
         unsigned char garbage[64];
         memset(garbage, 0xFF, sizeof(garbage));
-        write(fds[0], garbage, sizeof(garbage));
+        IGNORE_RESULT(write(fds[0], garbage, sizeof(garbage)));
 
         char buf[256];
         int rn = farm9crypt_read(fds[1], buf, sizeof(buf));
