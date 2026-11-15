@@ -10,6 +10,11 @@
 #
 set -u
 
+# Everything here talks to 127.0.0.1. Proxy settings from the environment
+# (e.g. NO_PROXY=localhost) would make curl bypass --socks5 and turn the
+# SOCKS checks into no-ops, so drop them.
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy no_proxy NO_PROXY
+
 BIN=$(realpath "${1:-src/clawsec}")
 KEY='E2e-Passw0rd!'
 WORK=$(mktemp -d)
@@ -175,7 +180,8 @@ expect_loopback "--mux local port (default)" "$LP"
 
 # ── --socks: SOCKS5 through the tunnel ─────────────────────────────────
 P=$(free_port); SP=$(free_port)
-"$BIN" -l -p "$P" -k "$KEY" --socks 0 >/dev/null 2>&1 & PIDS+=($!)
+# The origin is on 127.0.0.1, which the default SOCKS policy denies
+"$BIN" -l -p "$P" -k "$KEY" --socks 0 --socks-allow 127.0.0.1/32 >/dev/null 2>&1 & PIDS+=($!)
 wait_port "$P"
 "$BIN" -k "$KEY" --socks "$SP" 127.0.0.1 "$P" >/dev/null 2>&1 & PIDS+=($!)
 wait_port "$SP"
@@ -209,6 +215,140 @@ if ! "$BIN" -h 2>&1 | grep -q -- '-e <program>'; then
     else
         echo "  [E2E] -e not built by default ... FAIL"; FAIL=$((FAIL + 1))
     fi
+fi
+
+# ── SOCKS default policy denies loopback destinations ─────────────────
+P=$(free_port); SP=$(free_port)
+"$BIN" -l -p "$P" -k "$KEY" -v --socks 0 >/dev/null 2>"$WORK/socks-deny.err" & PIDS+=($!)
+wait_port "$P"
+"$BIN" -k "$KEY" --socks "$SP" 127.0.0.1 "$P" >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$SP"
+if ! timeout 10 curl -s --socks5 "127.0.0.1:$SP" -o /dev/null "http://127.0.0.1:$WEB$URL_PATH" &&
+   grep -q 'denied by destination policy' "$WORK/socks-deny.err"; then
+    echo "  [E2E] --socks server denies 127.0.0.1 by default ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --socks server denies 127.0.0.1 by default ... FAIL"; FAIL=$((FAIL + 1))
+fi
+
+# ── --recv never writes through links; resume uses its own .clawsec-part ─
+recv_send() {   # recv_send <inbox> <file> -> exit status of the sender
+    local p rx rc
+    p=$(free_port)
+    timeout 20 "$BIN" -l -p "$p" -k "$KEY" --recv "$1" >/dev/null 2>&1 &
+    rx=$!
+    wait_port "$p"
+    timeout 20 "$BIN" -k "$KEY" --send "$2" 127.0.0.1 "$p" >/dev/null 2>&1
+    rc=$?
+    wait "$rx" 2>/dev/null
+    return "$rc"
+}
+mkdir -p "$WORK/rx-link" "$WORK/src"
+cp "$PAYLOAD" "$WORK/src/data.bin"
+printf 'victim-content' > "$WORK/victim.txt"
+ln -s "$WORK/victim.txt" "$WORK/rx-link/data.bin"
+recv_send "$WORK/rx-link" "$WORK/src/data.bin"
+if [ "$(cat "$WORK/victim.txt")" = "victim-content" ] && [ ! -L "$WORK/rx-link/data.bin" ] &&
+   cmp -s "$PAYLOAD" "$WORK/rx-link/data.bin"; then
+    echo "  [E2E] --recv replaces a symlink, never writes through it ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --recv replaces a symlink, never writes through it ... FAIL"; FAIL=$((FAIL + 1))
+fi
+
+mkdir -p "$WORK/rx-hard"
+printf 'victim-content' > "$WORK/victim2.txt"
+ln "$WORK/victim2.txt" "$WORK/rx-hard/data.bin.clawsec-part"
+recv_send "$WORK/rx-hard" "$WORK/src/data.bin"
+if [ "$(cat "$WORK/victim2.txt")" = "victim-content" ] && [ ! -e "$WORK/rx-hard/data.bin" ]; then
+    echo "  [E2E] --recv refuses a hard-linked partial file ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --recv refuses a hard-linked partial file ... FAIL"; FAIL=$((FAIL + 1))
+fi
+
+mkdir -p "$WORK/rx-resume"
+head -c 100000 "$PAYLOAD" > "$WORK/rx-resume/data.bin.clawsec-part"
+if recv_send "$WORK/rx-resume" "$WORK/src/data.bin" &&
+   cmp -s "$PAYLOAD" "$WORK/rx-resume/data.bin" && [ ! -e "$WORK/rx-resume/data.bin.clawsec-part" ]; then
+    echo "  [E2E] --recv resumes from its own partial file ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --recv resumes from its own partial file ... FAIL"; FAIL=$((FAIL + 1))
+fi
+
+mkdir -p "$WORK/rx-bad"
+head -c 100000 /dev/urandom > "$WORK/rx-bad/data.bin.clawsec-part"   # wrong prefix
+if ! recv_send "$WORK/rx-bad" "$WORK/src/data.bin" &&
+   [ ! -e "$WORK/rx-bad/data.bin" ] && [ ! -e "$WORK/rx-bad/data.bin.clawsec-part" ]; then
+    echo "  [E2E] --recv discards a corrupt partial, writes nothing ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --recv discards a corrupt partial, writes nothing ... FAIL"; FAIL=$((FAIL + 1))
+fi
+
+# ── Password sources: --key-file, CLAWSEC_PASSWORD; -k scrubbed from argv ─
+printf '%s\n' "$KEY" > "$WORK/key"; chmod 600 "$WORK/key"
+P=$(free_port); rm -f "$WORK/pw.out"
+timeout 15 "$BIN" -l -p "$P" --key-file "$WORK/key" < <(sleep 10) > "$WORK/pw.out" 2>/dev/null &
+SRV=$!
+wait_port "$P"
+CLAWSEC_PASSWORD="$KEY" timeout 10 "$BIN" 127.0.0.1 "$P" < "$PAYLOAD" >/dev/null 2>&1
+CRC=$?
+wait "$SRV"; SRC=$?
+if [ "$CRC" -eq 0 ] && [ "$SRC" -eq 0 ] && cmp -s "$PAYLOAD" "$WORK/pw.out"; then
+    echo "  [E2E] --key-file (server) + CLAWSEC_PASSWORD (client) ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --key-file (server) + CLAWSEC_PASSWORD (client) ... FAIL"; FAIL=$((FAIL + 1))
+fi
+
+P=$(free_port)
+"$BIN" -l -p "$P" -k "$KEY" < <(sleep 10) >/dev/null 2>&1 &
+SRV=$!
+wait_port "$P"
+if ! tr '\0' ' ' < "/proc/$SRV/cmdline" | grep -qF -- "$KEY"; then
+    echo "  [E2E] -k password scrubbed from /proc/<pid>/cmdline ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] -k password scrubbed from /proc/<pid>/cmdline ... FAIL"; FAIL=$((FAIL + 1))
+fi
+kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+
+if CLAWSEC_PASSWORD= "$BIN" 127.0.0.1 1 < /dev/null 2>&1 | grep -q 'password required\|empty password'; then
+    echo "  [E2E] no password source without a terminal: clear error ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] no password source without a terminal: clear error ... FAIL"; FAIL=$((FAIL + 1))
+fi
+
+# ── Handshake timeout: a silent client cannot hold the server ──────────
+silent_client() {   # silent_client <port> <seconds>: connect and say nothing
+    python3 -c 'import socket,sys,time; s=socket.create_connection(("127.0.0.1",int(sys.argv[1]))); time.sleep(float(sys.argv[2]))' "$1" "$2" &
+}
+P=$(free_port)
+timeout 15 "$BIN" -l -p "$P" -k "$KEY" --handshake-timeout 2 < <(sleep 14) >/dev/null 2>"$WORK/hs.err" &
+SRV=$!
+wait_port "$P"
+silent_client "$P" 12; SIL=$!
+START=$SECONDS
+wait "$SRV"; SRC=$?
+ELAPSED=$((SECONDS - START))
+kill "$SIL" 2>/dev/null; wait "$SIL" 2>/dev/null
+if [ "$SRC" -eq 1 ] && [ "$ELAPSED" -le 6 ] && grep -q 'timed out' "$WORK/hs.err"; then
+    echo "  [E2E] --handshake-timeout ends a silent session (${ELAPSED}s) ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --handshake-timeout ends a silent session ... FAIL (exit $SRC, ${ELAPSED}s)"; FAIL=$((FAIL + 1))
+fi
+
+# ── -K --max-clients: a silent client holds the only slot until timeout ─
+P=$(free_port); mkdir -p "$WORK/rx-k"
+"$BIN" -l -p "$P" -k "$KEY" -K --max-clients 1 --handshake-timeout 3 --recv "$WORK/rx-k" \
+    >/dev/null 2>/dev/null & PIDS+=($!)
+wait_port "$P"
+silent_client "$P" 20; SIL=$!
+sleep 0.5
+START=$SECONDS
+timeout 20 "$BIN" -k "$KEY" --send "$WORK/src/data.bin" 127.0.0.1 "$P" >/dev/null 2>&1
+CRC=$?
+ELAPSED=$((SECONDS - START))
+kill "$SIL" 2>/dev/null; wait "$SIL" 2>/dev/null
+if [ "$CRC" -eq 0 ] && [ "$ELAPSED" -ge 2 ] && cmp -s "$PAYLOAD" "$WORK/rx-k/data.bin"; then
+    echo "  [E2E] -K --max-clients 1 queues the next client (${ELAPSED}s) ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] -K --max-clients 1 queues the next client ... FAIL (exit $CRC, ${ELAPSED}s)"; FAIL=$((FAIL + 1))
 fi
 
 # ── Wrong password: no data, explicit error, failure exit on both ends ───

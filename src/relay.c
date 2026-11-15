@@ -17,6 +17,7 @@
 #include "util.h"
 #include "farm9crypt.h"
 #include "obfs.h"
+#include "filetx.h"
 
 #define COLOR_RESET   "\033[0m"
 #define COLOR_GREEN   "\033[32m"
@@ -348,11 +349,13 @@ static void handle_ctrl(int sockfd, const char *data, int len,
         int hdr_avail = len - 2;
         const char *nl = memchr(hdr, '\n', hdr_avail);
         if (!nl) break;
-        size_t hdr_len = nl - hdr + 1;
-        size_t fsize = 0;
         const char *colon = memchr(hdr, ':', hdr_avail);
         if (!colon || colon > nl) break;
-        fsize = (size_t)atol(hdr);
+        char *size_end = NULL;
+        errno = 0;
+        unsigned long long fsz = strtoull(hdr, &size_end, 10);
+        if (errno || size_end != colon || fsz > MAX_FILE_SIZE) break;
+        size_t fsize = (size_t)fsz;
         char fname[256];
         size_t fname_len = nl - colon - 1;
         if (fname_len >= sizeof(fname)) fname_len = sizeof(fname) - 1;
@@ -366,14 +369,15 @@ static void handle_ctrl(int sockfd, const char *data, int len,
             break;
         }
 
-        /* Sanitize filename: strip path separators */
-        for (char *p = fname; *p; p++)
-            if (*p == '/' || *p == '\\') *p = '_';
+        /* Same rules as --recv: no separators/control chars, no hidden files */
+        filetx_sanitize_name(fname);
 
-        /* Write to current directory */
-        int fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        /* Create a new file in the current directory: never overwrite an
+         * existing file and never write through a symlink */
+        int fd = open(fname, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NOCTTY, 0644);
         if (fd < 0) {
-            fprintf(stdout, "%s  ⚠ Cannot create: %s%s\n", COLOR_YELLOW, fname, COLOR_RESET);
+            fprintf(stdout, "%s  ⚠ Not saved: %s (%s)%s\n", COLOR_YELLOW, fname,
+                    errno == EEXIST ? "file already exists" : strerror(errno), COLOR_RESET);
             break;
         }
         write_all(fd, file_data, fsize);

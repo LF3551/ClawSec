@@ -17,6 +17,7 @@
 #include "util.h"
 #include "net.h"
 #include "farm9crypt.h"
+#include "acl.h"
 
 /*
  * SOCKS5 protocol constants
@@ -35,6 +36,12 @@
 #define SOCKS_REP_CONNREFUSED 0x05
 
 #define RELAY_BUF 8192
+
+/* Status byte returned through the tunnel for a connect request
+ * (any non-zero value is a failure for older clients) */
+#define SOCKS_TUNNEL_OK     0
+#define SOCKS_TUNNEL_FAIL   1
+#define SOCKS_TUNNEL_DENIED 2
 
 /* Read exactly n bytes */
 static int read_exact(int fd, void *buf, size_t n) {
@@ -126,9 +133,11 @@ static void handle_socks_client(int client_fd, int tunnel_fd) {
     /* 4. Read server response: [1: status] */
     char status_buf[1];
     int rlen = farm9crypt_read(tunnel_fd, status_buf, sizeof(status_buf));
-    if (rlen < 1 || status_buf[0] != 0) {
+    if (rlen < 1 || status_buf[0] != SOCKS_TUNNEL_OK) {
         /* Connection failed — send SOCKS5 error */
-        unsigned char reply[10] = {SOCKS_VERSION, SOCKS_REP_HOSTUNREACH,
+        unsigned char rep = (rlen >= 1 && status_buf[0] == SOCKS_TUNNEL_DENIED)
+                            ? SOCKS_REP_DENIED : SOCKS_REP_HOSTUNREACH;
+        unsigned char reply[10] = {SOCKS_VERSION, rep,
                                    0, SOCKS_ATYP_IPV4, 0,0,0,0, 0,0};
         (void)write(client_fd, reply, 10);
         goto fail;
@@ -235,10 +244,18 @@ void socks5_server(int tunnel_fd) {
         log_msg(1, "SOCKS5 server: connecting to %s:%s", host, port_str);
 
         /* Connect to target */
-        int target_fd = net_try_connect(host, port_str, 10);
+        int denied = 0;
+        int target_fd = net_try_connect_filtered(host, port_str, 10, acl_allowed, &denied);
+        if (target_fd < 0 && denied) {
+            log_msg(1, "SOCKS5 server: %s:%s denied by destination policy "
+                       "(see --socks-allow)", host, port_str);
+            char deny = SOCKS_TUNNEL_DENIED;
+            farm9crypt_write(tunnel_fd, &deny, 1);
+            continue;
+        }
         if (target_fd < 0) {
             log_msg(1, "SOCKS5 server: connect to %s:%s failed", host, port_str);
-            char fail = 1;
+            char fail = SOCKS_TUNNEL_FAIL;
             farm9crypt_write(tunnel_fd, &fail, 1);
             continue;
         }
