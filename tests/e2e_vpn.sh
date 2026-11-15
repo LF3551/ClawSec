@@ -157,10 +157,140 @@ full_tunnel_test() {
 
 echo
 echo "=== ClawSec VPN end-to-end tests ($BIN) ==="
+# Multi-client hub (-K --tun --tun6): three clients in their own namespaces
+hub_test() {
+    local S=clawsec-hub-srv H=() i ok
+    for i in 1 2 3; do H+=("clawsec-hub-c$i"); done
+    ip netns add "$S"; ip netns exec "$S" ip link set lo up
+    for i in 1 2 3; do
+        ip netns add "${H[$((i-1))]}"; ip netns exec "${H[$((i-1))]}" ip link set lo up
+        ip link add "chv$i" type veth peer name "chp$i"
+        ip link set "chv$i" netns "$S"; ip link set "chp$i" netns "${H[$((i-1))]}"
+        ip netns exec "$S" ip addr add "192.168.24$i.1/24" dev "chv$i"
+        ip netns exec "$S" ip link set "chv$i" up
+        ip netns exec "${H[$((i-1))]}" ip addr add "192.168.24$i.2/24" dev "chp$i"
+        ip netns exec "${H[$((i-1))]}" ip link set "chp$i" up
+        ip netns exec "${H[$((i-1))]}" ip route add default via "192.168.24$i.1"
+    done
+    ip netns exec "$S" sysctl -qw net.ipv4.ip_forward=1 net.ipv6.conf.all.forwarding=1
+    ip netns exec "$S" timeout 60 "$BIN" -v -l -p 9000 -k "$KEY" -K --tun 10.232.0.1/24 \
+        --tun6 fd00:232::1/64 </dev/null >/dev/null 2>"$WORK/hub.log" &
+    local HUB=$!
+    sleep 0.8
+    local C=()
+    ip netns exec "${H[0]}" timeout 60 "$BIN" -v -k "$KEY" --tun auto --default-route \
+        192.168.241.1 9000 </dev/null >/dev/null 2>"$WORK/hc1.log" & C+=($!)
+    ip netns exec "${H[1]}" timeout 60 "$BIN" -v -k "$KEY" --tun auto \
+        192.168.242.1 9000 </dev/null >/dev/null 2>"$WORK/hc2.log" & C+=($!)
+    ip netns exec "${H[2]}" timeout 60 "$BIN" -v -k "$KEY" --tun 10.232.0.50/24 \
+        192.168.243.1 9000 </dev/null >/dev/null 2>"$WORK/hc3.log" & C+=($!)
+    for _ in $(seq 80); do
+        [ "$(grep -c 'vpn hub: client' "$WORK/hub.log" 2>/dev/null)" -ge 3 ] &&
+            ip netns exec "${H[0]}" ip -o -6 addr show scope global | grep -q tun &&
+            ip netns exec "${H[1]}" ip -o -6 addr show scope global | grep -q tun && break
+        sleep 0.1
+    done
+    sleep 0.3
+    hub_check() {   # hub_check <label> <command...>
+        local label=$1; shift
+        if "$@" >/dev/null 2>&1; then
+            echo "  [E2E] VPN hub: $label ... PASS"; PASS=$((PASS + 1))
+        else
+            echo "  [E2E] VPN hub: $label ... FAIL"; FAIL=$((FAIL + 1))
+        fi
+    }
+    # auto clients get .2/.3 in connection order: read the actual addresses
+    local A1 A2 A1v6 A2v6
+    A1=$(ip netns exec "${H[0]}" ip -o -4 addr show | awk '/tun/ {split($4,a,"/"); print a[1]}')
+    A2=$(ip netns exec "${H[1]}" ip -o -4 addr show | awk '/tun/ {split($4,a,"/"); print a[1]}')
+    A1v6=$(ip netns exec "${H[0]}" ip -o -6 addr show scope global | awk '/tun/ {split($4,a,"/"); print a[1]}')
+    A2v6=$(ip netns exec "${H[1]}" ip -o -6 addr show scope global | awk '/tun/ {split($4,a,"/"); print a[1]}')
+    hub_check "auto addresses: distinct, IPv4 and IPv6 host numbers match" \
+        sh -c "[ '$A1' != '$A2' ] &&
+               case '$A1' in 10.232.0.2|10.232.0.3) ;; *) exit 1;; esac &&
+               case '$A2' in 10.232.0.2|10.232.0.3) ;; *) exit 1;; esac &&
+               [ 'fd00:232::${A1##*.}' = '$A1v6' ] && [ 'fd00:232::${A2##*.}' = '$A2v6' ]"
+    hub_check "client -> server IPv4 and IPv6" \
+        sh -c "ip netns exec ${H[1]} ping -c2 -i0.2 -W2 10.232.0.1 &&
+               ip netns exec ${H[1]} ping -6 -c2 -i0.2 -W2 fd00:232::1"
+    hub_check "explicit address 10.232.0.50" ip netns exec "${H[2]}" ping -c2 -i0.2 -W2 10.232.0.1
+    hub_check "client -> client (IPv4, IPv6)" \
+        sh -c "ip netns exec ${H[0]} ping -c2 -i0.2 -W2 $A2 &&
+               ip netns exec ${H[1]} ping -6 -c2 -i0.2 -W2 $A1v6"
+    hub_check "--default-route adds ::/1 and 8000::/1" \
+        sh -c "ip netns exec ${H[0]} ip -6 route | grep -q '^::/1 dev tun' &&
+               ip netns exec ${H[0]} ip -6 route | grep -q '^8000::/1 dev tun'"
+    # spoofing: a second address on the client's device, used as the source
+    local DEV
+    DEV=$(ip netns exec "${H[1]}" ip -o link | awk -F': ' '/tun/ {print $2; exit}')
+    ip netns exec "${H[1]}" ip addr add 10.232.0.99/32 dev "$DEV"
+    ip netns exec "${H[1]}" ping -c2 -i0.2 -W1 -I 10.232.0.99 10.232.0.1 >/dev/null 2>&1
+    sleep 0.3
+    hub_check "spoofed source dropped and reported" \
+        sh -c "! ip netns exec ${H[1]} ping -c1 -W1 -I 10.232.0.99 10.232.0.1 &&
+               grep -q 'not its own: dropped' '$WORK/hub.log'"
+    ip netns exec "${H[2]}" timeout 8 "$BIN" -k "$KEY" --tun "$A2/24" 192.168.243.1 9000 \
+        </dev/null >/dev/null 2>"$WORK/hc4.log"
+    hub_check "address in use is refused" grep -q 'already in use' "$WORK/hc4.log"
+    kill -INT "${C[0]}" 2>/dev/null; wait "${C[0]}" 2>/dev/null
+    hub_check "--default-route IPv6 routes removed on exit" \
+        sh -c "! ip netns exec ${H[0]} ip -6 route | grep -q '^::/1'"
+    kill "${C[@]}" "$HUB" 2>/dev/null; wait "${C[@]}" "$HUB" 2>/dev/null
+    ip netns del "$S"; for n in "${H[@]}"; do ip netns del "$n"; done
+}
+
+# IPv6 NAT (--masquerade with --tun6): the host behind the server has no
+# route back to the VPN prefix, so replies only arrive if the server NATs
+nat6_test() {
+    local S=clawsec-n6-srv C=clawsec-n6-cli I=clawsec-n6-net n
+    for n in "$S" "$C" "$I"; do ip netns add "$n"; ip netns exec "$n" ip link set lo up; done
+    ip link add n6a type veth peer name n6b
+    ip link set n6a netns "$S"; ip link set n6b netns "$C"
+    ip netns exec "$S" ip addr add 192.168.239.1/24 dev n6a; ip netns exec "$S" ip link set n6a up
+    ip netns exec "$C" ip addr add 192.168.239.2/24 dev n6b; ip netns exec "$C" ip link set n6b up
+    ip netns exec "$C" ip route add default via 192.168.239.1
+    ip link add n6c type veth peer name n6d
+    ip link set n6c netns "$S"; ip link set n6d netns "$I"
+    ip netns exec "$S" ip -6 addr add 2001:db8:239::1/64 dev n6c nodad
+    ip netns exec "$S" ip link set n6c up
+    ip netns exec "$I" ip -6 addr add 2001:db8:239::2/64 dev n6d nodad
+    ip netns exec "$I" ip link set n6d up
+    ip netns exec "$S" timeout 30 "$BIN" -l -p 9000 -k "$KEY" -K --tun 10.239.0.1/24 \
+        --tun6 fd00:239::1/64 --masquerade </dev/null >/dev/null 2>&1 &
+    local SV=$!
+    sleep 0.8
+    ip netns exec "$C" timeout 30 "$BIN" -k "$KEY" --tun auto --default-route 192.168.239.1 9000 \
+        </dev/null >/dev/null 2>&1 &
+    local CL=$!
+    for _ in $(seq 40); do
+        ip netns exec "$C" ip -6 route 2>/dev/null | grep -q '^::/1' && break
+        sleep 0.1
+    done
+    if ip netns exec "$C" ping -6 -c2 -i0.2 -W2 2001:db8:239::2 >/dev/null 2>&1; then
+        echo "  [E2E] VPN hub: IPv6 NAT (--masquerade --tun6) ... PASS"; PASS=$((PASS + 1))
+    else
+        echo "  [E2E] VPN hub: IPv6 NAT (--masquerade --tun6) ... FAIL"; FAIL=$((FAIL + 1))
+    fi
+    kill -INT "$CL" "$SV" 2>/dev/null; wait "$CL" "$SV" 2>/dev/null
+    if ip netns exec "$S" sh -c 'ip6tables -t nat -S 2>/dev/null; nft list tables 2>/dev/null' |
+       grep -qE 'fd00:239|clawsec6'; then
+        echo "  [E2E] VPN hub: IPv6 NAT removed on exit ... FAIL"; FAIL=$((FAIL + 1))
+    else
+        echo "  [E2E] VPN hub: IPv6 NAT removed on exit ... PASS"; PASS=$((PASS + 1))
+    fi
+    for n in "$S" "$C" "$I"; do ip netns del "$n"; done
+}
+
 vpn_test "tcp relay"
 vpn_test "--tun-udp" --tun-udp
 vpn_test "tcp relay --pad" --pad
 vpn_test "--tun-udp --pad" --tun-udp --pad
+hub_test
+if command -v ip6tables >/dev/null || command -v nft >/dev/null; then
+    nat6_test
+else
+    echo "  [E2E] VPN hub: IPv6 NAT ... SKIP (no ip6tables/nft)"
+fi
 if command -v iptables >/dev/null && ip netns exec "$NS_S" iptables -t nat -S >/dev/null 2>&1; then
     full_tunnel_test
 else

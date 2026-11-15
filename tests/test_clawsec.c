@@ -204,6 +204,11 @@ extern void test_users_names_and_scalars(void);
 extern void test_users_file(void);
 extern void test_users_handshake(void);
 
+/* test_vpn.c */
+extern void test_vpn_cfg_messages(void);
+extern void test_vpn_pool_assign(void);
+extern void test_vpn_pool_route_spoof(void);
+
 /* test_reverse.c */
 extern void test_persist_backoff_initial(void);
 extern void test_persist_backoff_exponential(void);
@@ -418,6 +423,11 @@ int main(void) {
     test_users_names_and_scalars();
     test_users_file();
     test_users_handshake();
+
+    /* VPN addresses */
+    test_vpn_cfg_messages();
+    test_vpn_pool_assign();
+    test_vpn_pool_route_spoof();
 
     /* Reverse tunnel + persistent tests */
     test_persist_backoff_initial();

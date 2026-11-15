@@ -44,6 +44,17 @@
 
 #include "tun.h"
 #include "farm9crypt.h"
+#include "vpn.h"
+
+/* Hub children exchange raw IP packets with the hub process over a
+ * SOCK_SEQPACKET socket instead of a TUN device (one packet per message). */
+static int s_raw_fd = -1;
+void tun_set_raw_fd(int fd) { s_raw_fd = fd; }
+
+/* Control messages inside tun_relay (TCFQ, TUDP, ...): see tun.h */
+static tun_control_fn s_ctrl_fn = NULL;
+static void *s_ctrl_ctx = NULL;
+void tun_set_control_handler(tun_control_fn fn, void *ctx) { s_ctrl_fn = fn; s_ctrl_ctx = ctx; }
 
 int tun_effective_mtu(void) {
     return farm9crypt_padding() ? FARM9_PAD_UNIT - 2 - TUN_HDR_SIZE : TUN_MTU;
@@ -179,6 +190,11 @@ static void prefix_to_netmask(int prefix, char *out, size_t out_len) {
 #ifdef __APPLE__
 
 int tun_open(const char *ip, int prefix_len, char *dev_name, size_t dev_name_len) {
+    return tun_open_peer(ip, prefix_len, NULL, dev_name, dev_name_len);
+}
+
+int tun_open_peer(const char *ip, int prefix_len, const char *gw,
+                  char *dev_name, size_t dev_name_len) {
     /* Create utun socket */
     int fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
     if (fd < 0) {
@@ -223,15 +239,19 @@ int tun_open(const char *ip, int prefix_len, char *dev_name, size_t dev_name_len
 
     /* Configure IP address via ifconfig */
 
-    /* Calculate peer address for point-to-point link */
-    struct in_addr addr, peer;
-    inet_pton(AF_INET, ip, &addr);
-    /* Peer = .1 (gateway) if we're not .1, otherwise .2 */
-    peer.s_addr = addr.s_addr;
-    unsigned char *p = (unsigned char *)&peer.s_addr;
-    p[3] = (p[3] == 1) ? 2 : 1;
+    /* Point-to-point peer: the gateway the server announced, or (legacy)
+     * .1 if we are not .1, otherwise .2 */
     char peer_ip[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &peer, peer_ip, sizeof(peer_ip));
+    if (gw && valid_ipv4(gw)) {
+        snprintf(peer_ip, sizeof(peer_ip), "%s", gw);
+    } else {
+        struct in_addr addr, peer;
+        inet_pton(AF_INET, ip, &addr);
+        peer.s_addr = addr.s_addr;
+        unsigned char *p = (unsigned char *)&peer.s_addr;
+        p[3] = (p[3] == 1) ? 2 : 1;
+        inet_ntop(AF_INET, &peer, peer_ip, sizeof(peer_ip));
+    }
 
     char netmask[INET_ADDRSTRLEN];
     prefix_to_netmask(prefix_len, netmask, sizeof(netmask));
@@ -251,6 +271,33 @@ int tun_open(const char *ip, int prefix_len, char *dev_name, size_t dev_name_len
     return fd;
 }
 
+int tun_open_cfg(const vpn_cfg_t *cfg, char *dev_name, size_t dev_name_len) {
+    char ip[INET_ADDRSTRLEN], gw[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &cfg->v4, ip, sizeof(ip));
+    inet_ntop(AF_INET, &cfg->v4_gw, gw, sizeof(gw));
+    int fd = tun_open_peer(ip, cfg->v4_prefix, cfg->v4_gw.s_addr ? gw : NULL,
+                           dev_name, dev_name_len);
+    if (fd < 0) return -1;
+    if (cfg->has_v6 && tun_add_ipv6(dev_name, &cfg->v6, cfg->v6_prefix) != 0) {
+        tun_close(fd, dev_name);
+        return -1;
+    }
+    return fd;
+}
+
+int tun_add_ipv6(const char *dev_name, const struct in6_addr *addr, int prefix) {
+    char a[INET6_ADDRSTRLEN], pfx[8];
+    if (!tun_valid_ifname(dev_name) || prefix < 1 || prefix > 128) return -1;
+    inet_ntop(AF_INET6, addr, a, sizeof(a));
+    snprintf(pfx, sizeof(pfx), "%d", prefix);
+    if (RUN(0, "ifconfig", (char *)dev_name, "inet6", a, "prefixlen", pfx, "alias") != 0) {
+        fprintf(stderr, "tun: failed to assign IPv6 %s/%d to %s\n", a, prefix, dev_name);
+        return -1;
+    }
+    log_msg(1, "tun: %s IPv6 %s/%d", dev_name, a, prefix);
+    return 0;
+}
+
 void tun_close(int tun_fd, const char *dev_name) {
     if (dev_name) {
         (void)RUN(1, "ifconfig", (char *)dev_name, "down");
@@ -262,6 +309,10 @@ void tun_close(int tun_fd, const char *dev_name) {
 #define UTUN_HDR_SIZE 4
 
 static int tun_read_packet(int tun_fd, char *buf, int buf_size) {
+    if (tun_fd == s_raw_fd) {
+        int r = (int)read(tun_fd, buf, buf_size);
+        return r > 0 ? r : -1;
+    }
     char tmp[TUN_MTU + UTUN_HDR_SIZE];
     int n = (int)read(tun_fd, tmp, sizeof(tmp));
     if (n <= UTUN_HDR_SIZE) return -1;
@@ -272,10 +323,14 @@ static int tun_read_packet(int tun_fd, char *buf, int buf_size) {
 }
 
 static int tun_write_packet(int tun_fd, const char *buf, int len) {
+    if (tun_fd == s_raw_fd) {
+        int w = (int)send(tun_fd, buf, (size_t)len, 0);
+        return w == len ? len : -1;
+    }
     char tmp[TUN_MTU + UTUN_HDR_SIZE];
-    if (len + UTUN_HDR_SIZE > (int)sizeof(tmp)) return -1;
-    /* AF_INET in network byte order */
-    uint32_t proto = htonl(AF_INET);
+    if (len < 1 || len + UTUN_HDR_SIZE > (int)sizeof(tmp)) return -1;
+    /* utun header: address family of the packet, network byte order */
+    uint32_t proto = htonl(((unsigned char)buf[0] >> 4) == 6 ? AF_INET6 : AF_INET);
     memcpy(tmp, &proto, UTUN_HDR_SIZE);
     memcpy(tmp + UTUN_HDR_SIZE, buf, len);
     int n = (int)write(tun_fd, tmp, len + UTUN_HDR_SIZE);
@@ -290,6 +345,12 @@ static int tun_write_packet(int tun_fd, const char *buf, int len) {
 #ifdef __linux__
 
 int tun_open(const char *ip, int prefix_len, char *dev_name, size_t dev_name_len) {
+    return tun_open_peer(ip, prefix_len, NULL, dev_name, dev_name_len);
+}
+
+int tun_open_peer(const char *ip, int prefix_len, const char *gw,
+                  char *dev_name, size_t dev_name_len) {
+    (void)gw;                       /* Linux: the subnet route covers the gateway */
     int fd = open("/dev/net/tun", O_RDWR);
     if (fd < 0) {
         perror("tun: open(/dev/net/tun)");
@@ -329,6 +390,33 @@ int tun_open(const char *ip, int prefix_len, char *dev_name, size_t dev_name_len
     return fd;
 }
 
+int tun_open_cfg(const vpn_cfg_t *cfg, char *dev_name, size_t dev_name_len) {
+    char ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &cfg->v4, ip, sizeof(ip));
+    int fd = tun_open_peer(ip, cfg->v4_prefix, NULL, dev_name, dev_name_len);
+    if (fd < 0) return -1;
+    if (cfg->has_v6 && tun_add_ipv6(dev_name, &cfg->v6, cfg->v6_prefix) != 0) {
+        tun_close(fd, dev_name);
+        return -1;
+    }
+    return fd;
+}
+
+int tun_add_ipv6(const char *dev_name, const struct in6_addr *addr, int prefix) {
+    char a[INET6_ADDRSTRLEN + 8];
+    if (!tun_valid_ifname(dev_name) || prefix < 1 || prefix > 128) return -1;
+    char txt[INET6_ADDRSTRLEN];
+    inet_ntop(AF_INET6, addr, txt, sizeof(txt));
+    snprintf(a, sizeof(a), "%s/%d", txt, prefix);
+    /* nodad: the address is ours by assignment; DAD would delay it ~2 s */
+    if (RUN(0, "ip", "-6", "addr", "add", a, "dev", (char *)dev_name, "nodad") != 0) {
+        fprintf(stderr, "tun: failed to assign IPv6 %s to %s\n", a, dev_name);
+        return -1;
+    }
+    log_msg(1, "tun: %s IPv6 %s", dev_name, a);
+    return 0;
+}
+
 void tun_close(int tun_fd, const char *dev_name) {
     if (dev_name) {
         (void)RUN(1, "ip", "link", "set", (char *)dev_name, "down");
@@ -343,7 +431,8 @@ static int tun_read_packet(int tun_fd, char *buf, int buf_size) {
 }
 
 static int tun_write_packet(int tun_fd, const char *buf, int len) {
-    int n = (int)write(tun_fd, buf, len);
+    int n = tun_fd == s_raw_fd ? (int)send(tun_fd, buf, (size_t)len, 0)
+                               : (int)write(tun_fd, buf, len);
     return (n == len) ? len : -1;
 }
 
@@ -358,6 +447,10 @@ static int  s_nat_backend = NAT_NONE;
 static char s_nat_dev[IFNAMSIZ];
 static char s_nat_subnet[32];
 static char s_prev_forwarding = 0;       /* '0'/'1' before we enabled it, 0 = unknown */
+enum { NAT6_NONE = 0, NAT6_IP6TABLES, NAT6_NFT, NAT6_PF };
+static int  s_nat6_backend = NAT6_NONE;
+static char s_nat6_subnet[64];
+static char s_prev_forwarding6 = 0;
 
 #ifdef __APPLE__
 /* Interface of the current default route, e.g. "en0" */
@@ -457,7 +550,91 @@ int tun_enable_nat(const char *dev_name, const char *subnet) {
 #endif
 }
 
+int tun_enable_nat6(const char *dev_name, const char *subnet6) {
+    struct in6_addr a;
+    int pfx;
+    if (!tun_valid_ifname(dev_name) || !subnet6 || strlen(subnet6) >= sizeof(s_nat6_subnet) ||
+        vpn_parse_cidr6(subnet6, &a, &pfx) != 0) {
+        fprintf(stderr, "tun: refusing IPv6 NAT setup with invalid interface/prefix\n");
+        return -1;
+    }
+    snprintf(s_nat6_subnet, sizeof(s_nat6_subnet), "%s", subnet6);
+    snprintf(s_nat_dev, sizeof(s_nat_dev), "%s", dev_name);
+#ifdef __linux__
+    FILE *f = fopen("/proc/sys/net/ipv6/conf/all/forwarding", "r");
+    if (f) {
+        int c = fgetc(f);
+        if (c == '0' || c == '1') s_prev_forwarding6 = (char)c;
+        fclose(f);
+    }
+    (void)RUN(1, "sysctl", "-w", "net.ipv6.conf.all.forwarding=1");
+    if (RUN(1, "ip6tables", "-t", "nat", "-A", "POSTROUTING", "-s", s_nat6_subnet,
+            "!", "-o", s_nat_dev, "-j", "MASQUERADE") == 0) {
+        s_nat6_backend = NAT6_IP6TABLES;
+    } else {
+        char oif[IFNAMSIZ + 2];
+        snprintf(oif, sizeof(oif), "\"%s\"", s_nat_dev);
+        if (RUN(1, "nft", "add", "table", "ip6", "clawsec6") == 0 &&
+            RUN(1, "nft", "add", "chain", "ip6", "clawsec6", "postrouting", "{",
+                "type", "nat", "hook", "postrouting", "priority", "100", ";", "}") == 0 &&
+            RUN(1, "nft", "add", "rule", "ip6", "clawsec6", "postrouting", "ip6", "saddr",
+                s_nat6_subnet, "oifname", "!=", oif, "masquerade") == 0) {
+            s_nat6_backend = NAT6_NFT;
+        } else {
+            fprintf(stderr, "tun: failed to set up IPv6 NAT (need ip6tables or nftables)\n");
+            return -1;
+        }
+    }
+    log_msg(1, "tun: IPv6 NAT enabled for %s via %s", subnet6, dev_name);
+    return 0;
+#elif defined(__APPLE__)
+    /* NOTE: not exercised by CI. pf anchors are replaced as a whole, so the
+     * IPv6 rule goes into its own anchor. */
+    char out_if[IFNAMSIZ];
+    if (default_iface(out_if, sizeof(out_if)) != 0) return -1;
+    (void)RUN(1, "sysctl", "-w", "net.inet6.ip6.forwarding=1");
+    char pf_conf[] = "/tmp/clawsec_nat6.XXXXXX";
+    int fd = mkstemp(pf_conf);
+    if (fd < 0) return -1;
+    FILE *pf = fdopen(fd, "w");
+    if (!pf) { close(fd); unlink(pf_conf); return -1; }
+    fprintf(pf, "nat on %s inet6 from %s to any -> (%s)\n", out_if, subnet6, out_if);
+    fclose(pf);
+    int rc = RUN(1, "pfctl", "-a", "com.apple/clawsec6", "-f", pf_conf);
+    unlink(pf_conf);
+    if (rc != 0) return -1;
+    (void)RUN(1, "pfctl", "-e");
+    s_nat6_backend = NAT6_PF;
+    return 0;
+#else
+    return -1;
+#endif
+}
+
+static void tun_disable_nat6(void) {
+    switch (s_nat6_backend) {
+    case NAT6_IP6TABLES:
+        (void)RUN(1, "ip6tables", "-t", "nat", "-D", "POSTROUTING", "-s", s_nat6_subnet,
+                  "!", "-o", s_nat_dev, "-j", "MASQUERADE");
+        break;
+    case NAT6_NFT:
+        (void)RUN(1, "nft", "delete", "table", "ip6", "clawsec6");
+        break;
+    case NAT6_PF:
+        (void)RUN(1, "pfctl", "-a", "com.apple/clawsec6", "-F", "all");
+        break;
+    default:
+        return;
+    }
+#ifdef __linux__
+    if (s_prev_forwarding6 == '0')
+        (void)RUN(1, "sysctl", "-w", "net.ipv6.conf.all.forwarding=0");
+#endif
+    s_nat6_backend = NAT6_NONE;
+}
+
 void tun_disable_nat(void) {
+    tun_disable_nat6();
     switch (s_nat_backend) {
     case NAT_IPTABLES:
         (void)RUN(1, "iptables", "-t", "nat", "-D", "POSTROUTING", "-s", s_nat_subnet,
@@ -499,6 +676,8 @@ static char s_orig_iface[32] = {0};
 static char s_server_ip[256] = {0};
 static char s_tun_dev[32] = {0};
 static int  s_routes_modified = 0;
+static int  s_routes6_modified = 0;
+static char s_tun6_dev[32] = {0};
 
 /* Forward declaration */
 int tun_restore_default_route(void);
@@ -660,7 +839,40 @@ int tun_set_default_route(const char *server_host, const char *gateway_ip, const
     return 0;
 }
 
+int tun_set_default_route6(const char *dev_name) {
+    if (!tun_valid_ifname(dev_name)) return -1;
+    snprintf(s_tun6_dev, sizeof(s_tun6_dev), "%s", dev_name);
+#ifdef __linux__
+    if (RUN(0, "ip", "-6", "route", "replace", "::/1", "dev", (char *)dev_name) != 0 ||
+        RUN(0, "ip", "-6", "route", "replace", "8000::/1", "dev", (char *)dev_name) != 0)
+        return -1;
+#elif defined(__APPLE__)
+    if (RUN(0, "route", "-n", "add", "-inet6", "::/1", "-interface", (char *)dev_name) != 0 ||
+        RUN(0, "route", "-n", "add", "-inet6", "8000::/1", "-interface", (char *)dev_name) != 0)
+        return -1;
+#else
+    return -1;
+#endif
+    s_routes6_modified = 1;
+    tun_install_cleanup_handlers();
+    log_msg(1, "tun: IPv6 default route via %s (::/1, 8000::/1)", dev_name);
+    return 0;
+}
+
+static void restore_routes6(void) {
+    if (!s_routes6_modified) return;
+#ifdef __linux__
+    (void)RUN(1, "ip", "-6", "route", "del", "::/1", "dev", s_tun6_dev);
+    (void)RUN(1, "ip", "-6", "route", "del", "8000::/1", "dev", s_tun6_dev);
+#elif defined(__APPLE__)
+    (void)RUN(1, "route", "-n", "delete", "-inet6", "::/1");
+    (void)RUN(1, "route", "-n", "delete", "-inet6", "8000::/1");
+#endif
+    s_routes6_modified = 0;
+}
+
 int tun_restore_default_route(void) {
+    restore_routes6();
     if (!s_routes_modified) return 0;
 
     log_msg(1, "tun: restoring original default route via %s", s_orig_gateway);
@@ -753,6 +965,13 @@ int tun_relay(int tun_fd, int tunnel_fd) {
                 continue; /* keepalive, ignore */
             }
 
+            /* Control message (address request, UDP offer, ...) */
+            if (n >= 4 && memcmp(recv_buf, TUN_SIG_VPN, TUN_SIG_LEN) != 0 && s_ctrl_fn) {
+                if (s_ctrl_fn(tunnel_fd, (const unsigned char *)recv_buf, n, s_ctrl_ctx) < 0)
+                    break;
+                continue;
+            }
+
             /* Validate wire frame header */
             if (n < TUN_HDR_SIZE || memcmp(recv_buf, TUN_SIG_VPN, TUN_SIG_LEN) != 0) {
                 log_msg(1, "tun: invalid packet (len=%d)", n);
@@ -773,6 +992,79 @@ int tun_relay(int tun_fd, int tunnel_fd) {
 
     log_msg(1, "tun: VPN relay stopped");
     return 0;
+}
+
+/* ── Device access for the hub ───────────────────────── */
+
+int tun_device_read(int tun_fd, char *buf, int len) { return tun_read_packet(tun_fd, buf, len); }
+int tun_device_write(int tun_fd, const char *buf, int len) { return tun_write_packet(tun_fd, buf, len); }
+
+int tun_add_subnet_route(const char *dev_name, const vpn_cfg_t *cfg) {
+#ifdef __APPLE__
+    /* utun is point-to-point: route the whole client subnet to it.
+     * NOTE: not exercised by CI. */
+    char net[INET_ADDRSTRLEN + 4];
+    struct in_addr n = cfg->v4;
+    uint32_t mask = cfg->v4_prefix ? htonl(0xffffffffu << (32 - cfg->v4_prefix)) : 0;
+    n.s_addr &= mask;
+    char a[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &n, a, sizeof(a));
+    snprintf(net, sizeof(net), "%s/%d", a, cfg->v4_prefix);
+    if (!tun_valid_ifname(dev_name)) return -1;
+    return RUN(0, "route", "-n", "add", "-net", net, "-interface", (char *)dev_name) == 0 ? 0 : -1;
+#else
+    (void)dev_name; (void)cfg;
+    return 0;                       /* Linux: the address prefix already routes it */
+#endif
+}
+
+/* ── Address configuration (client side) ─────────────── */
+
+/* A server offers its UDP channel ("TUDP" + token) as soon as the session
+ * starts; if that arrives while we wait for "TCFG" it is kept for
+ * tun_udp_negotiate(). */
+static unsigned char s_pending_tudp[64];
+static int s_pending_tudp_len = 0;
+
+int tun_request_config(int tunnel_fd, struct in_addr want, int timeout_ms,
+                       vpn_cfg_t *cfg, int *status) {
+    unsigned char req[VPN_CFG_REQ_LEN];
+    *status = -1;
+    int n = vpn_cfg_build_request(req, sizeof(req), want);
+    if (n < 0 || tun_crypt_write(tunnel_fd, (const char *)req, n) < 0) return -1;
+
+    int64_t deadline;
+    {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        deadline = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000 + timeout_ms;
+    }
+    for (;;) {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        int64_t left = deadline - ((int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+        if (left <= 0) return 0;                          /* older server: no answer */
+        struct pollfd p = { tunnel_fd, POLLIN, 0 };
+        int rc = poll(&p, 1, (int)left);
+        if (rc < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (rc == 0) return 0;
+        char buf[TUN_BUF_SIZE];
+        int r = farm9crypt_read(tunnel_fd, buf, sizeof(buf));
+        if (r <= 0) return -1;
+        if (r >= 4 && memcmp(buf, VPN_CFG_REP_TAG, 4) == 0) {
+            if (vpn_cfg_parse_reply((const unsigned char *)buf, (size_t)r, status, cfg) != 0)
+                return -1;
+            return *status == VPN_CFG_OK ? 1 : -1;
+        }
+        if (r >= 4 && r <= (int)sizeof(s_pending_tudp) && memcmp(buf, "TUDP", 4) == 0) {
+            memcpy(s_pending_tudp, buf, (size_t)r);
+            s_pending_tudp_len = r;
+        }
+        /* anything else before the reply (heartbeat, early packets): ignore */
+    }
 }
 
 /* ═════════════════════════════════════════════
@@ -1147,12 +1439,31 @@ static int tun_udp_negotiate_keys(int tcp_fd, const char *host, const char *port
         goto fail;
     }
 
-    /* Receive peer's "TUDP" + token */
-    char recv_msg[64];
-    int n = farm9crypt_read(tcp_fd, recv_msg, sizeof(recv_msg));
+    /* Receive peer's "TUDP" + token. A 4.2 client asks for its address
+     * ("TCFQ") first: answer it through the control handler and keep
+     * waiting. A token that arrived earlier was stashed. */
+    char recv_msg[TUN_BUF_SIZE];
+    int n;
+    if (s_pending_tudp_len) {
+        n = s_pending_tudp_len;
+        memcpy(recv_msg, s_pending_tudp, (size_t)n);
+        s_pending_tudp_len = 0;
+    } else {
+        for (;;) {
+            n = farm9crypt_read(tcp_fd, recv_msg, sizeof(recv_msg));
+            if (n >= 4 && memcmp(recv_msg, VPN_CFG_REQ_TAG, 4) == 0 && s_ctrl_fn) {
+                if (s_ctrl_fn(tcp_fd, (const unsigned char *)recv_msg, n, s_ctrl_ctx) < 0)
+                    goto fail;
+                continue;
+            }
+            if (n == 4 && memcmp(recv_msg, "THB\n", 4) == 0) continue;
+            break;
+        }
+    }
     if (n != TUDP_SIG_LEN + TUDP_TOKEN_LEN ||
         memcmp(recv_msg, TUDP_SIG, TUDP_SIG_LEN) != 0) {
-        fprintf(stderr, "tun-udp: invalid TUDP response\n");
+        fprintf(stderr, "tun-udp: the server does not offer the UDP channel%s\n",
+                n == 4 && memcmp(recv_msg, "TUDN", 4) == 0 ? " (multi-client hub)" : "");
         goto fail;
     }
     memcpy(peer_token, recv_msg + TUDP_SIG_LEN, TUDP_TOKEN_LEN);

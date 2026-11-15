@@ -19,6 +19,9 @@
  */
 
 #include <stdint.h>
+#include <stddef.h>
+#include <netinet/in.h>
+#include "vpn.h"
 
 /* Maximum IP packet size through TUN */
 #define TUN_MTU         1400
@@ -45,6 +48,42 @@ int tun_effective_mtu(void);
  * On Linux, dev_name is filled with "tunN". */
 int tun_open(const char *ip, int prefix_len, char *dev_name, size_t dev_name_len);
 
+/* Same with an explicit point-to-point gateway (macOS peer address; NULL =
+ * legacy .1/.2 rule). */
+int tun_open_peer(const char *ip, int prefix_len, const char *gw,
+                  char *dev_name, size_t dev_name_len);
+
+/* Open and configure a TUN device from a server-assigned (or local)
+ * configuration: IPv4 address/prefix/gateway and optional IPv6. */
+int tun_open_cfg(const vpn_cfg_t *cfg, char *dev_name, size_t dev_name_len);
+
+/* Add an IPv6 address to the TUN device. Returns 0 or -1. */
+int tun_add_ipv6(const char *dev_name, const struct in6_addr *addr, int prefix);
+
+/* Hub children: fd is a SOCK_SEQPACKET socket carrying raw IP packets
+ * (one per message); tun_relay/tun_udp_relay then use it instead of a TUN
+ * device. */
+void tun_set_raw_fd(int fd);
+
+/* Control messages that arrive on the encrypted channel during tun_relay and
+ * are not "TVPN"/"THB" frames are passed to this handler (e.g. "TCFQ",
+ * "TUDP"). It may answer on tunnel_fd. Return -1 to end the relay. */
+typedef int (*tun_control_fn)(int tunnel_fd, const unsigned char *msg, int len, void *ctx);
+void tun_set_control_handler(tun_control_fn fn, void *ctx);
+
+/* Client: ask the server for an address ("TCFQ"), want = 0.0.0.0 for any.
+ * Returns 1 with *cfg filled, 0 if the server did not answer within
+ * timeout_ms (ClawSec < 4.2: use the local --tun address), -1 if the server
+ * refused (*status set) or the channel failed. */
+int tun_request_config(int tunnel_fd, struct in_addr want, int timeout_ms,
+                       vpn_cfg_t *cfg, int *status);
+
+/* Hub process: packet I/O on the TUN device (handles the utun header) and
+ * the route for the client subnet (macOS; Linux needs none). */
+int tun_device_read(int tun_fd, char *buf, int len);
+int tun_device_write(int tun_fd, const char *buf, int len);
+int tun_add_subnet_route(const char *dev_name, const vpn_cfg_t *cfg);
+
 /* Close and clean up TUN device */
 void tun_close(int tun_fd, const char *dev_name);
 
@@ -53,8 +92,15 @@ void tun_close(int tun_fd, const char *dev_name);
 int tun_relay(int tun_fd, int tunnel_fd);
 
 /* Enable IP forwarding and masquerade (NAT) on the server.
- * Allows tunnel clients to access the internet through the server. */
+ * Allows tunnel clients to access the internet through the server.
+ * subnet6 (e.g. "fd00::/64") may be NULL: IPv4 only. */
 int tun_enable_nat(const char *dev_name, const char *subnet);
+int tun_enable_nat6(const char *dev_name, const char *subnet6);
+
+/* Client full tunnel for IPv6: ::/1 and 8000::/1 via the TUN device (the
+ * system default route stays; the more specific routes win). Undone by
+ * tun_restore_default_route(). */
+int tun_set_default_route6(const char *dev_name);
 
 /* Parse "10.0.0.1/24" into ip string and prefix_len. Returns 0 on success. */
 int tun_parse_cidr(const char *cidr, char *ip, size_t ip_len, int *prefix_len);
