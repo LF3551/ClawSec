@@ -530,6 +530,43 @@ else
     echo "  [E2E] -K --max-per-ip 1 ... FAIL (exit $IRC1 in ${ELAPSED}s, then $IRC2)"; FAIL=$((FAIL + 1))
 fi
 
+# ── Per-user login: --users on the server, --user on the client ────────
+UF="$WORK/users"; mkdir -p "$WORK/rx-users"
+CLAWSEC_PASSWORD='alice-E2e-passw0rd' "$BIN" --users "$UF" --add-user alice >/dev/null 2>&1
+CLAWSEC_PASSWORD='bob-E2e-passw0rd-2' "$BIN" --users "$UF" --add-user bob >/dev/null 2>&1
+P=$(free_port)
+"$BIN" -l -p "$P" -K --users "$UF" --auth-fail-limit 0 --recv "$WORK/rx-users" \
+    </dev/null >/dev/null 2>"$WORK/users-srv.err" & PIDS+=($!)
+wait_port "$P"
+CLAWSEC_PASSWORD='alice-E2e-passw0rd' timeout 15 "$BIN" --user alice --send "$PAYLOAD" 127.0.0.1 "$P" >/dev/null 2>&1
+U_OK=$?
+CLAWSEC_PASSWORD='bob-E2e-passw0rd-2' timeout 10 "$BIN" --user alice 127.0.0.1 "$P" </dev/null >/dev/null 2>"$WORK/u-wrong.err"
+U_WRONG=$?
+CLAWSEC_PASSWORD='alice-E2e-passw0rd' timeout 10 "$BIN" --user mallory 127.0.0.1 "$P" </dev/null >/dev/null 2>"$WORK/u-unknown.err"
+U_UNKNOWN=$?
+CLAWSEC_PASSWORD='alice-E2e-passw0rd' timeout 10 "$BIN" 127.0.0.1 "$P" </dev/null >/dev/null 2>"$WORK/u-none.err"
+U_NONE=$?
+sleep 0.3
+if [ "$U_OK" -eq 0 ] && cmp -s "$PAYLOAD" "$WORK/rx-users/payload.bin" &&
+   grep -q "user 'alice' logged in" "$WORK/users-srv.err" &&
+   [ "$(stat -c %a "$UF")" = 600 ]; then
+    echo "  [E2E] --users/--user: alice logs in and sends a file ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --users/--user: alice logs in ... FAIL (exit $U_OK)"; FAIL=$((FAIL + 1))
+fi
+if [ "$U_WRONG" -eq 1 ] && [ "$U_UNKNOWN" -eq 1 ] &&
+   [ "$(grep -c 'authentication failed' "$WORK/u-wrong.err")" -eq "$(grep -c 'authentication failed' "$WORK/u-unknown.err")" ] &&
+   grep -q "user 'mallory'" "$WORK/users-srv.err"; then
+    echo "  [E2E] --users: wrong password and unknown user fail alike ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --users: wrong password / unknown user ... FAIL ($U_WRONG/$U_UNKNOWN)"; FAIL=$((FAIL + 1))
+fi
+if [ "$U_NONE" -eq 1 ] && grep -q 'connect with --user' "$WORK/u-none.err"; then
+    echo "  [E2E] --users server, client without --user: clear error ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --users server, client without --user ... FAIL ($U_NONE)"; FAIL=$((FAIL + 1))
+fi
+
 # ── --persistent: stop on a wrong password, reconnect after a drop ─────
 P=$(free_port)
 "$BIN" -l -p "$P" -k "$KEY" -K >/dev/null 2>&1 & PIDS+=($!)

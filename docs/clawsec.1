@@ -264,6 +264,23 @@ With \fB\-K\fR: at most \fIn\fR concurrent handlers per client address
 (IPv6: per /64 network); further connections from that address are closed
 immediately (default 8, 0 = unlimited).
 .TP
+.BI \-\-users " file"
+Server: per-user passwords instead of one shared password. Each line of
+\fIfile\fR is \fIname\fR:v1:\fIhex\fR, the user's SPAKE2 password scalar
+(Argon2id of the password with a per-user salt), written by
+\fB\-\-add\-user\fR. The file is read for every connection, so users can
+be added or removed without a restart. Unknown users fail exactly like wrong
+passwords. Keep the file private (mode 0600): a line lets its holder log in
+as that user. Not available with \fB\-u\fR.
+.TP
+.BI \-\-add\-user " name"
+With \fB\-\-users\fR: add \fIname\fR or change its password (asked twice on
+the terminal, or taken from \fB\-\-key\-file\fR / \fBCLAWSEC_PASSWORD\fR), then exit.
+Names: 1\-32 characters from A\-Z a\-z 0\-9 . _ \-.
+.TP
+.BI \-\-user " name"
+Client: log in as \fIname\fR on a server that runs \fB\-\-users\fR.
+.TP
 .BI \-\-auth\-fail\-limit " n"
 With \fB\-K\fR: after \fIn\fR failed password attempts from one address
 within 10 minutes, refuse that address for 10 minutes (default 5,

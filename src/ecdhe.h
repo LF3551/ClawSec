@@ -23,6 +23,15 @@
 int ecdhe_prepare_password(const char *password, size_t pass_len);
 void ecdhe_forget_password(void);
 
+/* Per-user login. Client: ecdhe_set_user(name) (NULL = shared password);
+ * returns -1 for an invalid name. Server: ecdhe_set_users_file(path) enables
+ * --users (no shared password needed). After a handshake on the server,
+ * ecdhe_peer_user() is the name the client logged in as (also kept after
+ * an authentication failure, for logs), or NULL. */
+int ecdhe_set_user(const char *name);
+void ecdhe_set_users_file(const char *path);
+const char *ecdhe_peer_user(void);
+
 /* SPAKE2 + password.
  * key_out: 32-byte buffer for derived session key.
  * Returns 0 on success, -1 on error. */

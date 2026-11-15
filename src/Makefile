@@ -34,16 +34,16 @@ COMPILE  = $(CC) $(CFLAGS) $(WARN) $(HARDEN) $(DFLAGS) $(XFLAGS)
 
 OBJS = net.o relay.o exec.o util.o obfs.o mux.o fallback.o fingerprint.o \
        tofu.o pqkem.o ecdhe.o argon2kdf.o portscan.o socks5.o filetx.o \
-       reverse.o persistent.o tun.o acl.o secret.o spake2.o iplimit.o farm9crypt.o aesgcm.o
+       reverse.o persistent.o tun.o acl.o secret.o spake2.o iplimit.o users.o farm9crypt.o aesgcm.o
 
 # Objects the unit tests link against (the tests provide main() and globals)
 TEST_OBJS = farm9crypt.o aesgcm.o ecdhe.o argon2kdf.o obfs.o mux.o fallback.o \
             fingerprint.o tofu.o pqkem.o net.o util.o portscan.o socks5.o \
-            filetx.o reverse.o persistent.o tun.o acl.o secret.o spake2.o iplimit.o
+            filetx.o reverse.o persistent.o tun.o acl.o secret.o spake2.o iplimit.o users.o
 
 HEADERS = acl.h aesgcm.h argon2kdf.h ecdhe.h exec.h fallback.h farm9crypt.h \
           filetx.h fingerprint.h mux.h net.h obfs.h persistent.h pqkem.h \
-          portscan.h relay.h reverse.h secret.h socks5.h spake2.h iplimit.h tofu.h tun.h util.h \
+          portscan.h relay.h reverse.h secret.h socks5.h spake2.h iplimit.h users.h tofu.h tun.h util.h \
           version.h
 
 TESTDIR  = ../tests
@@ -54,7 +54,7 @@ TEST_SRC = $(TESTDIR)/test_clawsec.c $(TESTDIR)/test_crypto.c $(TESTDIR)/test_pr
 	$(TESTDIR)/test_mux.c $(TESTDIR)/test_fallback.c $(TESTDIR)/test_fingerprint.c \
 	$(TESTDIR)/test_tofu.c $(TESTDIR)/test_pqkem.c $(TESTDIR)/test_argon2.c \
 	$(TESTDIR)/test_portscan.c $(TESTDIR)/test_socks5.c $(TESTDIR)/test_filetx.c \
-	$(TESTDIR)/test_reverse.c $(TESTDIR)/test_tun.c $(TESTDIR)/test_hardening.c $(TESTDIR)/test_spake2.c $(TESTDIR)/test_pake.c $(TESTDIR)/test_iplimit.c $(TESTDIR)/test_pad.c
+	$(TESTDIR)/test_reverse.c $(TESTDIR)/test_tun.c $(TESTDIR)/test_hardening.c $(TESTDIR)/test_spake2.c $(TESTDIR)/test_pake.c $(TESTDIR)/test_iplimit.c $(TESTDIR)/test_pad.c $(TESTDIR)/test_users.c
 
 .SUFFIXES: .c .cc .o
 

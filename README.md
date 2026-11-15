@@ -275,6 +275,9 @@ Connection:
   --max-clients n   With -K: concurrent handlers (default 16)
   --max-per-ip n    With -K: concurrent handlers per address, IPv6 per /64
                     (default 8, 0 = unlimited)
+  --users file      Server: per-user passwords instead of one shared password
+  --add-user name   With --users: add a user or change its password
+  --user name       Client: log in as name (server runs --users)
   --auth-fail-limit n  With -K: refuse an address for 10 min after n wrong
                     passwords within 10 min (default 5, 0 = off)
   --handshake-timeout s  Abort session setup after s seconds (default 15, 0 = off)
@@ -569,6 +572,31 @@ clawsec server.example.com 1234
 Precedence: `-k` > `--key-file` > `CLAWSEC_PASSWORD` > prompt.
 Docker, docker-compose, Kubernetes and systemd examples in this repository
 use the environment variable or a systemd credential.
+
+### Per-user passwords
+
+Instead of one shared password, a server can give every user their own:
+
+```bash
+# Server admin: add users (asks for the password twice; file mode 0600)
+clawsec --users /etc/clawsec/users --add-user alice
+clawsec --users /etc/clawsec/users --add-user bob
+
+# Server: no shared password needed
+clawsec -l -p 9000 -K --users /etc/clawsec/users
+
+# Client
+clawsec --user alice server.example.com 9000      # password prompt / --key-file / CLAWSEC_PASSWORD
+```
+
+- The users file stores `w = Argon2id(password, user-specific salt)`, not passwords;
+  equal passwords give different lines. SPAKE2 is a balanced PAKE, so a line still
+  lets someone log in *as that user*: protect the file like a private key.
+- The file is read on every connection: add, change or delete users without a restart
+  (delete = remove the line).
+- An unknown user fails exactly like a wrong password (no user enumeration).
+- The server logs `user 'alice' logged in`; `-e` programs get `CLAWSEC_USER`.
+- Not available with `-u`.
 
 ### Operational Security
 
