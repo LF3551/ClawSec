@@ -27,6 +27,7 @@ _clawsec() {
         '--max-per-ip[With -K: concurrent handlers per address]:count' \
         '--auth-fail-limit[With -K: block an address after n wrong passwords]:count' \
         '--handshake-timeout[Abort session setup after n seconds]:seconds' \
+        '--scan-rate[SYN scan probes per second]:pps' \
         '--socks-allow[SOCKS server: allowed destination CIDRs]:cidr list' \
         '--tun[TUN VPN mode with IP/mask]:ip/mask:' \
         '--tun-udp[UDP data channel for VPN (avoids TCP-over-TCP)]' \

@@ -40,7 +40,7 @@ clawsec --key-file key --send backup.tgz host 4444
 | **Modes** | stdin/stdout stream, chat (`-c`), file transfer with resume + SHA-256 (`--send`/`--recv`), port forwarding (`-L`, `--mux`), reverse tunnel (`-R`), SOCKS5 (`--socks`), TUN VPN (`--tun`, `--tun-udp`, `--default-route`, `--masquerade`), opt-in remote program (`-e`), UDP (`-u`) |
 | **Operations** | `-K` multi-client with `--max-clients`, `--max-per-ip`, `--auth-fail-limit`, `--handshake-timeout`, `--persistent` reconnect, `-z` compression, `-P` progress, `-V` verification, IPv4/IPv6, shell completions, man page |
 | **Traffic shaping** | `--obfs http\|tls`, `--fingerprint`, `--ech`, `--fallback`, `--pad`, `--jitter` (see their limits below) |
-| **Recon** | `--scan` (Linux SYN half-open as root, otherwise parallel connect scan, randomised order), `-b` banner grabbing |
+| **Recon** | `--scan` (Linux, as root: pipelined SYN half-open scan for IPv4/IPv6 at `--scan-rate` probes/s with open/closed/filtered detection; otherwise parallel connect scan; randomised order), `-b` banner grabbing |
 | **Footprint** | ~135 KB dynamically linked; release binaries for Linux are fully static (~5.6 MB, no runtime dependencies); Docker image ~18 MB |
 
 Unlike `ncat --ssl` or `socat openssl`, which use TLS certificates, ClawSec
@@ -297,6 +297,7 @@ Options:
   --pq              Post-quantum hybrid (SPAKE2 + ML-KEM-768)
   --fingerprint p   Browser-like TLS ClientHello (chrome, firefox, safari)
   --scan range      Port scan, randomised order (1-1024, 22-443, all)
+  --scan-rate pps   SYN scan probes per second (default 1000)
   -b                Banner grab (show service version on open ports)
   --socks [h:]port  SOCKS5 proxy through encrypted tunnel (client listens on
                     127.0.0.1 unless an address is given; no proxy auth)

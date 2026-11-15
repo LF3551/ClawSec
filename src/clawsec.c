@@ -472,6 +472,7 @@ static void usage(const char *prog) {
             "  --tofu            Trust On First Use (SSH-like server identity)\n"
             "  --pq              Post-quantum hybrid (SPAKE2 + ML-KEM-768)\n"
             "  --scan <range>    Port scan (SYN as root on Linux, else connect; random order)\n"
+            "  --scan-rate <pps> SYN scan probes per second (default 1000)\n"
             "                    range: 1-1024, 22-443, all (default: 1-1024)\n"
             "  -b                Banner grab (show service version on open ports)\n"
             "  --socks-allow <l> SOCKS server: only allow destinations in l (CIDR list);\n"
@@ -504,6 +505,7 @@ enum {
     OPT_KEY_FILE = 256,
     OPT_MAX_CLIENTS,
     OPT_MAX_PER_IP,
+    OPT_SCAN_RATE,
     OPT_AUTH_FAIL_LIMIT,
     OPT_HANDSHAKE_TIMEOUT,
     OPT_SOCKS_ALLOW,
@@ -558,6 +560,7 @@ int main(int argc, char **argv) {
         {"key-file",    required_argument, NULL, OPT_KEY_FILE},
         {"max-clients", required_argument, NULL, OPT_MAX_CLIENTS},
         {"max-per-ip", required_argument, NULL, OPT_MAX_PER_IP},
+        {"scan-rate", required_argument, NULL, OPT_SCAN_RATE},
         {"auth-fail-limit", required_argument, NULL, OPT_AUTH_FAIL_LIMIT},
         {"handshake-timeout", required_argument, NULL, OPT_HANDSHAKE_TIMEOUT},
         {"socks-allow", required_argument, NULL, OPT_SOCKS_ALLOW},
@@ -599,6 +602,15 @@ int main(int argc, char **argv) {
                 return 1;
             }
             g_max_clients = (int)v;
+            break;
+        }
+        case OPT_SCAN_RATE: {
+            long v = parse_count(optarg, SCAN_RATE_MAX);
+            if (v < 1) {
+                fprintf(stderr, "ERROR: --scan-rate must be 1-%d probes per second\n", SCAN_RATE_MAX);
+                return 1;
+            }
+            g_scan_rate = (int)v;
             break;
         }
         case OPT_MAX_PER_IP: {

@@ -179,6 +179,43 @@ else
 fi
 kill "$LST" 2>/dev/null; wait "$LST" 2>/dev/null
 
+# Pipelined SYN scan in the server namespace: 5 open ports, 200 ports dropped
+# by the firewall (no reply), IPv4 and IPv6. A sequential scan would wait a
+# full timeout for every dropped port.
+if command -v iptables >/dev/null && command -v ip6tables >/dev/null &&
+   ip netns exec "$NS_S" iptables -S >/dev/null 2>&1; then
+    ip netns exec "$NS_S" iptables -A INPUT -i lo -p tcp --dport 1000:1199 -j DROP
+    ip netns exec "$NS_S" ip6tables -A INPUT -i lo -p tcp --dport 1000:1199 -j DROP
+    ip netns exec "$NS_S" python3 -c '
+import socket, time
+keep = []
+for port in (22, 80, 443, 1500, 1999):
+    for fam, addr in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        s = socket.socket(fam); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if fam == socket.AF_INET6: s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        s.bind((addr, port)); s.listen(64); keep.append(s)
+time.sleep(40)' &
+    LST=$!
+    sleep 0.5
+    for target in 127.0.0.1 ::1; do
+        fam=; [ "$target" = ::1 ] && fam=-6
+        START=$SECONDS
+        found=$(ip netns exec "$NS_S" timeout 30 "$BIN" -v $fam --scan-rate 2000 --scan 1-2000 "$target" \
+                2>"$WORK/scan.err" | awk '/\/tcp  open/ {print $1}' | sort -n | tr '\n' ' ')
+        T=$((SECONDS - START))
+        if [ "$found" = "22/tcp 80/tcp 443/tcp 1500/tcp 1999/tcp " ] && [ "$T" -le 10 ] &&
+           grep -q '1795 closed, 200 filtered' "$WORK/scan.err"; then
+            echo "  [E2E] SYN scan $target: 2000 ports, 200 filtered, exact result (${T}s) ... PASS"; PASS=$((PASS + 1))
+        else
+            echo "  [E2E] SYN scan $target ... FAIL (found '$found' in ${T}s)"; FAIL=$((FAIL + 1))
+            cat "$WORK/scan.err"
+        fi
+    done
+    kill "$LST" 2>/dev/null; wait "$LST" 2>/dev/null
+else
+    echo "  [E2E] pipelined SYN scan ... SKIP (iptables/ip6tables unavailable)"
+fi
+
 echo
 echo "=== VPN E2E results: $PASS passed, $FAIL failed ==="
 [ "$FAIL" -eq 0 ]
