@@ -290,7 +290,8 @@ Options:
   --obfs http       Traffic obfuscation (anti-DPI)
   --obfs tls        Run inside TLS 1.3 (self-signed certificate)
   --ech             Add a GREASE Encrypted Client Hello extension
-  --mux             Multiplex streams over one tunnel (with -L)
+  --mux             Multiplex streams over one tunnel (with -L): up to 255
+                    concurrent streams, flow control, half-close
   --fallback h:p    Proxy clients without the ClawSec knock to h:p
   --tofu            Trust On First Use (SSH-like server identity)
   --pq              Post-quantum hybrid (SPAKE2 + ML-KEM-768)
@@ -437,6 +438,12 @@ curl --proxy socks5://127.0.0.1:1080 https://ifconfig.me
 # Combine with other features:
 ./clawsec -k "pass" --socks 1080 --pq --tofu --obfs tls server.com 9999
 ```
+
+Since 4.1 every SOCKS connection is a separate multiplexed stream: a browser
+can load a page over dozens of parallel connections, a slow download does not
+hold up other connections, and half-closed connections work. Both ends need
+4.1 or later; with an older server the client falls back to one connection at
+a time and prints a warning.
 
 ### Encrypted File Transfer (Resume + SHA-256)
 ```bash

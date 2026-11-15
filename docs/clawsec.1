@@ -1,4 +1,4 @@
-.TH CLAWSEC 1 "November 2026" "ClawSec 4.0.0" "User Commands"
+.TH CLAWSEC 1 "November 2026" "ClawSec 4.1.0" "User Commands"
 .SH NAME
 clawsec \- encrypted netcat with a password-authenticated key exchange (SPAKE2)
 .SH SYNOPSIS
@@ -110,8 +110,9 @@ not need \fB\-\-ech\fR; it accepts the extension transparently.
 Stream multiplexer. Allows multiple logical connections over a
 single encrypted tunnel. In server mode, requires \fB\-L host:port\fR
 to specify the target. In client mode, requires \fB\-p [host:]port\fR to
-specify the local listening port (default host 127.0.0.1). Supports up to
-63 streams per tunnel session (stream IDs are not reused yet).
+specify the local listening port (default host 127.0.0.1). Up to 255
+concurrent streams (63 with a ClawSec 4.0 peer) with per-stream flow
+control and half-close; stream IDs are reused.
 .TP
 .BI \-\-fallback " host:port"
 After the TLS handshake, a client that does not send the ClawSec knock
@@ -171,8 +172,11 @@ Banner grabbing. During port scan, detect service versions on open ports.
 .BI \-\-socks " [host:]port"
 SOCKS5 proxy through encrypted tunnel. Client opens a local SOCKS5
 listener on \fIhost\fR:\fIport\fR (default host 127.0.0.1, or ::1 with
-\fB\-6\fR); server proxies outbound connections. The proxy has no
-authentication: bind it to a non-loopback address only deliberately.
+\fB\-6\fR); server proxies outbound connections. With a ClawSec 4.1+
+server every SOCKS connection is its own multiplexed stream, so
+connections run concurrently; with an older server they are handled one at
+a time. The proxy has no authentication: bind it to a non-loopback address
+only deliberately.
 .TP
 .BI \-\-send " file"
 Send a file through encrypted tunnel with SHA-256 verification,

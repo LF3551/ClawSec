@@ -2,6 +2,51 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [4.1.0] - 2026-11-15
+
+Tunnel reliability release. **Wire-compatible with 4.0.0** (protocol 4): new
+behaviour is negotiated inside the encrypted channel and used when both ends
+run 4.1.
+
+### Fixed
+- **SOCKS proxy broke after the first connection.** The SOCKS protocol inside
+  the tunnel had no way to end a stream: after a connection to a destination
+  that kept its socket open (HTTP keep-alive, TLS), the next CONNECT request
+  was relayed *as data to the previous destination* — which also learned the
+  host name of the next request — and the new connection failed. SOCKS now
+  runs over the stream multiplexer, one stream per connection.
+- **`-u` handshake failed on a single lost datagram.** UDP handshakes now
+  retransmit with backoff (0.5–4 s, bounded by `--handshake-timeout`), answer
+  a repeated peer message immediately, send the last message three times and
+  ignore stray datagrams (a longer datagram is never truncated into a valid
+  looking shorter one).
+- **~40 ms delay per small message.** Nagle's algorithm delayed small frames
+  (keystrokes, mux control frames); the tunnel socket now uses `TCP_NODELAY`
+  (every encrypted frame is a single `send()`). 300 sequential SOCKS
+  connections: 13.4 s → 0.1 s.
+
+### Added — mux v2 (`--mux`, `--socks`)
+- **Concurrent SOCKS connections** (previously one at a time), up to 255
+  streams per tunnel; non-blocking SOCKS5 negotiation with a 10 s limit.
+- **Per-stream flow control** (256 KiB windows): a stalled reader holds up
+  only its own stream, memory stays bounded.
+- **Half-close**: a client can send a request, shut down its write side and
+  still receive the full response (`-L --mux` and SOCKS).
+- Outbound connects and DNS lookups on the server run in helper threads, so a
+  slow destination no longer stalls every other stream; tunnel and local
+  writes are queued and non-blocking.
+- Negotiation: a mux `HELLO` frame (ignored by 4.0) and a 3-byte SOCKS probe
+  (answered with "fail" by 4.0). With a 4.0 peer, `--mux` keeps v1 semantics
+  and the SOCKS client falls back to the legacy protocol with a warning.
+
+### Tests
+- `tests/e2e_socks.py`: keep-alive destinations, 40 parallel connections,
+  half-close, an 8 MiB stream with a stalled reader next to a live one,
+  connect failure, non-SOCKS5 client, 300 connections (id reuse);
+  `--mux -L` half-close; UDP handshake with each datagram lost in turn;
+  SOCKS5/OPEN parser unit tests and fuzzing.
+- 147 unit tests, 47 end-to-end tests, 4 VPN tests.
+
 ## [4.0.0] - 2026-11-15
 
 New handshake: **wire protocol 4, not compatible with 3.x** — upgrade both
