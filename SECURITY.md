@@ -307,6 +307,18 @@ See *Current Limitations* above.
 - Last review: November 2026 (internal reviews for 3.0.0, 3.1.0 and 4.0.0)
 - Status: Not externally audited (community project)
 
+## Release Integrity
+
+- Release binaries are built and tested in GitHub Actions from the tagged commit
+  (static Linux builds in a pinned Alpine image; actions pinned by commit SHA).
+- From 4.3.0: `SHA256SUMS` is signed keylessly with Sigstore (`SHA256SUMS.sigstore.json`),
+  every archive has SLSA build provenance (`gh attestation verify`), and Docker images
+  are signed with cosign and carry SBOM and provenance attestations. See the README
+  for the verification commands.
+- The default branch is protected: changes go through pull requests with required CI
+  (Linux, macOS, sanitizers, Docker); force pushes and deletion are blocked. Workflows
+  run with read-only tokens except for the publishing steps.
+
 ## Responsible Disclosure
 
 Found a security issue? Please report it privately:
