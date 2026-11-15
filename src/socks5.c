@@ -166,7 +166,7 @@ static void handle_socks_client(int client_fd, int tunnel_fd) {
         if (ret <= 0) break;
 
         if (rdy[0]) {
-            ssize_t n = read(client_fd, relay_buf, sizeof(relay_buf));
+            ssize_t n = read(client_fd, relay_buf, (size_t)farm9crypt_max_payload());
             if (n <= 0) break;
             if (farm9crypt_write(tunnel_fd, relay_buf, n) < 0) break;
         }
@@ -306,7 +306,7 @@ void socks5_server(int tunnel_fd) {
             if (ret <= 0) break;
 
             if (rdy[0]) {
-                ssize_t n = read(target_fd, relay_buf, sizeof(relay_buf));
+                ssize_t n = read(target_fd, relay_buf, (size_t)farm9crypt_max_payload());
                 if (n <= 0) break;
                 if (farm9crypt_write(tunnel_fd, relay_buf, n) < 0) break;
             }

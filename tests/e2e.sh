@@ -133,6 +133,7 @@ fi
 stream_test "stream -z (incompressible data)" -z
 stream_test "stream --pad" --pad
 stream_test "stream -z --pad" -z --pad
+stream_test "stream --pad --obfs tls" --pad --obfs tls
 
 # Stream data that looks like a chat control frame (SOH + 'F' = inline file)
 # must be delivered verbatim and must never create files on the receiver.
@@ -158,6 +159,29 @@ sleep 0.5
 { cat "$WORK/udp.in"; sleep 1; } | timeout 3 "$BIN" -u -k "$KEY" 127.0.0.1 "$P" >/dev/null 2>&1
 kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
 check "UDP mode (-u)" "$WORK/udp.in" "$WORK/udp.out"
+
+P=$(free_port); rm -f "$WORK/udp-pad.out"
+timeout 15 "$BIN" -u -l -p "$P" -k "$KEY" --pad < "$HOLD" > "$WORK/udp-pad.out" 2>/dev/null &
+SRV=$!
+sleep 0.5
+{ cat "$WORK/udp.in"; sleep 1; } | timeout 3 "$BIN" -u -k "$KEY" --pad 127.0.0.1 "$P" >/dev/null 2>&1
+kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+check "UDP mode (-u) --pad" "$WORK/udp.in" "$WORK/udp-pad.out"
+
+# ── --pad must be set on both ends: a clear error, not corrupted data ──
+P=$(free_port)
+timeout 10 "$BIN" -l -p "$P" -k "$KEY" --pad < "$HOLD" >/dev/null 2>&1 &
+SRV=$!
+wait_port "$P"
+START=$SECONDS
+timeout 10 "$BIN" -k "$KEY" 127.0.0.1 "$P" < "$PAYLOAD" >/dev/null 2>"$WORK/padmm.err"
+PRC=$?
+wait "$SRV" 2>/dev/null
+if [ "$PRC" -eq 1 ] && [ $((SECONDS - START)) -le 3 ] && grep -q 'option mismatch' "$WORK/padmm.err"; then
+    echo "  [E2E] --pad on one end only: option mismatch ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --pad on one end only: option mismatch ... FAIL (exit $PRC)"; FAIL=$((FAIL + 1))
+fi
 
 # ── HTTP origin for the tunnel scenarios ────────────────────────────────
 WEB=$(free_port)
@@ -191,17 +215,23 @@ forward_test "-L port forwarding"
 forward_test "-L port forwarding -z --pad" -z --pad
 
 # ── --socks over mux v2: keep-alive, parallel, half-close, flow control ──
-P=$(free_port); SP=$(free_port); SB=$(free_port)
-"$BIN" -l -p "$P" -k "$KEY" --socks 0 --socks-allow 127.0.0.0/8 >/dev/null 2>&1 & PIDS+=($!)
-wait_port "$P"
-"$BIN" -k "$KEY" --socks "$SP" 127.0.0.1 "$P" >/dev/null 2>&1 & PIDS+=($!)
-wait_port "$SP"
-SOCKS_OUT=$(timeout 120 python3 "$TESTS_DIR/e2e_socks.py" "$SP" "$SB" 2>&1)
-echo "$SOCKS_OUT" | grep '\[E2E\]'
-PASS=$((PASS + $(echo "$SOCKS_OUT" | grep -c '\.\.\. PASS')))
-FAIL=$((FAIL + $(echo "$SOCKS_OUT" | grep -c '\.\.\. FAIL')))
-[ "$(echo "$SOCKS_OUT" | grep -c '\.\.\. PASS')" -eq 7 ] || {
-    echo "  [E2E] --socks suite incomplete ... FAIL"; FAIL=$((FAIL + 1)); echo "$SOCKS_OUT" | tail -5; }
+socks_suite() {   # socks_suite <label> [extra options for both ends...]
+    local label=$1; shift
+    local p sp sb out
+    p=$(free_port); sp=$(free_port); sb=$(free_port)
+    "$BIN" -l -p "$p" -k "$KEY" "$@" --socks 0 --socks-allow 127.0.0.0/8 >/dev/null 2>&1 & PIDS+=($!)
+    wait_port "$p"
+    "$BIN" -k "$KEY" "$@" --socks "$sp" 127.0.0.1 "$p" >/dev/null 2>&1 & PIDS+=($!)
+    wait_port "$sp"
+    out=$(timeout 120 python3 "$TESTS_DIR/e2e_socks.py" "$sp" "$sb" "$label" 2>&1)
+    echo "$out" | grep '\[E2E\]'
+    PASS=$((PASS + $(echo "$out" | grep -c '\.\.\. PASS')))
+    FAIL=$((FAIL + $(echo "$out" | grep -c '\.\.\. FAIL')))
+    [ "$(echo "$out" | grep -c '\.\.\. PASS')" -eq 7 ] || {
+        echo "  [E2E] $label suite incomplete ... FAIL"; FAIL=$((FAIL + 1)); echo "$out" | tail -5; }
+}
+socks_suite "--socks"
+socks_suite "--socks --pad" --pad
 
 # ── --mux -L: multiplexed port forwarding (max-size frames) ─────────────
 P=$(free_port); LP=$(free_port)
@@ -240,6 +270,15 @@ if [ "$PAR_OK" -eq 1 ]; then
 else
     echo "  [E2E] --mux 20 parallel downloads ... FAIL"; FAIL=$((FAIL + 1))
 fi
+
+# --mux with --pad (records padded to 1400-byte units)
+P=$(free_port); LP=$(free_port)
+"$BIN" -l -p "$P" -k "$KEY" --pad -L "127.0.0.1:$WEB" --mux >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$P"
+"$BIN" -k "$KEY" --pad -p "$LP" --mux 127.0.0.1 "$P" >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$LP"
+timeout 15 curl -s -o "$WORK/mux-pad.out" "http://127.0.0.1:$LP$URL_PATH"
+check "--mux -L --pad" "$PAYLOAD" "$WORK/mux-pad.out"
 
 # ── --mux -L half-close: request, shutdown(SHUT_WR), full response ─────
 RP=$(free_port); P=$(free_port); LP=$(free_port)
@@ -289,6 +328,14 @@ wait_port "$RP"
 timeout 15 curl -s -o "$WORK/rev.out" "http://127.0.0.1:$RP$URL_PATH"
 check "-R reverse tunnel" "$PAYLOAD" "$WORK/rev.out"
 expect_loopback "-R 127.0.0.1:port" "$RP"
+
+P=$(free_port); RP=$(free_port)
+"$BIN" -l -p "$P" -k "$KEY" --pad -R "127.0.0.1:$RP" >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$P"
+"$BIN" -k "$KEY" --pad -R "127.0.0.1:$WEB" 127.0.0.1 "$P" >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$RP"
+timeout 15 curl -s -o "$WORK/rev-pad.out" "http://127.0.0.1:$RP$URL_PATH"
+check "-R reverse tunnel --pad" "$PAYLOAD" "$WORK/rev-pad.out"
 
 # ── --send / --recv: file transfer with SHA-256 verification ────────────
 P=$(free_port); mkdir -p "$WORK/inbox"

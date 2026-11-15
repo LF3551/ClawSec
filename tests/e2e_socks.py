@@ -1,13 +1,14 @@
 """
 e2e_socks.py — SOCKS5 through a ClawSec tunnel (mux v2), called by e2e.sh.
 
-Usage: e2e_socks.py <socks_proxy_port> <base_port>
+Usage: e2e_socks.py <socks_proxy_port> <base_port> [label]
 Starts three local destinations on base_port..base_port+2 (keep-alive echo,
 read-until-EOF reverser, 8 MiB bulk sender) and prints one line per check in
 e2e.sh format. Exit status 0 if all checks pass.
 """
 import socket, struct, sys, threading, time, os
 PROXY, BASE = int(sys.argv[1]), int(sys.argv[2])
+LABEL = sys.argv[3] if len(sys.argv) > 3 else "--socks"
 ECHO, REVERSE, BULK = BASE, BASE + 1, BASE + 2
 BULK_SIZE = 8 * 1024 * 1024
 
@@ -49,7 +50,7 @@ def check(name, fn):
     try: ok = fn()
     except Exception as e: ok = False; print(f"    {name}: {e!r}")
     results[name] = ok
-    print(f"  [E2E] --socks {name} ... {'PASS' if ok else 'FAIL'}", flush=True)
+    print(f"  [E2E] {LABEL} {name} ... {'PASS' if ok else 'FAIL'}", flush=True)
 
 def sequential_keepalive():
     for i in range(5):

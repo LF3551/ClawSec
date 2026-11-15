@@ -57,7 +57,7 @@ extern "C"
 struct __attribute__((packed)) farm9_header {
     uint32_t magic;      /* FARM9_MAGIC */
     uint16_t version;    /* FARM9_VERSION */
-    uint16_t flags;      /* Reserved, must be 0 */
+    uint16_t flags;      /* FARM9_FLAG_PADDED or 0; other bits reserved */
     uint32_t seq_num;    /* Message sequence number (replay protection) */
     uint32_t length;     /* Ciphertext length (== plaintext length for GCM) */
 };
@@ -65,7 +65,7 @@ struct __attribute__((packed)) farm9_header {
 static_assert(sizeof(struct farm9_header) == FARM9_HEADER_LEN,
               "farm9_header must be exactly FARM9_HEADER_LEN bytes");
 
-#define FARM9_FRAME_MAX (FARM9_HEADER_LEN + FARM9_IV_LEN + FARM9_TAG_LEN + FARM9_MAX_MSG)
+#define FARM9_FRAME_MAX (FARM9_HEADER_LEN + FARM9_IV_LEN + FARM9_TAG_LEN + FARM9_MAX_WIRE)
 #define FARM9_SEQ_LIMIT ((uint64_t)UINT32_MAX + 1)   /* first sequence number we must not use */
 
 /* HKDF labels: bound to protocol version, distinct per purpose and direction */
@@ -78,6 +78,13 @@ static_assert(sizeof(struct farm9_header) == FARM9_HEADER_LEN,
 static int debug = false;
 static int initialized = false;
 static int udp_mode = false;
+static int padding = 0;               /* --pad, negotiated in the handshake */
+
+extern "C" void farm9crypt_set_padding(int enabled) { padding = enabled ? 1 : 0; }
+extern "C" int farm9crypt_padding(void) { return padding; }
+extern "C" int farm9crypt_max_payload(void) {
+    return padding ? FARM9_PAD_UNIT - 2 : FARM9_MAX_MSG;
+}
 static int version_warned = false;
 static AESGCM* decryptor = NULL;
 static AESGCM* encryptor = NULL;
@@ -363,7 +370,7 @@ static int parse_frame(const unsigned char* frame, size_t flen, struct farm9_hea
     memcpy(iv, frame + sizeof(*header), FARM9_IV_LEN);
     memcpy(tag, frame + sizeof(*header) + FARM9_IV_LEN, FARM9_TAG_LEN);
     uint32_t len = ntohl(header->length);
-    if (len == 0 || len > FARM9_MAX_MSG || flen != fixed + len) {
+    if (len == 0 || len > (padding ? FARM9_MAX_WIRE : FARM9_MAX_MSG) || flen != fixed + len) {
         errno = EMSGSIZE;
         return -1;
     }
@@ -381,7 +388,7 @@ static int read_one(int sockfd, char* buf, int size, int recv_flags) {
     struct farm9_header header;
     unsigned char iv[FARM9_IV_LEN];
     unsigned char tag[FARM9_TAG_LEN];
-    unsigned char ciphertext[FARM9_MAX_MSG];
+    unsigned char ciphertext[FARM9_MAX_WIRE];
     uint32_t ct_len = 0;
 
     if (udp_mode) {
@@ -405,7 +412,7 @@ static int read_one(int sockfd, char* buf, int size, int recv_flags) {
         if (ret <= 0) return ret;
 
         ct_len = ntohl(header.length);
-        if (ct_len == 0 || ct_len > FARM9_MAX_MSG) {
+        if (ct_len == 0 || ct_len > (padding ? FARM9_MAX_WIRE : FARM9_MAX_MSG)) {
             if (debug) fprintf(stderr, "[CRYPT] Error: Invalid message length %u\n", ct_len);
             errno = EMSGSIZE;
             return -1;
@@ -438,6 +445,13 @@ static int read_one(int sockfd, char* buf, int size, int recv_flags) {
         FAIL(EPROTONOSUPPORT);
     }
 
+    /* Flags: exactly the negotiated padding bit (authenticated as AAD) */
+    if (ntohs(header.flags) != (padding ? FARM9_FLAG_PADDED : 0)) {
+        if (debug) fprintf(stderr, "[CRYPT] Error: unexpected frame flags 0x%04x\n",
+                          ntohs(header.flags));
+        FAIL(EPROTO);
+    }
+
     uint32_t msg_seq = ntohl(header.seq_num);
     if (udp_mode) {
         if (!udp_window_check(msg_seq)) {
@@ -452,7 +466,7 @@ static int read_one(int sockfd, char* buf, int size, int recv_flags) {
     }
 
     /* Decrypt into an internal buffer; release only authenticated plaintext */
-    unsigned char plaintext[FARM9_MAX_MSG];
+    unsigned char plaintext[FARM9_MAX_WIRE];
     int plaintext_len = 0;
     bool ok = decryptor->decrypt(
         ciphertext, (int)ct_len,
@@ -466,6 +480,20 @@ static int read_one(int sockfd, char* buf, int size, int recv_flags) {
         if (debug) fprintf(stderr, "[CRYPT] Error: Decryption/authentication failed\n");
         FAIL(EBADMSG);
     }
+
+    /* Padded record: [u16 length][data][padding] (all authenticated) */
+    int data_off = 0;
+    if (padding) {
+        int real = plaintext_len >= 2 ? ((plaintext[0] << 8) | plaintext[1]) : -1;
+        if (real <= 0 || real > plaintext_len - 2 || real > FARM9_MAX_MSG ||
+            plaintext_len % FARM9_PAD_UNIT != 0) {
+            secure_zero(plaintext, (size_t)plaintext_len);
+            if (debug) fprintf(stderr, "[CRYPT] Error: malformed padded record\n");
+            FAIL(EPROTO);
+        }
+        data_off = 2;
+        plaintext_len = real;
+    }
 #undef FAIL
 
     /* The frame is authentic and consumed: advance the sequence */
@@ -477,13 +505,13 @@ static int read_one(int sockfd, char* buf, int size, int recv_flags) {
     if (plaintext_len > size) {
         if (debug) fprintf(stderr, "[CRYPT] Error: Message of %d bytes exceeds buffer of %d bytes\n",
                           plaintext_len, size);
-        secure_zero(plaintext, (size_t)plaintext_len);
+        secure_zero(plaintext, sizeof(plaintext));
         errno = EMSGSIZE;
         return -1;
     }
 
-    memcpy(buf, plaintext, (size_t)plaintext_len);
-    secure_zero(plaintext, (size_t)plaintext_len);
+    memcpy(buf, plaintext + data_off, (size_t)plaintext_len);
+    secure_zero(plaintext, sizeof(plaintext));
 
     if (debug) {
         fprintf(stderr, "[CRYPT] Decrypted %d bytes (ciphertext: %u)\n",
@@ -572,19 +600,35 @@ extern "C" int farm9crypt_write(int sockfd, char* buf, int size) {
 
     /* Build the header first: it is authenticated as AAD.
      * GCM ciphertext length equals plaintext length. */
+    /* --pad: [u16 length][data][random] up to a multiple of FARM9_PAD_UNIT */
+    unsigned char padded[FARM9_MAX_WIRE];
+    unsigned char* pt = reinterpret_cast<unsigned char*>(buf);
+    int pt_len = size;
+    if (padding) {
+        pt_len = ((size + 2 + FARM9_PAD_UNIT - 1) / FARM9_PAD_UNIT) * FARM9_PAD_UNIT;
+        padded[0] = (unsigned char)(size >> 8);
+        padded[1] = (unsigned char)(size & 0xff);
+        memcpy(padded + 2, buf, (size_t)size);
+        if (RAND_bytes(padded + 2 + size, pt_len - 2 - size) != 1) {
+            errno = EIO;
+            return -1;
+        }
+        pt = padded;
+    }
+
     struct farm9_header header;
     header.magic = htonl(FARM9_MAGIC);
     header.version = htons(FARM9_VERSION);
-    header.flags = htons(0);
+    header.flags = htons(padding ? FARM9_FLAG_PADDED : 0);
     header.seq_num = htonl((uint32_t)send_seq);
-    header.length = htonl((uint32_t)size);
+    header.length = htonl((uint32_t)pt_len);
 
-    unsigned char ciphertext[FARM9_MAX_MSG];
+    unsigned char ciphertext[FARM9_MAX_WIRE];
     unsigned char tag[FARM9_TAG_LEN];
     int ciphertext_len = 0;
 
     bool ok = encryptor->encrypt(
-        reinterpret_cast<unsigned char*>(buf), size,
+        pt, pt_len,
         ciphertext,
         iv, FARM9_IV_LEN,
         tag, FARM9_TAG_LEN,
@@ -592,7 +636,8 @@ extern "C" int farm9crypt_write(int sockfd, char* buf, int size) {
         reinterpret_cast<const unsigned char*>(&header), (int)sizeof(header)
     );
 
-    if (!ok || ciphertext_len != size) {
+    if (padding) secure_zero(padded, (size_t)pt_len);
+    if (!ok || ciphertext_len != pt_len) {
         if (debug) fprintf(stderr, "[CRYPT] Error: Encryption failed\n");
         errno = EIO;
         return -1;

@@ -91,9 +91,13 @@ self-signed certificate, which anyone who connects can see.
 .RE
 .TP
 .B \-\-pad
-Pad all packets to a uniform 1400 bytes with cryptographically
-random padding. Defeats traffic analysis based on packet sizes.
-Both sides must use \fB\-\-pad\fR.
+Pad every encrypted record to a multiple of 1400 bytes with random
+bytes, in every mode (stream, \fB\-L\fR, \fB\-\-mux\fR, \fB\-\-socks\fR,
+\fB\-R\fR, \fB\-u\fR, \fB\-\-tun\fR, \fB\-\-tun\-udp\fR, file transfer);
+stream-like modes send records of exactly 1400 bytes. Hides message sizes,
+not timing or volume. Negotiated in the handshake: both ends must use
+\fB\-\-pad\fR (ClawSec 4.2+), otherwise the connection fails with an
+option mismatch. With \fB\-\-tun\fR the interface MTU is 1392.
 .TP
 .BI \-\-jitter " ms"
 Add a random delay of 0 to \fIms\fR milliseconds between each

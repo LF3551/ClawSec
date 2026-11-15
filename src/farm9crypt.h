@@ -53,6 +53,15 @@ int farm9crypt_init_ecdhe_pq(int sockfd, const char* password, size_t pass_len,
  * connections; handshakes then skip the expensive KDF. Returns 0 or -1. */
 int farm9crypt_prepare_password(const char* password, size_t pass_len);
 
+/* Record padding (--pad). Set before the handshake: it is announced in the
+ * hello and both ends must agree. farm9crypt_max_payload() is the largest
+ * message that still fits one FARM9_PAD_UNIT record when padding is on
+ * (FARM9_MAX_MSG otherwise); modes that chunk data use it so that records
+ * have a uniform size. */
+void farm9crypt_set_padding(int enabled);
+int  farm9crypt_padding(void);
+int  farm9crypt_max_payload(void);
+
 /* Set UDP datagram mode (must be called before read/write) */
 void farm9crypt_set_udp_mode(int enabled);
 
@@ -116,3 +125,11 @@ int farm9crypt_get_fingerprint(unsigned char *out, size_t len);
 #define FARM9_KEY_LEN 32           /* AES-256 key length */
 #define FARM9_HEADER_LEN 16        /* magic(4) version(2) flags(2) seq(4) length(4) */
 #define FARM9_MAX_MSG 8192         /* Maximum plaintext size per message */
+
+/* --pad: record padding. The plaintext of every record becomes
+ * [u16 BE length][data][random bytes], padded to a multiple of
+ * FARM9_PAD_UNIT; the header carries FARM9_FLAG_PADDED (authenticated).
+ * Negotiated in the handshake, so both ends always agree. */
+#define FARM9_PAD_UNIT 1400
+#define FARM9_FLAG_PADDED 0x0001
+#define FARM9_MAX_WIRE (((FARM9_MAX_MSG + 2 + FARM9_PAD_UNIT - 1) / FARM9_PAD_UNIT) * FARM9_PAD_UNIT)

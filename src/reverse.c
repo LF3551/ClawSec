@@ -57,7 +57,9 @@ static int reverse_relay(int tunnel_fd, int plain_fd) {
 
         /* Plain socket → encrypted tunnel */
         if (rdy[1]) {
-            int n = read(plain_fd, buf, sizeof(buf));
+            size_t want = sizeof(buf) < (size_t)farm9crypt_max_payload()
+                              ? sizeof(buf) : (size_t)farm9crypt_max_payload();
+            int n = read(plain_fd, buf, want);
             if (n <= 0) break;
             if (farm9crypt_write(tunnel_fd, buf, n) < 0) break;
         }

@@ -193,6 +193,12 @@ extern void test_iplimit_concurrency(void);
 extern void test_iplimit_auth_lockout(void);
 extern void test_iplimit_eviction_keeps_blocks(void);
 
+/* test_pad.c */
+extern void test_pad_record_sizes(void);
+extern void test_pad_mismatch_rejected(void);
+extern void test_pad_handshake_mismatch(void);
+extern void test_pad_handshake_both(void);
+
 /* test_reverse.c */
 extern void test_persist_backoff_initial(void);
 extern void test_persist_backoff_exponential(void);
@@ -396,6 +402,12 @@ int main(void) {
     test_iplimit_concurrency();
     test_iplimit_auth_lockout();
     test_iplimit_eviction_keeps_blocks();
+
+    /* --pad record padding */
+    test_pad_record_sizes();
+    test_pad_mismatch_rejected();
+    test_pad_handshake_mismatch();
+    test_pad_handshake_both();
 
     /* Reverse tunnel + persistent tests */
     test_persist_backoff_initial();

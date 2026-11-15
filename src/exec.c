@@ -75,7 +75,8 @@ void run_encrypted_exec(int sockfd, const char *prog) {
         }
 
         if (rdy[1]) {
-            ssize_t n = read(master_fd, buf, sizeof(buf));
+            ssize_t n = read(master_fd, buf, (size_t)farm9crypt_max_payload() < sizeof(buf)
+                                                  ? (size_t)farm9crypt_max_payload() : sizeof(buf));
             if (n <= 0) break;
             ssize_t wn = farm9crypt_write(sockfd, buf, (size_t)n);
             if (wn != n) break;

@@ -77,7 +77,10 @@ vpn_test() {   # vpn_test <label> [extra options...]
     local ok=1
     ip netns exec "$NS_C" ping -c 5 -i 0.2 -W 2 -s 1300 10.231.0.1 >"$WORK/ping.log" 2>&1 || ok=0
     grep -q ' 0% packet loss' "$WORK/ping.log" || ok=0
-    if [ "$label" = "--tun-udp" ]; then
+    case "$label" in *--pad*)    # full packet + header = one 1400-byte record
+        ip netns exec "$NS_C" ip -o link show | grep -q 'mtu 1392' || ok=0 ;;
+    esac
+    if [[ "$label" == *--tun-udp* ]]; then
         grep -q 'client UDP channel ready' "$WORK/cli.log" || ok=0
         grep -q 'server UDP channel ready' "$WORK/srv.log" || ok=0
     fi
@@ -156,6 +159,8 @@ echo
 echo "=== ClawSec VPN end-to-end tests ($BIN) ==="
 vpn_test "tcp relay"
 vpn_test "--tun-udp" --tun-udp
+vpn_test "tcp relay --pad" --pad
+vpn_test "--tun-udp --pad" --tun-udp --pad
 if command -v iptables >/dev/null && ip netns exec "$NS_S" iptables -t nat -S >/dev/null 2>&1; then
     full_tunnel_test
 else

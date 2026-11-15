@@ -686,7 +686,8 @@ check_full:
 static void pump_local(mux_t *m, int id) {
     stream_t *s = &m->s[id];
     unsigned char buf[MUX_MAX_PAYLOAD];
-    size_t want = sizeof(buf);
+    size_t want = (size_t)farm9crypt_max_payload() - MUX_HDR_SIZE;   /* --pad: one unit */
+    if (want > sizeof(buf)) want = sizeof(buf);
     if (s->fc && s->credit < want) want = s->credit;
     if (want == 0) return;
     ssize_t r = read(s->fd, buf, want);
