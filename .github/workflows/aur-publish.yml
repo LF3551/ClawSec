@@ -26,7 +26,7 @@ jobs:
           mkdir -p /tmp/aur-push
           
           cat > /tmp/aur-push/PKGBUILD << 'PKGEOF'
-          # Maintainer: Aleksei Aleinikov <alexey.aleynikov@telekom.com>
+          # Maintainer: Aleksei Aleinikov <contact@alekseialeinikov.com>
           pkgname=clawsec
           pkgver=${{ steps.ver.outputs.version }}
           pkgrel=1
@@ -93,7 +93,7 @@ jobs:
           cp /tmp/aur-push/PKGBUILD /tmp/aur-push/.SRCINFO /tmp/aur-repo/
           cd /tmp/aur-repo
           git config user.name "Aleksei Aleinikov"
-          git config user.email "alexey.aleynikov@telekom.com"
+          git config user.email "contact@alekseialeinikov.com"
           git add PKGBUILD .SRCINFO
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "Update to ${{ steps.ver.outputs.version }}"
