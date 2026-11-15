@@ -39,6 +39,8 @@
 #include "options.h"
 #include "session.h"
 #include "vpnrun.h"
+#include "users.h"
+#include "acl.h"
 
 /* Bound blocking socket I/O during session setup, so a client that connects
  * and stays silent cannot hold a handler (or the single-session server)
@@ -153,6 +155,19 @@ static int handle_client_inner(int sockfd, const char *password, int is_server,
     if (is_server && ecdhe_peer_user()) {
         log_msg(0, "user '%s' logged in", ecdhe_peer_user());
         setenv("CLAWSEC_USER", ecdhe_peer_user(), 1);      /* for -e programs */
+        /* per-user options (this process serves only this user) */
+        user_entry_t ue;
+        if (g_opt.users_file && users_lookup(g_opt.users_file, ecdhe_peer_user(), &ue) == 1) {
+            if (ue.socks_allow[0] && acl_set_allow_list(ue.socks_allow) != 0) {
+                fprintf(stderr, "ERROR: invalid socks-allow for user '%s'\n", ecdhe_peer_user());
+                OPENSSL_cleanse(&ue, sizeof(ue));
+                close(sockfd);
+                farm9crypt_cleanup();
+                return 1;
+            }
+            if (ue.has_ip) g_opt.session_user_ip = ue.ip;
+            OPENSSL_cleanse(&ue, sizeof(ue));
+        }
     }
 
     /* Session established: no artificial bound on the data phase */

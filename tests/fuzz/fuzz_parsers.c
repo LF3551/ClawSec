@@ -169,9 +169,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t len) {
         break;
     }
     case 14: {                                  /* a line of the users file */
-        char name[USER_NAME_MAX + 1];
-        unsigned char w[32];
-        if (users_parse_line(str, name, w) == 1 && !user_name_valid(name)) abort();
+        user_entry_t e;
+        if (users_parse_line(str, &e) == 1 && !user_name_valid(e.name)) abort();
         break;
     }
     case 11: {                                  /* SOCKS5 request from a local app */

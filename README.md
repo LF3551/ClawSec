@@ -296,6 +296,9 @@ Connection:
                     (default 8, 0 = unlimited)
   --users file      Server: per-user passwords instead of one shared password
   --add-user name   With --users: add a user or change its password
+  --set-user name   With --users: change a user's options (--user-option)
+  --del-user name   With --users: remove a user
+  --user-option o   ip=A.B.C.D | socks-allow=CIDR;CIDR | disabled | none
   --user name       Client: log in as name (server runs --users)
   --auth-fail-limit n  With -K: refuse an address for 10 min after n wrong
                     passwords within 10 min (default 5, 0 = off)
@@ -634,8 +637,17 @@ clawsec --user alice server.example.com 9000      # password prompt / --key-file
 - The users file stores `w = Argon2id(password, user-specific salt)`, not passwords;
   equal passwords give different lines. SPAKE2 is a balanced PAKE, so a line still
   lets someone log in *as that user*: protect the file like a private key.
-- The file is read on every connection: add, change or delete users without a restart
-  (delete = remove the line).
+- The file is read on every connection: add, change or delete users without a restart.
+- Per-user options: a fixed VPN address, the user's own SOCKS destinations, or a
+  disabled account:
+
+  ```bash
+  clawsec --users /etc/clawsec/users --add-user carol --user-option ip=10.8.0.10
+  clawsec --users /etc/clawsec/users --set-user bob --user-option socks-allow=10.0.0.0/8
+  clawsec --users /etc/clawsec/users --set-user bob --user-option disabled   # lock
+  clawsec --users /etc/clawsec/users --set-user bob --user-option none       # clear
+  clawsec --users /etc/clawsec/users --del-user bob
+  ```
 - An unknown user fails exactly like a wrong password (no user enumeration).
 - The server logs `user 'alice' logged in`; `-e` programs get `CLAWSEC_USER`.
 - Not available with `-u`.

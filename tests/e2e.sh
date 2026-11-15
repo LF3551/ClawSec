@@ -567,6 +567,46 @@ else
     echo "  [E2E] --users server, client without --user ... FAIL ($U_NONE)"; FAIL=$((FAIL + 1))
 fi
 
+# ── Per-user options: SOCKS destinations, disabling an account ─────────
+UF2="$WORK/users2"
+CLAWSEC_PASSWORD='alice-Opt-passw0rd1' "$BIN" --users "$UF2" --add-user alice \
+    --user-option socks-allow=127.0.0.1/32 >/dev/null 2>&1
+CLAWSEC_PASSWORD='bob-Opt-passw0rd-22' "$BIN" --users "$UF2" --add-user bob >/dev/null 2>&1
+P=$(free_port)
+"$BIN" -l -p "$P" -K --users "$UF2" --auth-fail-limit 0 --socks 0 </dev/null >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$P"
+socks_as() {   # socks_as <user> <password> -> exit status of curl through the proxy
+    local sp; sp=$(free_port)
+    CLAWSEC_PASSWORD="$2" "$BIN" --user "$1" --socks "$sp" 127.0.0.1 "$P" </dev/null >/dev/null 2>&1 &
+    local cp=$!
+    wait_port "$sp"
+    timeout 10 curl -s -o "$WORK/socks-$1.out" --socks5 "127.0.0.1:$sp" "http://127.0.0.1:$WEB$URL_PATH"
+    local rc=$?
+    kill "$cp" 2>/dev/null; wait "$cp" 2>/dev/null
+    return $rc
+}
+if socks_as alice 'alice-Opt-passw0rd1' && cmp -s "$PAYLOAD" "$WORK/socks-alice.out" &&
+   ! socks_as bob 'bob-Opt-passw0rd-22'; then
+    echo "  [E2E] per-user socks-allow (alice: loopback allowed, bob: server default) ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] per-user socks-allow ... FAIL"; FAIL=$((FAIL + 1))
+fi
+"$BIN" --users "$UF2" --set-user bob --user-option disabled >/dev/null 2>&1
+CLAWSEC_PASSWORD='bob-Opt-passw0rd-22' timeout 10 "$BIN" --user bob 127.0.0.1 "$P" </dev/null >/dev/null 2>"$WORK/disabled.err"
+DRC=$?
+if [ "$DRC" -eq 1 ] && grep -q 'authentication failed' "$WORK/disabled.err" &&
+   grep -q 'bob:v1:[0-9a-f]*:disabled' "$UF2"; then
+    echo "  [E2E] --set-user disabled: login refused without a restart ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --set-user disabled ... FAIL ($DRC)"; FAIL=$((FAIL + 1))
+fi
+if "$BIN" --users "$UF2" --del-user bob >/dev/null 2>&1 && ! grep -q '^bob:' "$UF2" &&
+   ! "$BIN" --users "$UF2" --del-user bob >/dev/null 2>&1; then
+    echo "  [E2E] --del-user ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --del-user ... FAIL"; FAIL=$((FAIL + 1))
+fi
+
 # ── --persistent: stop on a wrong password, reconnect after a drop ─────
 P=$(free_port)
 "$BIN" -l -p "$P" -k "$KEY" -K >/dev/null 2>&1 & PIDS+=($!)
