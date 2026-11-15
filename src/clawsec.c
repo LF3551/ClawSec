@@ -8,6 +8,8 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <errno.h>
@@ -160,6 +162,15 @@ static int handle_client_inner(int sockfd, const char *password, int is_server,
                           int send_first, const char *exec_prog,
                           const char *fwd_host, const char *fwd_port,
                           const char *peer_host, const char *peer_port) {
+    /* Each encrypted frame is written with one send(): disable Nagle so small
+     * frames (keystrokes, mux control frames) are not held back ~40 ms */
+    {
+        int one = 1, type = 0;
+        socklen_t tl = sizeof(type);
+        if (getsockopt(sockfd, SOL_SOCKET, SO_TYPE, &type, &tl) == 0 && type == SOCK_STREAM)
+            setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+    }
+
     /* Everything up to key confirmation must finish within the timeout */
     if (g_handshake_timeout > 0)
         set_io_timeout(sockfd, g_handshake_timeout);

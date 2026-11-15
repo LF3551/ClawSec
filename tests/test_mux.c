@@ -86,3 +86,63 @@ void test_mux_max_frame_roundtrip(void) {
         ASSERT(memcmp(got, payload, sizeof(payload)) == 0, "payload mismatch");
     } TEST_END;
 }
+
+void test_mux_open_payload(void) {
+    TEST_BEGIN("mux v2 OPEN payload encode/decode") {
+        unsigned char b[300], fl;
+        char host[256];
+        uint16_t port = 0;
+        int has;
+        int n = mux_encode_open(b, sizeof(b), MUX_OPEN_FC, "example.org", 443);
+        ASSERT(n == 1 + 1 + 11 + 2, "length");
+        ASSERT(mux_decode_open(b, (size_t)n, &fl, host, sizeof(host), &port, &has) == 0, "decode");
+        ASSERT(fl == MUX_OPEN_FC && has && port == 443 && strcmp(host, "example.org") == 0, "fields");
+        ASSERT(mux_decode_open(b, 0, &fl, host, sizeof(host), &port, &has) == 0 && !has && fl == 0,
+               "empty OPEN = v1");
+        n = mux_encode_open(b, sizeof(b), MUX_OPEN_FC, NULL, 0);
+        ASSERT(n == 1 && mux_decode_open(b, 1, &fl, host, sizeof(host), &port, &has) == 0 &&
+               !has && fl == MUX_OPEN_FC, "flags only (-L)");
+        b[1] = 200;                                   /* host length beyond the payload */
+        ASSERT(mux_decode_open(b, 16, &fl, host, sizeof(host), &port, &has) == -1, "truncated");
+        unsigned char nul[] = { 1, 3, 'a', 0, 'b', 0, 80 };
+        ASSERT(mux_decode_open(nul, sizeof(nul), &fl, host, sizeof(host), &port, &has) == -1,
+               "embedded NUL rejected");
+    } TEST_END;
+}
+
+void test_mux_socks_parse(void) {
+    TEST_BEGIN("mux SOCKS5 parser: partial input, address types, errors") {
+        char host[256];
+        uint16_t port;
+        unsigned char code;
+        const unsigned char g[] = { 5, 2, 2, 0 };
+        ASSERT(mux_socks_parse_greeting(g, 1) == 0, "partial greeting");
+        ASSERT(mux_socks_parse_greeting(g, 3) == 0, "methods incomplete");
+        ASSERT(mux_socks_parse_greeting(g, 4) == 4, "no-auth offered");
+        const unsigned char g_auth[] = { 5, 1, 2 };
+        ASSERT(mux_socks_parse_greeting(g_auth, 3) == -1, "password auth only");
+        const unsigned char g4[] = { 4, 1, 0 };
+        ASSERT(mux_socks_parse_greeting(g4, 3) == -1, "SOCKS4");
+
+        const unsigned char r4[] = { 5, 1, 0, 1, 192, 0, 2, 9, 0x1f, 0x90 };
+        ASSERT(mux_socks_parse_request(r4, 9, host, sizeof(host), &port, &code) == 0, "partial");
+        ASSERT(mux_socks_parse_request(r4, 10, host, sizeof(host), &port, &code) == 10 &&
+               strcmp(host, "192.0.2.9") == 0 && port == 8080, "IPv4");
+        const unsigned char rd[] = { 5, 1, 0, 3, 3, 'a', 'b', 'c', 0, 80, 0xAA };
+        ASSERT(mux_socks_parse_request(rd, sizeof(rd), host, sizeof(host), &port, &code) == 10 &&
+               strcmp(host, "abc") == 0 && port == 80, "domain (extra byte left over)");
+        unsigned char r6[22] = { 5, 1, 0, 4 };
+        r6[4] = 0x20; r6[5] = 0x01; r6[6] = 0x0d; r6[7] = 0xb8; r6[19] = 1; r6[21] = 22;
+        ASSERT(mux_socks_parse_request(r6, 22, host, sizeof(host), &port, &code) == 22 &&
+               strcmp(host, "2001:db8::1") == 0 && port == 22, "IPv6");
+        const unsigned char bind[] = { 5, 2, 0, 1, 1, 2, 3, 4, 0, 1 };
+        ASSERT(mux_socks_parse_request(bind, 10, host, sizeof(host), &port, &code) == -1 &&
+               code == 0x07, "BIND -> command not supported");
+        const unsigned char at[] = { 5, 1, 0, 9 };
+        ASSERT(mux_socks_parse_request(at, 4, host, sizeof(host), &port, &code) == -1 &&
+               code == 0x08, "unknown address type");
+        const unsigned char dnul[] = { 5, 1, 0, 3, 2, 'a', 0, 0, 80 };
+        ASSERT(mux_socks_parse_request(dnul, sizeof(dnul), host, sizeof(host), &port, &code) == -1,
+               "NUL in domain rejected");
+    } TEST_END;
+}

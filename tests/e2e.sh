@@ -15,6 +15,7 @@ set -u
 # SOCKS checks into no-ops, so drop them.
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy no_proxy NO_PROXY
 
+TESTS_DIR=$(cd "$(dirname "$0")" && pwd)
 BIN=$(realpath "${1:-src/clawsec}")
 KEY='E2e-Passw0rd!'
 WORK=$(mktemp -d)
@@ -189,6 +190,19 @@ PY
 forward_test "-L port forwarding"
 forward_test "-L port forwarding -z --pad" -z --pad
 
+# ── --socks over mux v2: keep-alive, parallel, half-close, flow control ──
+P=$(free_port); SP=$(free_port); SB=$(free_port)
+"$BIN" -l -p "$P" -k "$KEY" --socks 0 --socks-allow 127.0.0.0/8 >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$P"
+"$BIN" -k "$KEY" --socks "$SP" 127.0.0.1 "$P" >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$SP"
+SOCKS_OUT=$(timeout 120 python3 "$TESTS_DIR/e2e_socks.py" "$SP" "$SB" 2>&1)
+echo "$SOCKS_OUT" | grep '\[E2E\]'
+PASS=$((PASS + $(echo "$SOCKS_OUT" | grep -c '\.\.\. PASS')))
+FAIL=$((FAIL + $(echo "$SOCKS_OUT" | grep -c '\.\.\. FAIL')))
+[ "$(echo "$SOCKS_OUT" | grep -c '\.\.\. PASS')" -eq 7 ] || {
+    echo "  [E2E] --socks suite incomplete ... FAIL"; FAIL=$((FAIL + 1)); echo "$SOCKS_OUT" | tail -5; }
+
 # ── --mux -L: multiplexed port forwarding (max-size frames) ─────────────
 P=$(free_port); LP=$(free_port)
 "$BIN" -l -p "$P" -k "$KEY" -L "127.0.0.1:$WEB" --mux >/dev/null 2>&1 & PIDS+=($!)
@@ -225,6 +239,34 @@ if [ "$PAR_OK" -eq 1 ]; then
     echo "  [E2E] --mux 20 parallel downloads ... PASS"; PASS=$((PASS + 1))
 else
     echo "  [E2E] --mux 20 parallel downloads ... FAIL"; FAIL=$((FAIL + 1))
+fi
+
+# ── --mux -L half-close: request, shutdown(SHUT_WR), full response ─────
+RP=$(free_port); P=$(free_port); LP=$(free_port)
+python3 -c '
+import socket, sys
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(4)
+while True:
+    c, _ = s.accept(); data = b""
+    while (d := c.recv(65536)): data += d
+    c.sendall(data[::-1]); c.close()' "$RP" & PIDS+=($!)
+wait_port "$RP"
+"$BIN" -l -p "$P" -k "$KEY" -L "127.0.0.1:$RP" --mux >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$P"
+"$BIN" -k "$KEY" -p "$LP" --mux 127.0.0.1 "$P" >/dev/null 2>&1 & PIDS+=($!)
+wait_port "$LP"
+sleep 0.3                                     # let the mux v2 HELLO arrive
+if timeout 15 python3 -c '
+import os, socket, sys
+c = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=10)
+p = os.urandom(500000); c.sendall(p); c.shutdown(socket.SHUT_WR)
+got = b""
+while (d := c.recv(65536)): got += d
+sys.exit(0 if got == p[::-1] else 1)' "$LP"; then
+    echo "  [E2E] --mux -L half-close (500 KB request, EOF, response) ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] --mux -L half-close ... FAIL"; FAIL=$((FAIL + 1))
 fi
 
 # ── --socks: SOCKS5 through the tunnel ─────────────────────────────────
