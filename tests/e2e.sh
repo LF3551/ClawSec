@@ -137,6 +137,17 @@ else
     echo "  [E2E] no file planted by stream data ... PASS"; PASS=$((PASS + 1))
 fi
 
+# ── UDP mode (-u): datagrams, no TCP; small payload (loopback UDP can drop
+#    under load and UDP has no retransmission, by design) ───────────────
+P=$(free_port); rm -f "$WORK/udp.out"
+head -c 20000 "$PAYLOAD" > "$WORK/udp.in"
+timeout 15 "$BIN" -u -l -p "$P" -k "$KEY" < <(sleep 12) > "$WORK/udp.out" 2>/dev/null &
+SRV=$!
+sleep 0.5
+{ cat "$WORK/udp.in"; sleep 2; } | timeout 10 "$BIN" -u -k "$KEY" 127.0.0.1 "$P" >/dev/null 2>&1
+kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+check "UDP mode (-u)" "$WORK/udp.in" "$WORK/udp.out"
+
 # ── HTTP origin for the tunnel scenarios ────────────────────────────────
 WEB=$(free_port)
 (cd "$WORK" && exec python3 -m http.server "$WEB" --bind 127.0.0.1 >/dev/null 2>&1) &

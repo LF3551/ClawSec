@@ -48,6 +48,7 @@ extern void test_sec_ecdhe_directional_keys(void);
 extern void test_sec_wrong_password_detected(void);
 extern void test_sec_old_server_detected(void);
 extern void test_sec_old_client_detected(void);
+extern void test_sec_udp_reorder_loss_replay(void);
 
 /* test_handshake.c */
 extern void test_full_handshake(void);
@@ -239,6 +240,7 @@ int main(void) {
     test_sec_wrong_password_detected();
     test_sec_old_server_detected();
     test_sec_old_client_detected();
+    test_sec_udp_reorder_loss_replay();
 
     /* Handshake tests */
     test_full_handshake();

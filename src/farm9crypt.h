@@ -68,6 +68,11 @@ int farm9crypt_initialized();
  *   EPROTONOSUPPORT  peer uses a different protocol version
  *   EMSGSIZE         authenticated message larger than `size` (nothing copied)
  *   EOVERFLOW        sequence space exhausted; the session must be re-established
+ *   EAGAIN           (UDP mode only) every queued datagram was invalid and was
+ *                    dropped; nothing to deliver right now, try again later
+ * In UDP mode (farm9crypt_set_udp_mode) lost and reordered datagrams are
+ * tolerated: a 64-entry sliding window rejects duplicates and stale ones, and
+ * forged/corrupted datagrams are dropped instead of ending the session.
  * The caller's buffer is written only with authenticated plaintext and never
  * beyond `size` bytes. Buffers larger than FARM9_MAX_MSG are accepted. */
 int farm9crypt_read(int sockfd, char* buf, int size);
