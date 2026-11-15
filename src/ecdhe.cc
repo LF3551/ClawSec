@@ -5,7 +5,6 @@
  * 32-byte derived session key; the caller initializes AES-GCM with it.
  */
 
-#ifndef WIN32
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -17,11 +16,6 @@
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 #include <openssl/kdf.h>
-#else
-#include <fcntl.h>
-#include <io.h>
-#include <winsock.h>
-#endif
 
 extern "C"
 {
@@ -32,8 +26,6 @@ extern "C"
 #include "argon2kdf.h"
 #include "farm9crypt.h"
 }
-
-static int debug = false;
 
 /* Secure memory cleanup */
 static void secure_zero(void *ptr, size_t len) {

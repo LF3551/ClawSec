@@ -122,7 +122,7 @@ int secret_prompt(const char *prompt, char *out, size_t out_len) {
         quiet.c_lflag |= ECHONL;
         tcsetattr(fd, TCSAFLUSH, &quiet);
     }
-    if (prompt) (void)write(fd, prompt, strlen(prompt));
+    if (prompt && write(fd, prompt, strlen(prompt)) < 0) { /* best effort */ }
 
     char buf[SECRET_MAX + 3];
     size_t n = 0;

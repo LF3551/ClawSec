@@ -17,16 +17,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libssl-dev libargon2-dev zlib1g-dev build-essential
     
-    - name: Build
+    - name: Build and unit tests (warnings are errors)
       run: |
         cd src
-        make clean
-        make linux
-    
-    - name: Run tests
-      run: |
-        cd src
-        make test
+        make werror
     
     - name: Test binary
       run: |

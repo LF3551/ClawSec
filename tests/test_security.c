@@ -412,7 +412,7 @@ static int capture_dgrams(int n, unsigned char frames[][128], int lens[]) {
     farm9crypt_set_udp_mode(1);
     if (farm9crypt_init_password(SEC_PASS, strlen(SEC_PASS), FARM9_ROLE_CLIENT) != 0) return -1;
     for (int i = 0; i < n; i++) {
-        char msg[8];
+        char msg[16];
         snprintf(msg, sizeof(msg), "msg-%d", i);
         if (farm9crypt_write(fds[0], msg, (int)strlen(msg)) < 0) return -1;
         lens[i] = (int)recv(fds[1], frames[i], 128, 0);

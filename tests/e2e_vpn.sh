@@ -162,6 +162,18 @@ else
     echo "  [E2E] VPN --default-route + --masquerade ... SKIP (iptables unavailable)"
 fi
 
+# SYN (half-open) scan needs root as well: it must find an open port
+python3 -c 'import socket,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("127.0.0.1",18999)); s.listen(5); time.sleep(15)' &
+LST=$!
+sleep 0.5
+if "$BIN" -v --scan 18995-19003 127.0.0.1 2>&1 | grep -q 'SYN (half-open)' &&
+   "$BIN" --scan 18995-19003 127.0.0.1 2>/dev/null | grep -q '18999/tcp  open'; then
+    echo "  [E2E] SYN scan (raw socket) finds an open port ... PASS"; PASS=$((PASS + 1))
+else
+    echo "  [E2E] SYN scan (raw socket) finds an open port ... FAIL"; FAIL=$((FAIL + 1))
+fi
+kill "$LST" 2>/dev/null; wait "$LST" 2>/dev/null
+
 echo
 echo "=== VPN E2E results: $PASS passed, $FAIL failed ==="
 [ "$FAIL" -eq 0 ]
