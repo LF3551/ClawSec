@@ -185,6 +185,7 @@ extern void test_pake_option_mismatch(void);
 extern void test_pake_pq_roundtrip(void);
 extern void test_pake_mitm_transcript_tamper(void);
 extern void test_pake_mitm_passthrough(void);
+extern void test_pake_udp_retransmit(void);
 
 /* test_iplimit.c */
 extern void test_iplimit_keys(void);
@@ -388,6 +389,7 @@ int main(void) {
     test_pake_pq_roundtrip();
     test_pake_mitm_transcript_tamper();
     test_pake_mitm_passthrough();
+    test_pake_udp_retransmit();
 
     /* -K per-address limits */
     test_iplimit_keys();
