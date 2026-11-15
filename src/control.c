@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <sys/time.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -24,28 +25,47 @@ static int fill_addr(const char *path, struct sockaddr_un *a) {
     return 0;
 }
 
+static int bind_listen(int fd, const struct sockaddr_un *a) {
+    mode_t old = umask(0177);               /* created as 0600 */
+    int rc = bind(fd, (const struct sockaddr *)a, sizeof(*a));
+    umask(old);
+    return rc == 0 ? listen(fd, 8) : -1;
+}
+
 int control_listen(const char *path) {
     struct sockaddr_un a;
-    struct stat st;
     if (fill_addr(path, &a) != 0) return -1;
-    if (lstat(path, &st) == 0) {
-        if (!S_ISSOCK(st.st_mode)) {
-            fprintf(stderr, "ERROR: --control %s exists and is not a socket\n", path);
-            return -1;
-        }
-        unlink(path);                       /* stale socket of an earlier run */
-    }
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) return -1;
-    mode_t old = umask(0177);               /* created as 0600 */
-    int rc = bind(fd, (struct sockaddr *)&a, sizeof(a));
-    umask(old);
-    if (rc != 0 || listen(fd, 8) != 0) {
-        fprintf(stderr, "ERROR: --control %s: %s\n", path, strerror(errno));
-        close(fd);
-        return -1;
+    if (bind_listen(fd, &a) == 0) return fd;
+    if (errno == EADDRINUSE) {
+        /* Something is at path. A live server answers: refuse. A socket
+         * left over by a server that died refuses the connection: replace
+         * it. (No stat-then-unlink of the name: nothing to race with.) */
+        int probe = socket(AF_UNIX, SOCK_STREAM, 0);
+        int live = probe >= 0 && connect(probe, (struct sockaddr *)&a, sizeof(a)) == 0;
+        int refused = !live && errno == ECONNREFUSED;
+        if (probe >= 0) close(probe);
+        if (live) {
+            fprintf(stderr, "ERROR: --control %s: another server is using it\n", path);
+            close(fd);
+            return -1;
+        }
+        /* Only replace a socket: opening a socket file fails with ENXIO,
+         * a symlink with ELOOP (O_NOFOLLOW), anything else opens. */
+        int is_socket = 0;
+        if (refused) {
+            int o = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+            if (o >= 0) close(o);
+            else is_socket = errno == ENXIO;
+            errno = EADDRINUSE;
+        }
+        if (is_socket && unlink(path) == 0 && bind_listen(fd, &a) == 0) return fd;
     }
-    return fd;
+    fprintf(stderr, "ERROR: --control %s: %s (use a path in a directory only the server "
+                    "user can write, e.g. /run/clawsec/)\n", path, strerror(errno));
+    close(fd);
+    return -1;
 }
 
 void control_serve(int listen_fd, void (*dump)(FILE *out, void *ctx), void *ctx) {
