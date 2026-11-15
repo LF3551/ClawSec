@@ -1,6 +1,9 @@
 /*
  * acl.c — destination address policy for the SOCKS5 server
  */
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE   /* O_NOFOLLOW etc. are hidden under strict POSIX */
+#endif
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
