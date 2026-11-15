@@ -2,6 +2,48 @@
 
 All notable changes to ClawSec will be documented in this file.
 
+## [4.3.0] - 2026-11-15
+
+Wire-compatible with 4.0–4.2 (protocol 4): every new behaviour is opt-in and
+negotiated. **Fixes the multi-client VPN hub on macOS** (broken in 4.2.0).
+
+### Added
+- **`--rekey 30m|2h|100000r`**: key updates. Each direction ratchets its stream
+  key with HKDF after a KEYUPDATE record (like TLS 1.3 KeyUpdate) and wipes the
+  old key: a key leaked later does not decrypt earlier traffic, and sessions are
+  no longer limited to 2^32 records. Both ends; not with `-u`.
+- **`--tun-udp` with `-K`**: the VPN hub runs every client's UDP data channel on
+  the server port (per-client replay window). Clients are unchanged; 4.1 clients
+  are learned from their first UDP packet.
+- **Per-user options** in the users file: `ip=` (fixed VPN address),
+  `socks-allow=` (the user's SOCKS destinations), `disabled` (refused like a
+  wrong password); `--set-user`, `--del-user`, `--user-option`.
+- **`--config FILE`**: options from a file (long names + aliases for short
+  options); keys validated with file:line errors; no passwords in it.
+- **`--control PATH` / `clawsec --status PATH`**: status socket (mode 0600) of a
+  `-K` server: sessions (PID, peer, user, age) and, for the VPN hub, each
+  client's addresses and traffic.
+- **Signed releases**: SLSA build provenance for every archive
+  (`gh attestation verify`), Sigstore keyless signature of `SHA256SUMS`, Docker
+  images signed with cosign and carrying SBOM/provenance attestations.
+
+### Fixed
+- **VPN hub on macOS**: macOS has no AF_UNIX `SOCK_SEQPACKET`, so the hub closed
+  every client. It now uses AF_UNIX datagrams there and detects ended sessions via
+  SIGCHLD. Covered by a new macOS CI test (hub with IPv6, routes, pf NAT66).
+- Status socket replacement without a stat/unlink race (CodeQL).
+- A race in the fallback TLS unit tests (flaky on macOS).
+
+### Changed
+- Internals: `clawsec.c` split into options/children/session/vpnrun, `tun.c`
+  into device/network/relay parts; the `-K` accept loop uses `poll()`.
+- CI: least-privilege workflow tokens; `main` protected by a ruleset.
+
+### Tests
+- 161 unit, 72 end-to-end, 23 VPN tests (Linux namespaces), 12 macOS VPN
+  checks; fuzzing extended to the VPN address messages, hub routing and users
+  file lines.
+
 ## [4.2.0] - 2026-11-15
 
 Feature release. **Wire-compatible with 4.0/4.1** (protocol 4) for every
