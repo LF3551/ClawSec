@@ -62,7 +62,11 @@ jobs:
       # tag without moving it (moving a tag changes the source tarball hash
       # already published to AUR).
       - name: Use test harness from the workflow commit
-        run: git show "${GITHUB_SHA}:tests/e2e.sh" > "$RUNNER_TEMP/e2e.sh"
+        run: |
+          # e2e.sh and every helper it calls from its own directory
+          for f in e2e.sh e2e_socks.py; do
+            git show "${GITHUB_SHA}:tests/$f" > "$RUNNER_TEMP/$f"
+          done
 
       - name: Check tag matches source version
         run: |
