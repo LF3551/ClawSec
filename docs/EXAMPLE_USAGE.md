@@ -416,7 +416,7 @@ ssh -o ProxyCommand='nc -x 127.0.0.1:1080 %h %p' user@internal.host
 - Dynamic IP? Use DDNS (noip.com, duckdns.org) for a stable hostname
 
 ```bash
-# Point-to-point encrypted VPN (one client per server process)
+# Point-to-point encrypted VPN (one client); for many clients see below
 
 # Server (public IP or port-forwarded) — VPN gateway with NAT:
 sudo ./clawsec -l -k "VpnSecret" -p 9000 --tun 10.0.0.1/24 --masquerade
@@ -429,6 +429,13 @@ sudo ./clawsec -k "VpnSecret" vpn.example.com 9000 --tun 10.0.0.2/24 --default-r
 # then VPN data is relayed over a dedicated UDP channel with per-packet AES-GCM.
 sudo ./clawsec -l -k "VpnSecret" -p 9000 --tun 10.0.0.1/24 --masquerade --tun-udp
 sudo ./clawsec -k "VpnSecret" vpn.example.com 9000 --tun 10.0.0.2/24 --default-route --tun-udp
+
+# Many clients (4.2+): -K makes the server a hub — one TUN device, addresses
+# handed out by the server, IPv6 inside the tunnel, UDP data channel (4.3+)
+sudo ./clawsec -l -p 9000 -K --tun 10.8.0.1/24 --tun6 fd00:c1a5::1/64 --masquerade \
+     --tun-udp --users /etc/clawsec/users --control /run/clawsec.sock
+sudo ./clawsec --user alice --tun auto --tun-udp --default-route vpn.example.com 9000
+sudo ./clawsec --status /run/clawsec.sock      # clients, addresses, traffic
 
 # Now ALL your traffic goes through the server:
 curl ifconfig.me       # shows server's IP
